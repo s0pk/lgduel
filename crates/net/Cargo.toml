@@ -1,0 +1,13 @@
+[package]
+name = "lgduel-net"
+description = "LGDuel protocol, snapshots, prediction, lag compensation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+lgduel-sim = { path = "../sim" }

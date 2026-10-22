@@ -1,0 +1,18 @@
+[package]
+name = "lgduel-server"
+description = "LGDuel headless dedicated server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+lgduel-sim = { path = "../sim" }
+lgduel-net = { path = "../net" }
+
+[[bin]]
+name = "lgduel-server"
+path = "src/main.rs"

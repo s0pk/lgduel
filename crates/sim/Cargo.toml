@@ -1,0 +1,13 @@
+[package]
+name = "lgduel-sim"
+description = "Deterministic LGDuel game simulation (no I/O, no clocks)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+
