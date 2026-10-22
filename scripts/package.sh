@@ -21,7 +21,8 @@ mkdir -p "$OUT"
 for b in lgduel lgduel-server lgduel-bot; do
     cp "$T/dist/$b$EXE" "$OUT/"
 done
-cp PLAY.md README.md HOSTING.md DEPLOY.md CONFIG.md MAPS.md LICENSE "$OUT/"
+cp PLAY.md README.md HOSTING.md DEPLOY.md CONFIG.md MAPS.md THEMES.md LICENSE "$OUT/"
+mkdir -p "$OUT/themes" && cp -r assets/themes/example "$OUT/themes/"
 cp config/server.example.toml "$OUT/"
 git rev-parse --short HEAD > "$OUT/VERSION.txt" 2>/dev/null || echo unknown > "$OUT/VERSION.txt"
 

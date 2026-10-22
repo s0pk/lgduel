@@ -618,3 +618,13 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
   Visuals → Map → Theme; the App rebuilds the style when the setting changes (also via the console cvar).
 - Headless checks: classic keeps the exact floor-colour check; other themes require ≥ 50 distinct colours and the
   same enemy/HUD/beam checks.
+
+## D62 — User themes from folders (2026-10-23)
+- `ThemeStyle::load(name, dirs)`: built-in names first, else `<dir>/<name>/theme.toml` from `--theme-dir`,
+  `<settings folder>/themes`, `<exe folder>/themes`. The folder name is the theme's identity (`requested` is what the
+  App compares, so a failed load doesn't rebuild every frame). Every failure → classic look + a problem message
+  (terminal + console); a bad texture only affects its own material.
+- Limits: PNG only, ≤ 2048², ≤ 4 MB, ≤ 32 textures, relative names without `..` / `:` / `\` (same answer on every
+  OS), scaled to 256². Style key hashes all pixels so edited files re-upload on `reloadtheme`.
+- `lgduel --make-example-theme DIR` writes the example (CC0); a test fails if `assets/themes/example` is stale.
+  Packages ship it under `themes/example`.

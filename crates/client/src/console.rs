@@ -13,6 +13,7 @@ const HELP: &str = "console commands:
   set KEY VALUE         change it now (KEY VALUE works too), e.g. set fov 110 -> video.fov 110
   writeconfig NAME      save all settings to NAME.cfg (a profile)
   exec NAME             run NAME.cfg
+  reloadtheme           re-read the current theme folder (after editing it)
   record NAME | stoprecord | playdemo NAME   demos (practice: exact replay)
   connect ADDRESS | join CODE | practice | disconnect | quit
   clear | help";
@@ -20,6 +21,7 @@ const HELP: &str = "console commands:
 /// Things the console asks the app to do.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConsoleAction {
+    ReloadTheme,
     Record(String),
     StopRecord,
     PlayDemo(String),
@@ -254,6 +256,7 @@ fn run_depth(
         "practice" => (vec![], Some(ConsoleAction::Practice), false),
         "record" if !rest.is_empty() => (vec![], Some(ConsoleAction::Record(rest.into())), false),
         "stoprecord" => (vec![], Some(ConsoleAction::StopRecord), false),
+        "reloadtheme" => (vec![], Some(ConsoleAction::ReloadTheme), false),
         "playdemo" if !rest.is_empty() => {
             (vec![], Some(ConsoleAction::PlayDemo(rest.into())), false)
         }

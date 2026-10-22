@@ -60,12 +60,15 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::CursorGrabMode;
 use winit::window::{Window, WindowId};
 
-/// The map theme named in the settings (built-in; unknown names give classic).
-fn theme_style(s: &Settings) -> theme::ThemeStyle {
-    if theme::Theme::builtin(&s.video.theme).is_none() {
-        eprintln!("lgduel: unknown theme {:?}; using classic", s.video.theme);
-    }
-    let style = theme::ThemeStyle::builtin(&s.video.theme);
+/// Folders themes are searched in.
+fn theme_dirs(opts: &Options) -> Vec<std::path::PathBuf> {
+    let settings_dir = opts.settings_path.as_ref().and_then(|p| p.parent());
+    theme::search_dirs(opts.theme_dir.as_deref(), settings_dir)
+}
+
+/// The map theme named in the settings (built-in or a folder; failures give classic).
+fn theme_style(opts: &Options) -> theme::ThemeStyle {
+    let style = theme::ThemeStyle::load(&opts.s.video.theme, &theme_dirs(opts));
     for p in &style.problems {
         eprintln!("lgduel: {p}");
     }
@@ -94,6 +97,8 @@ struct Options {
     join: Option<String>,
     /// Joining by code: skip the direct attempt and use the relay.
     force_relay: bool,
+    /// Extra folder to look for themes in.
+    theme_dir: Option<std::path::PathBuf>,
     /// Record a demo to this file.
     record: Option<String>,
     /// Play this demo file.
@@ -145,6 +150,7 @@ impl Options {
             spectate: false,
             join: None,
             force_relay: false,
+            theme_dir: None,
             record: None,
             play_demo: None,
             menu_online: false,
@@ -174,6 +180,17 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
             "--frames" => o.frames = Some(num("--frames", val("--frames")?)?),
             "--fps-cap" => o.s.video.fps_cap = Some(num("--fps-cap", val("--fps-cap")?)? as u32),
             "--theme" => o.s.video.theme = val("--theme")?,
+            "--theme-dir" => o.theme_dir = Some(val("--theme-dir")?.into()),
+            "--make-example-theme" => {
+                let dir = std::path::PathBuf::from(val("--make-example-theme")?);
+                std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+                for (name, bytes) in theme::example_theme_files() {
+                    std::fs::write(dir.join(name), bytes)
+                        .map_err(|e| format!("{}: {e}", dir.join(name).display()))?;
+                }
+                println!("example theme written to {}", dir.display());
+                std::process::exit(0);
+            }
             "--fov" => {
                 o.s.video.fov = val("--fov")?
                     .parse::<f32>()
@@ -434,7 +451,7 @@ fn run_headless_demo(opts: &Options) -> Result<(), String> {
     let (world, cfg) = d.world_cfg();
     let (w, h) = opts.s.video.size;
     let off = offscreen::Offscreen::new(w, h)?;
-    let style = theme_style(&opts.s);
+    let style = theme_style(opts);
     let mut r = Renderer::new(&off.device, offscreen::FORMAT);
     r.set_world(&off.device, &off.queue, world, &style);
     let cam = scene::view_camera(
@@ -506,7 +523,7 @@ fn run_headless(opts: &Options) -> Result<(), String> {
     );
     let world = load_world(&opts.s.practice.map);
     println!("MAP {} ({:016x})", world.name, world.content_hash());
-    let style = theme_style(&opts.s);
+    let style = theme_style(opts);
     let mut r = Renderer::new(&off.device, offscreen::FORMAT);
     r.set_world(&off.device, &off.queue, &world, &style);
     // Local player at spawn 1, an idle opponent at spawn 2; look at the opponent's chest.
@@ -970,7 +987,7 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
     };
     let (w, h) = opts.s.video.size;
     let off = offscreen::Offscreen::new(w, h)?;
-    let style = theme_style(&opts.s);
+    let style = theme_style(opts);
     let mut r = Renderer::new(&off.device, offscreen::FORMAT);
     let colors = EnemyColors::default();
     let hud_settings = HudSettings::default();
@@ -1222,12 +1239,21 @@ impl App {
     /// Push edited settings into the running game (called while the settings screen is open).
     /// Rebuild the world style when the theme setting changed.
     fn refresh_style(&mut self) {
-        if self.style.name() != self.opts.s.video.theme {
-            self.style = theme_style(&self.opts.s);
-            let msg = format!("theme: {}", self.style.name());
-            println!("THEME {msg}");
-            self.menu.console.print(&msg);
+        if self.style.requested != self.opts.s.video.theme {
+            self.load_style();
         }
+    }
+
+    /// (Re)load the theme named in the settings and tell the player about problems.
+    fn load_style(&mut self) {
+        self.style = theme_style(&self.opts);
+        let msg = format!("theme: {}", self.style.name());
+        println!("THEME {msg}");
+        self.menu.console.print(&msg);
+        for p in &self.style.problems {
+            self.menu.console.print(p);
+        }
+        self.menu.themes = theme::available(&theme_dirs(&self.opts));
     }
 
     fn apply_settings(&mut self) {
@@ -1358,6 +1384,7 @@ impl App {
                     Err(e) => self.menu.console.print(&e),
                 }
             }
+            Some(console::ConsoleAction::ReloadTheme) => self.load_style(),
             Some(console::ConsoleAction::StopRecord) => {
                 if self.recording.is_some() {
                     self.save_recording();
@@ -2202,7 +2229,7 @@ fn main() {
         opts.s.mouse.degrees_per_count()
     );
     let opts_record = opts.record.clone();
-    let style = theme_style(&opts.s);
+    let style = theme_style(&opts);
     let mut app = App {
         style,
         world,
@@ -2236,6 +2263,10 @@ fn main() {
         recording_started: false,
         demo_reported: false,
     };
+    app.menu.themes = theme::available(&theme_dirs(&app.opts));
+    for p in &app.style.problems {
+        app.menu.console.print(p);
+    }
     if let Some(p) = app.opts.play_demo.clone() {
         app.play_demo(std::path::Path::new(&p));
     } else if let Some(code) = app.opts.join.clone() {

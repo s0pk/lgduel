@@ -62,6 +62,8 @@ stage "client offscreen render (1920x1080, screenshot + pixel checks)"
 "$T/$PROFILE/lgduel" --headless --no-settings --play-demo artifacts/practice.lgdemo --size 1280x720 --screenshot artifacts/demo_end.png | grep -E "DEMO (REPLAY|CHECK)"
 # Textured theme: renders with many colours and the usual enemy / HUD / beam checks.
 "$T/$PROFILE/lgduel" --headless --frames 3 --theme grid --map arena_tiers --size 1280x720 --screenshot artifacts/theme_grid.png | grep -E "CHECK"
+# A theme loaded from a folder (PNG textures).
+"$T/$PROFILE/lgduel" --headless --frames 3 --theme example --theme-dir assets/themes --map arena_pillars --size 1280x720 --screenshot artifacts/theme_example.png | grep -E "CHECK"
 # Every built-in map renders with the duel checks passing.
 for m in arena_pillars arena_tiers; do
   "$T/$PROFILE/lgduel" --headless --frames 3 --map "$m" --size 1280x720 --screenshot "artifacts/map_$m.png" | grep -E "^MAP|CHECK"

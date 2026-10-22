@@ -1,0 +1,37 @@
+# Example LGDuel theme (CC0). Copy this folder to <settings folder>/themes/<your name>/ and edit.
+sky = [0.10, 0.10, 0.16]
+
+# Materials not listed here fall back to the classic look. A map's `material = "..."` tag picks one
+# by name; untagged surfaces use the names under [defaults].
+[defaults]
+floor = "floor"
+wall = "wall"
+ceiling = "ceiling"
+ramp = "floor"
+
+[materials.floor]
+texture = "floor.png"      # a PNG next to this file (any size up to 2048x2048; tiling looks best)
+tint_map_color = true      # also multiply by the map's own colour
+color = [1.0, 1.0, 1.0]
+scale = 128.0              # world units per texture repeat
+
+[materials.wall]
+texture = "wall.png"
+tint_map_color = true
+color = [1.0, 1.0, 1.0]
+scale = 256.0
+
+[materials.ceiling]
+texture = "ceiling.png"
+tint_map_color = true
+color = [1.0, 1.0, 1.0]
+scale = 256.0
+
+# A material maps can ask for, e.g. `material = "trim"` on a [[brush]]:
+[materials.trim]
+color = [0.8, 0.55, 0.2]
+shade = true
+
+# Override a material for one map only:
+# [maps.arena_tiers.materials.floor]
+# color = [0.6, 0.7, 0.8]

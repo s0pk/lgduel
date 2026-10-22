@@ -25,7 +25,8 @@ jobs:
           OUT=dist/LGDuel-windows-x64
           mkdir -p "$OUT"
           cp target/dist/lgduel.exe target/dist/lgduel-server.exe target/dist/lgduel-bot.exe "$OUT/"
-          cp PLAY.md README.md HOSTING.md DEPLOY.md CONFIG.md MAPS.md LICENSE config/server.example.toml "$OUT/"
+          cp PLAY.md README.md HOSTING.md DEPLOY.md CONFIG.md MAPS.md THEMES.md LICENSE config/server.example.toml "$OUT/"
+          mkdir -p "$OUT/themes" && cp -r assets/themes/example "$OUT/themes/"
           echo "${GITHUB_REF_NAME} ($(git rev-parse --short HEAD))" > "$OUT/VERSION.txt"
           cd dist && 7z a -tzip LGDuel-windows-x64.zip LGDuel-windows-x64 >/dev/null
       - uses: actions/upload-artifact@v4

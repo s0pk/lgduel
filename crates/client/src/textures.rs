@@ -3,6 +3,7 @@
 //! drawn as exactly its vertex colour).
 
 use std::collections::HashMap;
+use std::path::{Component, Path};
 
 /// Every texture is TEX x TEX pixels (user images are resized to this).
 pub const TEX: u32 = 256;
@@ -96,6 +97,121 @@ impl TextureSet {
     }
 }
 
+/// Most bytes of a texture file.
+pub const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
+/// Largest accepted image side.
+pub const MAX_SIDE: u32 = 2048;
+
+/// Resize RGBA8 `w`x`h` to TEX x TEX: box filter when shrinking, nearest when growing.
+pub fn resize_to_tex(rgba: &[u8], w: u32, h: u32) -> Image {
+    let (w, h, t) = (w as usize, h as usize, TEX as usize);
+    let mut out = vec![0u8; t * t * 4];
+    for y in 0..t {
+        let (y0, y1) = (y * h / t, (y * h / t + 1).max((y + 1) * h / t));
+        for x in 0..t {
+            let (x0, x1) = (x * w / t, (x * w / t + 1).max((x + 1) * w / t));
+            let mut sum = [0u32; 4];
+            for sy in y0..y1 {
+                for sx in x0..x1 {
+                    for (c, s) in sum.iter_mut().enumerate() {
+                        *s += rgba[(sy * w + sx) * 4 + c] as u32;
+                    }
+                }
+            }
+            let n = ((y1 - y0) * (x1 - x0)) as u32;
+            for c in 0..4 {
+                out[(y * t + x) * 4 + c] = ((sum[c] + n / 2) / n) as u8;
+            }
+        }
+    }
+    Image { rgba: out }
+}
+
+/// Decode a PNG (any colour type, 8 or 16 bit) into a TEX x TEX image.
+/// Rejects images wider or taller than `MAX_SIDE` before allocating.
+pub fn decode_png(bytes: &[u8]) -> Result<Image, String> {
+    let mut dec = png::Decoder::new(std::io::Cursor::new(bytes));
+    dec.set_transformations(png::Transformations::normalize_to_color8());
+    let mut r = dec
+        .read_info()
+        .map_err(|e| format!("not a readable PNG ({e})"))?;
+    let (w, h) = (r.info().width, r.info().height);
+    if w == 0 || h == 0 || w > MAX_SIDE || h > MAX_SIDE {
+        return Err(format!(
+            "{w}x{h} pixels (largest allowed {MAX_SIDE}x{MAX_SIDE})"
+        ));
+    }
+    let mut buf = vec![0u8; r.output_buffer_size().ok_or("image too large")?];
+    let frame = r
+        .next_frame(&mut buf)
+        .map_err(|e| format!("PNG data damaged ({e})"))?;
+    let data = &buf[..frame.buffer_size()];
+    let n = (w * h) as usize;
+    let mut rgba = Vec::with_capacity(n * 4);
+    match frame.color_type {
+        png::ColorType::Grayscale => data
+            .iter()
+            .for_each(|g| rgba.extend_from_slice(&[*g, *g, *g, 255])),
+        png::ColorType::GrayscaleAlpha => data
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .for_each(|p| rgba.extend_from_slice(&[p[0], p[0], p[0], p[1]])),
+        png::ColorType::Rgb => data
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .for_each(|p| rgba.extend_from_slice(&[p[0], p[1], p[2], 255])),
+        png::ColorType::Rgba => rgba.extend_from_slice(data),
+        png::ColorType::Indexed => return Err("indexed PNG not expanded".into()),
+    }
+    if rgba.len() != n * 4 {
+        return Err("PNG data has the wrong size".into());
+    }
+    Ok(resize_to_tex(&rgba, w, h))
+}
+
+/// 8-bit RGB PNG bytes (used to write the example theme).
+pub fn encode_png_rgb(w: u32, h: u32, rgb: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut enc = png::Encoder::new(&mut out, w, h);
+    enc.set_color(png::ColorType::Rgb);
+    enc.set_depth(png::BitDepth::Eight);
+    enc.write_header()
+        .and_then(|mut w| w.write_image_data(rgb))
+        .expect("PNG encoding to memory");
+    out
+}
+
+/// A texture file name is relative, inside the theme folder (no `..`, no drive or root).
+pub fn safe_relative(name: &str) -> bool {
+    let p = Path::new(name);
+    // ':' and '\' are rejected outright so the answer is the same on every OS.
+    !name.is_empty()
+        && !name.contains(':')
+        && !name.contains('\\')
+        && !p.is_absolute()
+        && p.components().all(|c| matches!(c, Component::Normal(_)))
+}
+
+/// Load `name` (a PNG) from the theme folder `dir`.
+pub fn load_png_file(dir: &Path, name: &str) -> Result<Image, String> {
+    if !safe_relative(name) {
+        return Err("file names must be relative paths inside the theme folder".into());
+    }
+    let path = dir.join(name);
+    let meta = std::fs::metadata(&path).map_err(|_| "not found".to_string())?;
+    if meta.len() > MAX_FILE_BYTES {
+        return Err(format!(
+            "file is {} KB (largest allowed {} KB)",
+            meta.len() / 1024,
+            MAX_FILE_BYTES / 1024
+        ));
+    }
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    decode_png(&bytes)
+}
+
 pub struct GpuTextures {
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
@@ -184,6 +300,98 @@ mod tests {
         }
         assert_eq!(s.layers.len(), MAX_LAYERS);
         assert_eq!(s.add("overflow", white()), 0);
+    }
+
+    fn encode(w: u32, h: u32, color: png::ColorType, data: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut enc = png::Encoder::new(&mut out, w, h);
+        enc.set_color(color);
+        enc.set_depth(png::BitDepth::Eight);
+        enc.write_header().unwrap().write_image_data(data).unwrap();
+        out
+    }
+
+    #[test]
+    fn png_decode_all_colour_types_and_sizes() {
+        // 2x2 RGB: red, green / blue, white → nearest upscale keeps each quadrant's colour.
+        let rgb = encode(
+            2,
+            2,
+            png::ColorType::Rgb,
+            &[255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255],
+        );
+        let img = decode_png(&rgb).unwrap();
+        assert_eq!(img.rgba.len(), (TEX * TEX * 4) as usize);
+        let px = |x: usize, y: usize| &img.rgba[(y * TEX as usize + x) * 4..][..4];
+        assert_eq!(px(0, 0), [255, 0, 0, 255]);
+        assert_eq!(px(255, 0), [0, 255, 0, 255]);
+        assert_eq!(px(0, 255), [0, 0, 255, 255]);
+        assert_eq!(px(255, 255), [255, 255, 255, 255]);
+        // Grey and grey+alpha and RGBA.
+        let g = decode_png(&encode(1, 1, png::ColorType::Grayscale, &[77])).unwrap();
+        assert_eq!(&g.rgba[..4], [77, 77, 77, 255]);
+        let ga = decode_png(&encode(1, 1, png::ColorType::GrayscaleAlpha, &[50, 200])).unwrap();
+        assert_eq!(&ga.rgba[..4], [50, 50, 50, 200]);
+        let rgba = decode_png(&encode(1, 1, png::ColorType::Rgba, &[1, 2, 3, 4])).unwrap();
+        assert_eq!(&rgba.rgba[..4], [1, 2, 3, 4]);
+        // Shrinking averages: 512x256 half black / half white → left black, right white.
+        let mut big = vec![0u8; 512 * 256 * 3];
+        for y in 0..256 {
+            for x in 256..512 {
+                big[(y * 512 + x) * 3..][..3].copy_from_slice(&[255, 255, 255]);
+            }
+        }
+        let half = decode_png(&encode(512, 256, png::ColorType::Rgb, &big)).unwrap();
+        assert_eq!(&half.rgba[10 * 4..][..3], [0, 0, 0]);
+        assert_eq!(&half.rgba[(TEX as usize - 10) * 4..][..3], [255, 255, 255]);
+    }
+
+    #[test]
+    fn png_limits_and_garbage() {
+        let huge = encode(
+            MAX_SIDE + 1,
+            1,
+            png::ColorType::Grayscale,
+            &vec![0; MAX_SIDE as usize + 1],
+        );
+        assert!(decode_png(&huge).unwrap_err().contains("largest allowed"));
+        assert!(
+            decode_png(b"not a png at all")
+                .unwrap_err()
+                .contains("not a readable PNG")
+        );
+        let mut cut = encode(8, 8, png::ColorType::Rgb, &[7u8; 8 * 8 * 3]);
+        cut.truncate(cut.len() - 20);
+        assert!(decode_png(&cut).is_err());
+    }
+
+    #[test]
+    fn only_relative_paths_inside_the_folder() {
+        for ok in ["floor.png", "tiles/floor.png"] {
+            assert!(safe_relative(ok), "{ok}");
+        }
+        for bad in [
+            "",
+            "../x.png",
+            "a/../../x.png",
+            "/etc/x.png",
+            "C:\\x.png",
+            "C:/x.png",
+            "a\\..\\x.png",
+            "./x.png",
+        ] {
+            assert!(!safe_relative(bad), "{bad}");
+        }
+        let dir = std::env::temp_dir();
+        assert!(
+            load_png_file(&dir, "../x.png")
+                .unwrap_err()
+                .contains("relative")
+        );
+        assert_eq!(
+            load_png_file(&dir, "definitely-missing.png").unwrap_err(),
+            "not found"
+        );
     }
 
     #[test]

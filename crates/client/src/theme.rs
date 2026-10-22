@@ -8,9 +8,10 @@
 //! the map's content hash.
 
 use crate::render::{Look, Surface, WorldStyle};
-use crate::textures::{Image, TEX, TextureSet};
+use crate::textures::{self, Image, TEX, TextureSet};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
+use std::path::{Path, PathBuf};
 
 pub const CLASSIC: &str = "classic";
 
@@ -186,6 +187,8 @@ fn orientation_tag<'a>(d: &'a Defaults, s: &Surface) -> &'a str {
 /// A theme ready to draw with: textures loaded into layers.
 #[derive(Debug)]
 pub struct ThemeStyle {
+    /// The name asked for (settings value); `theme.name` is what was loaded (classic on failure).
+    pub requested: String,
     pub theme: Theme,
     textures: TextureSet,
     /// texture name → layer
@@ -229,14 +232,14 @@ impl ThemeStyle {
                 h.u32(*l);
             }
             for img in &textures.layers {
-                h.bytes(&img.rgba[..64]);
-                h.bytes(&img.rgba[img.rgba.len() / 2..img.rgba.len() / 2 + 64]);
+                h.bytes(&img.rgba);
             }
             let toml_text = toml::to_string(&theme).unwrap_or_default();
             h.bytes(toml_text.as_bytes());
             h.finish()
         };
         ThemeStyle {
+            requested: theme.name.clone(),
             theme,
             textures,
             layers,
@@ -250,6 +253,55 @@ impl ThemeStyle {
         let theme = Theme::builtin(name).unwrap_or_else(Theme::classic);
         ThemeStyle::build(theme, &|n| {
             procedural(n).ok_or_else(|| "no such built-in texture".to_string())
+        })
+    }
+
+    /// The theme `name`: built-in, else a folder `<dir>/<name>/theme.toml` in the first
+    /// of `dirs` that has one. Any failure gives the classic look plus a problem message.
+    pub fn load(name: &str, dirs: &[PathBuf]) -> ThemeStyle {
+        let mut style = Self::load_inner(name, dirs);
+        style.requested = name.to_string();
+        style
+    }
+
+    fn load_inner(name: &str, dirs: &[PathBuf]) -> ThemeStyle {
+        if BUILTIN.contains(&name) {
+            return Self::builtin(name);
+        }
+        let fail = |why: String| {
+            let mut s = Self::builtin(CLASSIC);
+            s.problems
+                .push(format!("theme {name}: {why}; using classic"));
+            s
+        };
+        let Some(folder) = find_theme_dir(name, dirs) else {
+            return fail("no such theme (built-in or folder with a theme.toml)".into());
+        };
+        let text = match std::fs::read_to_string(folder.join("theme.toml")) {
+            Ok(t) => t,
+            Err(e) => return fail(format!("theme.toml: {e}")),
+        };
+        let mut theme = match Theme::from_toml(&text) {
+            Ok(t) => t,
+            Err(e) => return fail(format!("theme.toml: {e}")),
+        };
+        theme.name = name.to_string();
+        let used = std::cell::RefCell::new(std::collections::BTreeSet::new());
+        ThemeStyle::build(theme, &|n| {
+            let mut u = used.borrow_mut();
+            u.insert(n.to_string());
+            if u.len() > MAX_THEME_TEXTURES {
+                return Err(format!(
+                    "too many textures (at most {MAX_THEME_TEXTURES} per theme)"
+                ));
+            }
+            drop(u);
+            if n.to_ascii_lowercase().ends_with(".png") {
+                textures::load_png_file(&folder, n)
+            } else {
+                procedural(n)
+                    .ok_or_else(|| "no such built-in texture (files end in .png)".to_string())
+            }
         })
     }
 
@@ -361,9 +413,151 @@ pub fn procedural(name: &str) -> Option<Image> {
     })
 }
 
-/// Themes the player can pick (built-ins; folders are added in the user-theme milestone).
-pub fn available() -> Vec<String> {
-    BUILTIN.iter().map(|s| s.to_string()).collect()
+/// Most distinct textures a folder theme may use.
+pub const MAX_THEME_TEXTURES: usize = 32;
+
+/// A theme folder name is a plain name (no separators or dot tricks).
+fn safe_theme_name(name: &str) -> bool {
+    !name.is_empty() && name != "." && !name.contains("..") && !name.contains(['/', '\\', ':'])
+}
+
+/// `<dir>/<name>` for the first dir that has a theme.toml there.
+pub fn find_theme_dir(name: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
+    if !safe_theme_name(name) {
+        return None;
+    }
+    dirs.iter()
+        .map(|d| d.join(name))
+        .find(|p| p.join("theme.toml").is_file())
+}
+
+/// Themes the player can pick: the built-ins, then every folder with a theme.toml.
+pub fn available(dirs: &[PathBuf]) -> Vec<String> {
+    let mut v: Vec<String> = BUILTIN.iter().map(|s| s.to_string()).collect();
+    let mut found = Vec::new();
+    for d in dirs {
+        let Ok(rd) = std::fs::read_dir(d) else {
+            continue;
+        };
+        for e in rd.flatten() {
+            let n = e.file_name().to_string_lossy().to_string();
+            if e.path().join("theme.toml").is_file() && safe_theme_name(&n) && !v.contains(&n) {
+                found.push(n);
+            }
+        }
+    }
+    found.sort();
+    found.dedup();
+    v.extend(found);
+    v
+}
+
+/// The folders themes are searched in: an explicit one, the settings folder's
+/// `themes/`, and `themes/` next to the executable.
+pub fn search_dirs(extra: Option<&Path>, settings_dir: Option<&Path>) -> Vec<PathBuf> {
+    let mut v = Vec::new();
+    if let Some(e) = extra {
+        v.push(e.to_path_buf());
+    }
+    if let Some(s) = settings_dir {
+        v.push(s.join("themes"));
+    }
+    if let Some(exe) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.join("themes")))
+    {
+        v.push(exe);
+    }
+    v
+}
+
+/// The files of the example theme (`theme.toml` and its PNGs), written by
+/// `lgduel --make-example-theme DIR`; a copy lives in `assets/themes/example`.
+pub fn example_theme_files() -> Vec<(&'static str, Vec<u8>)> {
+    let rgb = |f: &dyn Fn(u32, u32) -> [u8; 3]| {
+        let mut px = Vec::with_capacity((TEX * TEX * 3) as usize);
+        for y in 0..TEX {
+            for x in 0..TEX {
+                px.extend_from_slice(&f(x, y));
+            }
+        }
+        textures::encode_png_rgb(TEX, TEX, &px)
+    };
+    // Warm sandstone floor: 32 px checks with a little grain.
+    let floor = rgb(&|x, y| {
+        let base = if ((x / 32) + (y / 32)) % 2 == 0 {
+            214u32
+        } else {
+            188
+        };
+        let v = (base + hash2(x, y, 11) % 10).min(255);
+        [v as u8, (v * 92 / 100) as u8, (v * 74 / 100) as u8]
+    });
+    // Brick wall: 64x32 bricks, offset rows, darker mortar.
+    let wall = rgb(&|x, y| {
+        let row = y / 32;
+        let sx = x + if row % 2 == 1 { 32 } else { 0 };
+        let mortar = sx % 64 < 3 || y % 32 < 3;
+        let n = hash2(sx / 64, row, 12) % 24;
+        if mortar {
+            [120, 112, 104]
+        } else {
+            [
+                (190 + n).min(255) as u8,
+                (120 + n / 2) as u8,
+                (100 + n / 2) as u8,
+            ]
+        }
+    });
+    // Cool ceiling: vertical stripes.
+    let ceiling = rgb(&|x, _y| {
+        let v = if (x / 16) % 2 == 0 { 170u8 } else { 150 };
+        [v, v + 8, v + 30]
+    });
+    let toml = r#"# Example LGDuel theme (CC0). Copy this folder to <settings folder>/themes/<your name>/ and edit.
+sky = [0.10, 0.10, 0.16]
+
+# Materials not listed here fall back to the classic look. A map's `material = "..."` tag picks one
+# by name; untagged surfaces use the names under [defaults].
+[defaults]
+floor = "floor"
+wall = "wall"
+ceiling = "ceiling"
+ramp = "floor"
+
+[materials.floor]
+texture = "floor.png"      # a PNG next to this file (any size up to 2048x2048; tiling looks best)
+tint_map_color = true      # also multiply by the map's own colour
+color = [1.0, 1.0, 1.0]
+scale = 128.0              # world units per texture repeat
+
+[materials.wall]
+texture = "wall.png"
+tint_map_color = true
+color = [1.0, 1.0, 1.0]
+scale = 256.0
+
+[materials.ceiling]
+texture = "ceiling.png"
+tint_map_color = true
+color = [1.0, 1.0, 1.0]
+scale = 256.0
+
+# A material maps can ask for, e.g. `material = "trim"` on a [[brush]]:
+[materials.trim]
+color = [0.8, 0.55, 0.2]
+shade = true
+
+# Override a material for one map only:
+# [maps.arena_tiers.materials.floor]
+# color = [0.6, 0.7, 0.8]
+"#;
+    vec![
+        ("theme.toml", toml.as_bytes().to_vec()),
+        ("floor.png", floor),
+        ("wall.png", wall),
+        ("ceiling.png", ceiling),
+    ]
 }
 
 #[cfg(test)]
@@ -519,4 +713,117 @@ color = [0.0, 0.9, 0.0]
     }
 
     const PINNED_MEANS: u64 = 598;
+
+    fn example_dir() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/themes")
+    }
+
+    #[test]
+    fn committed_example_theme_matches_the_generator_and_loads() {
+        let dir = example_dir().join("example");
+        for (name, bytes) in example_theme_files() {
+            assert_eq!(
+                std::fs::read(dir.join(name)).unwrap(),
+                bytes,
+                "{name} is stale: rerun lgduel --make-example-theme"
+            );
+        }
+        let s = ThemeStyle::load("example", &[example_dir()]);
+        assert!(s.problems.is_empty(), "{:?}", s.problems);
+        assert_eq!(s.requested, "example");
+        assert_eq!(s.name(), "example");
+        assert!(!s.is_classic());
+        let floor = s.look("arena_flat", surface(None, UP, false));
+        let wall = s.look("arena_flat", surface(None, SIDE, false));
+        assert!(floor.layer > 0 && wall.layer > 0 && floor.layer != wall.layer);
+        // The `trim` material is colour-only.
+        let trim = s.look("arena_flat", surface(Some("trim"), SIDE, false));
+        assert_eq!((trim.layer, trim.color), (0, [0.8, 0.55, 0.2]));
+        assert!(available(&[example_dir()]).contains(&"example".to_string()));
+    }
+
+    #[test]
+    fn broken_themes_fall_back_to_classic_with_a_message() {
+        let tmp = std::env::temp_dir().join(format!("lgduel-themes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let mk = |name: &str, toml: &str| {
+            std::fs::create_dir_all(tmp.join(name)).unwrap();
+            std::fs::write(tmp.join(name).join("theme.toml"), toml).unwrap();
+        };
+        let dirs = [tmp.clone()];
+        // Unknown name, bad TOML, unsafe name.
+        let s = ThemeStyle::load("nothere", &dirs);
+        assert!(
+            s.is_classic() && s.problems[0].contains("no such theme"),
+            "{:?}",
+            s.problems
+        );
+        assert_eq!(s.requested, "nothere");
+        mk("badtoml", "sky = [");
+        assert!(ThemeStyle::load("badtoml", &dirs).problems[0].contains("theme.toml"));
+        assert!(ThemeStyle::load("../etc", &dirs).problems[0].contains("no such theme"));
+        // Missing / escaping / oversized texture files: that material falls back, others still work.
+        mk(
+            "files",
+            "[materials.floor]
+texture = \"missing.png\"
+[materials.wall]
+texture = \"../x.png\"
+[materials.ceiling]
+texture = \"/abs.png\"
+[materials.ramp]
+texture = \"tiles\"
+",
+        );
+        let s = ThemeStyle::load("files", &dirs);
+        let msgs = s.problems.join(
+            "
+",
+        );
+        assert!(msgs.contains("missing.png: not found"), "{msgs}");
+        assert_eq!(
+            s.problems.iter().filter(|p| p.contains("relative")).count(),
+            2,
+            "{msgs}"
+        );
+        assert_eq!(
+            s.look("m", surface(None, UP, false)).layer,
+            0,
+            "floor untextured"
+        );
+        assert!(
+            s.look("m", surface(None, Vec3::new(-0.4, 0.0, 0.9), true))
+                .layer
+                > 0,
+            "built-in texture name still works"
+        );
+        // Too many textures.
+        let many: String = (0..40)
+            .map(|i| {
+                format!(
+                    "[materials.m{i}]
+texture = \"t{i}.png\"
+"
+                )
+            })
+            .collect();
+        mk("many", &many);
+        let s = ThemeStyle::load("many", &dirs);
+        assert!(s.problems.iter().any(|p| p.contains("too many textures")));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn oversized_texture_files_are_refused() {
+        let tmp = std::env::temp_dir().join(format!("lgduel-big-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(
+            tmp.join("big.png"),
+            vec![0u8; (textures::MAX_FILE_BYTES + 1) as usize],
+        )
+        .unwrap();
+        let e = textures::load_png_file(&tmp, "big.png").unwrap_err();
+        assert!(e.contains("largest allowed"), "{e}");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }

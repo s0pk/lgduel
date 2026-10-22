@@ -135,6 +135,8 @@ pub struct Menu {
     pub has_rendezvous: bool,
     /// Drop-down console (` key).
     pub console: crate::console::Console,
+    /// Theme names to offer (built-ins and folders); empty = built-ins only.
+    pub themes: Vec<String>,
 }
 
 pub const TITLE: &str = "LGDuel";
@@ -291,7 +293,7 @@ impl Menu {
                             .show(ui, |ui| match self.tab {
                                 Tab::Mouse => mouse_tab(ui, s),
                                 Tab::Video => video_tab(ui, s),
-                                Tab::Visuals => visuals_tab(ui, s),
+                                Tab::Visuals => visuals_tab(ui, s, &self.themes),
                                 Tab::Audio => {
                                     if audio_tab(ui, s) {
                                         action = Some(Action::TestSound);
@@ -795,10 +797,17 @@ fn color_row(ui: &mut egui::Ui, label: &str, c: &mut [f32; 3]) {
     });
 }
 
-fn visuals_tab(ui: &mut egui::Ui, s: &mut Settings) {
+fn visuals_tab(ui: &mut egui::Ui, s: &mut Settings, themes: &[String]) {
     ui.heading("Map");
     row(ui, "Theme", |ui| {
-        let themes = crate::theme::available();
+        let themes = if themes.is_empty() {
+            crate::theme::BUILTIN
+                .iter()
+                .map(|t| t.to_string())
+                .collect()
+        } else {
+            themes.to_vec()
+        };
         egui::ComboBox::from_id_salt("theme")
             .selected_text(s.video.theme.clone())
             .show_ui(ui, |ui| {

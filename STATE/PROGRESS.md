@@ -380,3 +380,7 @@
 ## 2026-10-23 — iteration 68: visuals T3 themes
 - theme.rs (Theme, Material, ThemeStyle, procedural textures, available()), settings `video.theme`, menu combo, `--theme`, App `style` + `refresh_style`, headless uses the theme's sky and per-theme checks, check.sh grid render.
 - Verified: 7 theme tests (classic = classic look everywhere, grid layers by orientation, resolution order with per-map override and unknown tag, typo rejection, missing texture reported, procedural textures deterministic with pinned fingerprint, style key stable/different); grid screenshot inspected (textured floor/walls/ceiling, enemy clearly visible, 593 colours); windowed run OK; 6858 fps at 1080p with grid; check.sh GREEN 113 s.
+
+## 2026-10-23 — iteration 69: visuals T4 user themes
+- textures.rs (PNG decode with limits + resize, safe_relative, load_png_file, encode_png_rgb), theme.rs (load, find_theme_dir, available, search_dirs, example_theme_files), `--theme-dir`, `--make-example-theme`, console `reloadtheme`, Menu.themes, assets/themes/example, THEMES.md, package/release copy the example, check.sh renders it.
+- Verified: PNG decode tests (all colour types, shrink/grow, 2049 px rejected, garbage, truncated), path safety, broken-theme fallbacks (unknown name, bad TOML, `../`, missing, absolute, too many, oversized file), committed example == generator output and loads; screenshot inspected (brick walls, tiled floor, enemy clearly visible); exe-folder search verified; check.sh GREEN 114 s.
