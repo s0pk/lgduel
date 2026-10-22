@@ -52,6 +52,8 @@ pub struct NetClient<T: Transport> {
     pub config: Option<GameConfig>,
     /// (map name, content hash) the server runs, from the accept.
     pub map: Option<(String, u64)>,
+    /// Latest arena/queue status from the server.
+    pub status: Option<crate::protocol::ArenaStatus>,
     nonce: u64,
     last_request_us: Option<u64>,
     pub snapshots: SnapshotHistory,
@@ -99,6 +101,7 @@ impl<T: Transport> NetClient<T> {
             conn: Connection::new(),
             config: None,
             map: None,
+            status: None,
             nonce,
             last_request_us: None,
             snapshots: SnapshotHistory::new(64),
@@ -159,8 +162,12 @@ impl<T: Transport> NetClient<T> {
                 continue;
             };
             for m in &rx.reliable {
-                if let Some(Control::Disconnect { reason }) = Control::decode(m) {
-                    self.state = ClientState::Disconnected(reason);
+                match Control::decode(m) {
+                    Some(Control::Disconnect { reason }) => {
+                        self.state = ClientState::Disconnected(reason);
+                    }
+                    Some(Control::Status(s)) => self.status = Some(s),
+                    _ => {}
                 }
             }
             let Some(base) = Snapshot::delta_base(&rx.unreliable) else {
@@ -411,6 +418,11 @@ impl<T: Transport> NetClient<T> {
         };
         let pkt = self.conn.build_packet(now_us, &inp.encode());
         let _ = self.transport.send_to(self.server, &pkt);
+    }
+
+    /// Ask to watch (`true`) or play (`false`); goes out with the next packet.
+    pub fn set_spectate(&mut self, on: bool) {
+        self.conn.send_reliable(Control::Spectate { on }.encode());
     }
 
     pub fn disconnect(&mut self, now_us: u64) {

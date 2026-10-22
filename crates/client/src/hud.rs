@@ -250,6 +250,22 @@ pub fn project(view_proj: &Mat4, screen: (f32, f32), p: Vec3) -> Option<(f32, f3
     Some(((x + 1.0) * 0.5 * screen.0, (1.0 - y) * 0.5 * screen.1))
 }
 
+/// One centred line at the top (arena / queue / spectating status).
+pub fn status_line(out: &mut Vec<Vertex>, screen: (f32, f32), text: &str, s: &HudSettings) {
+    let sc = s.text_scale;
+    let x = (screen.0 - text_width(text, sc)) * 0.5;
+    label(
+        out,
+        screen,
+        x.max(0.0),
+        16.0,
+        sc,
+        s.text_color,
+        s.text_shadow,
+        text,
+    );
+}
+
 pub fn build(
     out: &mut Vec<Vertex>,
     screen: (f32, f32),

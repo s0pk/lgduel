@@ -257,10 +257,17 @@ pub fn run_match(
 }
 
 /// Online smoke test of the real game client: server + one bot + `lgduel
-/// --headless --connect`; the client must connect, see and render the bot.
-pub fn run_client_smoke(bin_dir: &Path, out_dir: &Path, secs: f64) -> MatchResult {
+/// --headless --connect`; the client must connect, see and render the bot,
+/// and be told it plays in arena 1. With `spectate`: two bots duel and the
+/// client watches them (must render them and be told it is spectating).
+pub fn run_client_smoke(bin_dir: &Path, out_dir: &Path, secs: f64, spectate: bool) -> MatchResult {
     let mut r = MatchResult {
-        profile: "client-smoke".into(),
+        profile: if spectate {
+            "client-spectate"
+        } else {
+            "client-smoke"
+        }
+        .into(),
         lines: vec![],
         failures: vec![],
     };
@@ -290,25 +297,44 @@ pub fn run_client_smoke(bin_dir: &Path, out_dir: &Path, secs: f64) -> MatchResul
         return r;
     };
     std::thread::sleep(Duration::from_millis(300));
-    let bot = Command::new(exe(bin_dir, "lgduel-bot"))
-        .args([
-            "--server",
-            &addr,
-            "--pattern",
-            "ad",
-            "--skill",
-            "medium",
-            "--name",
-            "smokebot",
-        ])
-        .args(["--duration-secs", &format!("{}", secs + 2.0)])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn();
-    let shot = out_dir.join("online.png");
+    let bot_names: &[&str] = if spectate {
+        &["smokebot", "smokebot2"]
+    } else {
+        &["smokebot"]
+    };
+    let bots: Vec<_> = bot_names
+        .iter()
+        .map(|name| {
+            Command::new(exe(bin_dir, "lgduel-bot"))
+                .args([
+                    "--server",
+                    &addr,
+                    "--pattern",
+                    "ad",
+                    "--skill",
+                    "medium",
+                    "--name",
+                    name,
+                ])
+                .args(["--duration-secs", &format!("{}", secs + 2.0)])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+        })
+        .collect();
+    if spectate {
+        // Let the two bots take arena 1 first.
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    let shot = out_dir.join(if spectate {
+        "online_spectate.png"
+    } else {
+        "online.png"
+    });
     let client = Command::new(exe(bin_dir, "lgduel"))
         .args([
             "--headless",
+            "--no-settings",
             "--connect",
             &addr,
             "--name",
@@ -316,6 +342,7 @@ pub fn run_client_smoke(bin_dir: &Path, out_dir: &Path, secs: f64) -> MatchResul
             "--secs",
             &format!("{secs}"),
         ])
+        .args(spectate.then_some("--spectate"))
         .args(["--size", "1280x720", "--screenshot"])
         .arg(&shot)
         .output();
@@ -327,8 +354,18 @@ pub fn run_client_smoke(bin_dir: &Path, out_dir: &Path, secs: f64) -> MatchResul
                     || l.starts_with("IMAGE")
                     || l.starts_with("SCREENSHOT")
                     || l.starts_with("NETGRAPH")
+                    || l.starts_with("STATUS")
             }) {
                 r.lines.push(l.to_string());
+            }
+            let want = if spectate {
+                "STATUS SPECTATING ARENA 1"
+            } else {
+                "STATUS ARENA 1 - VS SMOKEBOT"
+            };
+            if !stdout.contains(want) {
+                r.failures
+                    .push(format!("client status line is not {want:?}"));
             }
             if !out.status.success() || !stdout.contains("ONLINE CHECK OK") {
                 r.failures.push(format!(
@@ -340,10 +377,12 @@ pub fn run_client_smoke(bin_dir: &Path, out_dir: &Path, secs: f64) -> MatchResul
         }
         Err(e) => r.failures.push(format!("run client: {e}")),
     }
-    if let Ok(b) = bot.and_then(|b| b.wait_with_output())
-        && !b.status.success()
-    {
-        r.failures.push(format!("bot exited with {}", b.status));
+    for bot in bots {
+        if let Ok(b) = bot.and_then(|b| b.wait_with_output())
+            && !b.status.success()
+        {
+            r.failures.push(format!("bot exited with {}", b.status));
+        }
     }
     match server.wait_with_output() {
         Ok(out) => {

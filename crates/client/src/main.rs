@@ -84,6 +84,8 @@ struct Options {
     practice: bool,
     /// Skip the main menu: host a game with the saved host settings and join it.
     host_game: bool,
+    /// Online: ask the server to let us watch instead of play.
+    spectate: bool,
     /// Headless online run length.
     secs: f64,
 }
@@ -116,6 +118,7 @@ impl Options {
             connect: None,
             practice: false,
             host_game: false,
+            spectate: false,
             secs: 5.0,
         }
     }
@@ -229,6 +232,7 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
                 o.s.host.map = m;
             }
             "--host-game" => o.host_game = true,
+            "--spectate" => o.spectate = true,
             "--name" => o.s.name = val("--name")?,
             "--secs" => {
                 o.secs = val("--secs")?
@@ -641,7 +645,12 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
     let mut aim = (lgduel_sim::math::Angle::ZERO, lgduel_sim::math::Angle::ZERO);
     let mut frames = 0u64;
     let mut seen_opponent_frames = 0u64;
+    let mut asked_spectate = false;
     while start.elapsed().as_secs_f64() < opts.secs {
+        if opts.spectate && !asked_spectate && n.client.player().is_some() {
+            n.set_spectate(true);
+            asked_spectate = true;
+        }
         let a = aim;
         let fire = if start.elapsed().as_secs_f64() > 1.0 {
             lgduel_sim::usercmd::buttons::FIRE
@@ -677,10 +686,11 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
     let cfg = n.config().cloned().ok_or("no config from server")?;
     let cam = Camera {
         eye: fv.eye,
-        pitch: aim.0,
-        yaw: aim.1,
+        pitch: fv.spectate.map_or(aim.0, |s| s.pitch),
+        yaw: fv.spectate.map_or(aim.1, |s| s.yaw),
         fov: opts.s.video.fov,
     };
+    println!("STATUS {}", fv.status.as_deref().unwrap_or("-"));
     let mut seed = 0;
     let stats = off.render(
         &mut r,
@@ -692,7 +702,7 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
                 &world,
                 &cfg,
                 &cam,
-                false,
+                fv.spectate.is_some_and(|s| s.firing),
                 &colors,
                 &opts.s.effects,
                 seed,
@@ -1271,10 +1281,11 @@ impl ApplicationHandler for App {
                     None => (&self.world, None),
                 };
                 let cam = match &fv {
+                    // Spectating: through the watched player's eyes.
                     Some(f) => Camera {
                         eye: f.eye,
-                        pitch: self.look.pitch,
-                        yaw: self.look.yaw,
+                        pitch: f.spectate.map_or(self.look.pitch, |s| s.pitch),
+                        yaw: f.spectate.map_or(self.look.yaw, |s| s.yaw),
                         fov: self.opts.s.video.fov,
                     },
                     // Main menu: slow orbit around the arena.
@@ -1297,7 +1308,7 @@ impl ApplicationHandler for App {
                         world,
                         cfg,
                         &cam,
-                        self.keys.fire,
+                        fv.spectate.map_or(self.keys.fire, |s| s.firing),
                         &self.opts.s.enemy_colors,
                         &self.opts.s.effects,
                         self.frames as u32,
@@ -1327,6 +1338,10 @@ impl ApplicationHandler for App {
                     let ui_out = match (&mut self.ui, &self.window) {
                         (Some(ui), Some(w)) if self.menu.is_open() => {
                             let online = matches!(self.session, Some(Session::Net(_)));
+                            self.menu.spectating = match &self.session {
+                                Some(Session::Net(n)) => Some(n.spectating()),
+                                _ => None,
+                            };
                             let (menu, s) = (&mut self.menu, &mut self.opts.s);
                             Some(
                                 ui.run_windowed(w, |ctx| action = menu.draw(ctx, s, online, &rows)),
@@ -1347,6 +1362,13 @@ impl ApplicationHandler for App {
                     match action {
                         Some(menu::Action::Resume) => self.set_grab(true),
                         Some(menu::Action::TestSound) => self.audio.play_hit(),
+                        Some(menu::Action::Spectate(on)) => {
+                            if let Some(Session::Net(n)) = &mut self.session {
+                                n.set_spectate(on);
+                            }
+                            self.menu.screen = menu::Screen::Closed;
+                            self.set_grab(true);
+                        }
                         Some(menu::Action::SettingsClosed) => self.save_settings(),
                         Some(menu::Action::Disconnect) => {
                             self.leave_session(None, menu::Screen::Main)

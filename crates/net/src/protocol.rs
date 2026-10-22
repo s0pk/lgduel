@@ -397,6 +397,28 @@ pub enum Control {
     ServerEvent {
         text: String,
     },
+    /// Server → client: where this client is (sent when it changes).
+    Status(ArenaStatus),
+    /// Client → server: watch instead of play (`on`), or back to playing.
+    Spectate {
+        on: bool,
+    },
+}
+
+/// A client's place on a multi-arena server.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ArenaStatus {
+    /// Arena the client plays in (None = queued or spectating).
+    pub arena: Option<u8>,
+    /// 1-based queue position (0 = not queued).
+    pub queue_pos: u16,
+    /// Name of the opponent in the arena (empty = none).
+    pub opponent: String,
+    /// The opponent is the server's practice bot.
+    pub opponent_bot: bool,
+    pub spectating: bool,
+    /// Arena whose snapshots a queued/spectating client receives.
+    pub watching: u8,
 }
 
 impl Control {
@@ -411,6 +433,18 @@ impl Control {
                 w.u8(2);
                 w.bytes(text.as_bytes());
             }
+            Self::Status(s) => {
+                w.u8(3);
+                w.u8(s.arena.map_or(0, |a| a.saturating_add(1)));
+                w.u16(s.queue_pos);
+                w.bytes(truncate(&s.opponent, MAX_NAME).as_bytes());
+                w.u8(s.opponent_bot as u8 | (s.spectating as u8) << 1);
+                w.u8(s.watching);
+            }
+            Self::Spectate { on } => {
+                w.u8(4);
+                w.u8(*on as u8);
+            }
         }
         w.finish()
     }
@@ -418,10 +452,29 @@ impl Control {
     pub fn decode(data: &[u8]) -> Option<Self> {
         let mut r = Reader::new(data);
         let kind = r.u8()?;
-        let s = String::from_utf8(r.bytes()?.to_vec()).ok()?;
+        let text = |r: &mut Reader| String::from_utf8(r.bytes()?.to_vec()).ok();
         Some(match kind {
-            1 => Self::Disconnect { reason: s },
-            2 => Self::ServerEvent { text: s },
+            1 => Self::Disconnect {
+                reason: text(&mut r)?,
+            },
+            2 => Self::ServerEvent {
+                text: text(&mut r)?,
+            },
+            3 => {
+                let arena = r.u8()?.checked_sub(1);
+                let queue_pos = r.u16()?;
+                let opponent = text(&mut r)?;
+                let flags = r.u8()?;
+                Self::Status(ArenaStatus {
+                    arena,
+                    queue_pos,
+                    opponent,
+                    opponent_bot: flags & 1 != 0,
+                    spectating: flags & 2 != 0,
+                    watching: r.u8()?,
+                })
+            }
+            4 => Self::Spectate { on: r.u8()? != 0 },
             _ => return None,
         })
     }
@@ -637,6 +690,29 @@ mod tests {
             Control::ServerEvent {
                 text: "joined".into(),
             },
+        ] {
+            assert_eq!(Control::decode(&m.encode()), Some(m));
+        }
+        for m in [
+            Control::Status(ArenaStatus::default()),
+            Control::Status(ArenaStatus {
+                arena: Some(7),
+                queue_pos: 0,
+                opponent: "practice bot".into(),
+                opponent_bot: true,
+                spectating: false,
+                watching: 7,
+            }),
+            Control::Status(ArenaStatus {
+                arena: None,
+                queue_pos: 3,
+                opponent: String::new(),
+                opponent_bot: false,
+                spectating: true,
+                watching: 2,
+            }),
+            Control::Spectate { on: true },
+            Control::Spectate { on: false },
         ] {
             assert_eq!(Control::decode(&m.encode()), Some(m));
         }

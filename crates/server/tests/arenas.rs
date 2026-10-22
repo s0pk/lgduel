@@ -4,6 +4,7 @@
 use lgduel_bot::netbot::NetBot;
 use lgduel_bot::{AimSkill, BotConfig, StrafePattern};
 use lgduel_net::client::ClientState;
+use lgduel_net::protocol::ArenaStatus;
 use lgduel_net::transport::{MemEndpoint, MemNet, Transport};
 use lgduel_server::{Server, ServerConfig};
 use lgduel_sim::math::Vec3;
@@ -16,6 +17,8 @@ struct Rig {
     bots: Vec<Option<NetBot<MemEndpoint>>>,
     stepper: FixedStepper,
     now: u64,
+    /// Only bots with index < `active` run (later ones "connect" when raised).
+    active: usize,
 }
 
 impl Rig {
@@ -57,6 +60,7 @@ impl Rig {
             bots,
             stepper: FixedStepper::new(125),
             now: 0,
+            active: usize::MAX,
         }
     }
 
@@ -68,7 +72,7 @@ impl Rig {
             for _ in 0..self.stepper.advance(1_000).1 {
                 self.server.tick(self.now);
             }
-            for b in self.bots.iter_mut().flatten() {
+            for b in self.bots.iter_mut().take(self.active).flatten() {
                 b.step(self.now);
             }
         }
@@ -190,4 +194,99 @@ fn lone_players_are_paired_up() {
     // The server's stats for a moved player include its old arena.
     let stats = rig.server.stats_toml();
     assert!(stats.contains("name = \"bot3\""), "{stats}");
+}
+
+fn status(rig: &Rig, i: usize) -> ArenaStatus {
+    rig.bots[i]
+        .as_ref()
+        .unwrap()
+        .client
+        .status
+        .clone()
+        .expect("status received")
+}
+
+#[test]
+fn lone_player_gets_a_practice_bot_until_an_opponent_joins() {
+    let mut rig = Rig::new(2, 2);
+    rig.active = 1;
+    rig.run_ms(1_000);
+    // Not yet: the bot joins after practice_bot_after_ms (2 s) alone.
+    assert_eq!(rig.server.arenas[0].game.players.len(), 1);
+    assert_eq!(status(&rig, 0).opponent, "");
+    rig.run_ms(6_000);
+    assert_eq!(rig.server.arenas[0].game.players.len(), 2);
+    let st = status(&rig, 0);
+    assert_eq!(st.arena, Some(0));
+    assert!(st.opponent_bot && st.opponent == "practice bot", "{st:?}");
+    let s0 = rig.bots[0].as_ref().unwrap().stats().unwrap();
+    assert!(
+        s0.damage_taken > 0 && s0.damage_dealt > 0,
+        "fought the bot: {s0:?}"
+    );
+    // A real opponent arrives: the bot leaves, the two humans duel.
+    rig.active = 2;
+    rig.run_ms(3_000);
+    let ids: Vec<_> = rig.server.arenas[0]
+        .game
+        .players
+        .iter()
+        .map(|p| p.id)
+        .collect();
+    let humans: Vec<_> = (0..2)
+        .map(|i| rig.bots[i].as_ref().unwrap().client.player().unwrap())
+        .collect();
+    assert_eq!(ids.len(), 2);
+    assert!(
+        humans.iter().all(|h| ids.contains(h)),
+        "{ids:?} vs {humans:?}"
+    );
+    assert!(rig.server.arenas[0].bot.is_none());
+    assert_eq!(status(&rig, 0).opponent, "bot1");
+    assert_eq!(status(&rig, 1).opponent, "bot0");
+    assert!(!status(&rig, 0).opponent_bot);
+}
+
+#[test]
+fn queue_position_and_spectating() {
+    let mut rig = Rig::new(1, 3);
+    rig.run_ms(3_000);
+    let st = status(&rig, 2);
+    assert_eq!(
+        (st.arena, st.queue_pos, st.watching),
+        (None, 1, 0),
+        "{st:?}"
+    );
+    // The queued player watches arena 0: its snapshots hold the two duellists.
+    let ids: Vec<_> = (0..2)
+        .map(|i| rig.bots[i].as_ref().unwrap().client.player().unwrap())
+        .collect();
+    let snap = rig.bots[2]
+        .as_ref()
+        .unwrap()
+        .client
+        .snapshots
+        .latest()
+        .unwrap()
+        .clone();
+    assert_eq!(snap.players.iter().map(|p| p.id).collect::<Vec<_>>(), ids);
+    // Bot 1 chooses to spectate: the queued player takes its place.
+    rig.bots[1].as_mut().unwrap().client.set_spectate(true);
+    rig.run_ms(2_000);
+    let st1 = status(&rig, 1);
+    assert!(
+        st1.spectating && st1.arena.is_none() && st1.queue_pos == 0,
+        "{st1:?}"
+    );
+    assert_eq!(rig.arena_of(2), Some(0));
+    assert_eq!(status(&rig, 2).opponent, "bot0");
+    // And back to playing: queued again (the only arena is full).
+    rig.bots[1].as_mut().unwrap().client.set_spectate(false);
+    rig.run_ms(2_000);
+    let st1 = status(&rig, 1);
+    assert!(!st1.spectating && st1.queue_pos == 1, "{st1:?}");
+    assert!(matches!(
+        rig.bots[1].as_ref().unwrap().state(),
+        ClientState::Connected { .. }
+    ));
 }

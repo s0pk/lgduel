@@ -6,7 +6,7 @@ use lgduel_net::PROTOCOL_VERSION;
 pub mod host;
 
 use lgduel_net::conn::Connection;
-use lgduel_net::protocol::{Connectionless, Control, InputBuffer, Inputs, cookie};
+use lgduel_net::protocol::{ArenaStatus, Connectionless, Control, InputBuffer, Inputs, cookie};
 use lgduel_net::snapshot::{Snapshot, SnapshotHistory};
 use lgduel_net::transport::Transport;
 use lgduel_sim::config::{ConfigError, GameConfig, HitMode};
@@ -34,6 +34,10 @@ pub struct ServerSettings {
     pub map: String,
     /// Duel arenas (each its own game; two players per arena, more wait in a queue).
     pub max_arenas: u8,
+    /// A player alone in an arena gets a practice bot until an opponent comes.
+    pub practice_bot: bool,
+    /// How long a player must be alone before the bot joins.
+    pub practice_bot_after_ms: u32,
 }
 
 impl Default for ServerSettings {
@@ -47,6 +51,8 @@ impl Default for ServerSettings {
             timeout_ms: 5000,
             map: "arena_flat".into(),
             max_arenas: 8,
+            practice_bot: true,
+            practice_bot_after_ms: 2000,
         }
     }
 }
@@ -101,6 +107,10 @@ struct Client {
     arena: Option<usize>,
     /// Stats from arenas this client already left.
     past: PlayerStats,
+    /// Watching instead of playing (never queued or placed).
+    spectate: bool,
+    /// Last status sent (a new one goes out when it changes).
+    status_sent: Option<ArenaStatus>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -123,7 +133,14 @@ pub struct Arena {
     pub game: Game,
     /// Rewind buffer: (snapshot tick, hitboxes of living players) per tick.
     rewind: VecDeque<(u32, Vec<(PlayerId, Aabb)>)>,
+    /// Practice bot playing the lone human here.
+    pub bot: Option<(PlayerId, lgduel_bot::Bot)>,
+    /// Consecutive ticks with exactly one human.
+    lone_ticks: u32,
 }
+
+/// Name clients see for the server's practice bot.
+pub const PRACTICE_BOT_NAME: &str = "practice bot";
 
 pub struct Server<T: Transport> {
     pub transport: T,
@@ -177,6 +194,8 @@ impl<T: Transport> Server<T> {
             .map(|_| Arena {
                 game: Game::new(cfg.game.clone(), world.clone()),
                 rewind: VecDeque::new(),
+                bot: None,
+                lone_ticks: 0,
             })
             .collect();
         Self {
@@ -237,7 +256,10 @@ impl<T: Transport> Server<T> {
     fn place(&mut self) {
         loop {
             let n = self.arena_counts();
-            if let Some(ci) = self.clients.iter().position(|c| c.arena.is_none())
+            if let Some(ci) = self
+                .clients
+                .iter()
+                .position(|c| c.arena.is_none() && !c.spectate)
                 && let Some(a) = n
                     .iter()
                     .position(|&k| k == 1)
@@ -257,6 +279,88 @@ impl<T: Transport> Server<T> {
                 continue;
             }
             break;
+        }
+        // Practice bots: only while exactly one human is in the arena.
+        let n = self.arena_counts();
+        let after_ticks = (self.settings.practice_bot_after_ms as u64
+            * self.game().cfg.tick_rate_hz as u64
+            / 1000) as u32;
+        for (a, humans) in n.into_iter().enumerate() {
+            let want = self.settings.practice_bot
+                && humans == 1
+                && self.arenas[a].lone_ticks >= after_ticks;
+            match (&self.arenas[a].bot, want) {
+                (Some((id, _)), false) => {
+                    let id = *id;
+                    self.arenas[a].game.remove_player(id);
+                    self.arenas[a].bot = None;
+                    self.log.push(format!("practice bot left arena {a}"));
+                }
+                (None, true) => {
+                    let Some(id) = self.free_id() else { continue };
+                    self.arenas[a].game.add_player_with_id(id);
+                    let bot = lgduel_bot::Bot::new(lgduel_bot::BotConfig {
+                        seed: 0xB07 + a as u64,
+                        ..lgduel_bot::BotConfig::default()
+                    });
+                    self.arenas[a].bot = Some((id, bot));
+                    self.log.push(format!("practice bot joined arena {a}"));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Lowest player id not used by a client or a practice bot.
+    fn free_id(&self) -> Option<PlayerId> {
+        (0..=u8::MAX)
+            .find(|i| {
+                self.clients.iter().all(|c| c.player.0 != *i)
+                    && self
+                        .arenas
+                        .iter()
+                        .all(|a| a.bot.as_ref().is_none_or(|(b, _)| b.0 != *i))
+            })
+            .map(PlayerId)
+    }
+
+    /// Arena that queued players and spectators watch: the one with the most
+    /// humans (lowest index on ties).
+    fn watched_arena(&self) -> usize {
+        let n = self.arena_counts();
+        (0..n.len()).rev().max_by_key(|&a| n[a]).unwrap_or(0)
+    }
+
+    /// Where client `ci` is, as the client is told.
+    fn status_of(&self, ci: usize, watched: usize) -> ArenaStatus {
+        let c = &self.clients[ci];
+        let queue_pos = if c.arena.is_none() && !c.spectate {
+            1 + self.clients[..ci]
+                .iter()
+                .filter(|o| o.arena.is_none() && !o.spectate)
+                .count() as u16
+        } else {
+            0
+        };
+        let (opponent, opponent_bot) = match c.arena {
+            Some(a) => match self
+                .clients
+                .iter()
+                .find(|o| o.arena == Some(a) && o.player != c.player)
+            {
+                Some(o) => (o.name.clone(), false),
+                None if self.arenas[a].bot.is_some() => (PRACTICE_BOT_NAME.to_string(), true),
+                None => (String::new(), false),
+            },
+            None => (String::new(), false),
+        };
+        ArenaStatus {
+            arena: c.arena.map(|a| a as u8),
+            queue_pos,
+            opponent,
+            opponent_bot,
+            spectating: c.spectate,
+            watching: c.arena.unwrap_or(watched) as u8,
         }
     }
 
@@ -364,8 +468,10 @@ missing_cmds = {missing}
             }
             let mut leave = None;
             for m in rx.reliable {
-                if let Some(Control::Disconnect { reason }) = Control::decode(&m) {
-                    leave = Some(reason);
+                match Control::decode(&m) {
+                    Some(Control::Disconnect { reason }) => leave = Some(reason),
+                    Some(Control::Spectate { on }) => self.set_spectate(i, on),
+                    _ => {}
                 }
             }
             if let Some(reason) = leave {
@@ -382,6 +488,25 @@ missing_cmds = {missing}
                 i += 1;
             }
         }
+    }
+
+    /// Client `ci` starts watching (leaves its arena / the queue) or asks to play again.
+    fn set_spectate(&mut self, ci: usize, on: bool) {
+        let c = &mut self.clients[ci];
+        if c.spectate == on {
+            return;
+        }
+        c.spectate = on;
+        if on && let Some(a) = c.arena.take() {
+            let g = &mut self.arenas[a].game;
+            if let Some(p) = g.player(c.player) {
+                c.past += p.stats;
+            }
+            g.remove_player(c.player);
+        }
+        let what = if on { "spectates" } else { "wants to play" };
+        self.log.push(format!("{} {what}", self.clients[ci].name));
+        self.place();
     }
 
     fn reply(&mut self, to: SocketAddr, m: Connectionless) {
@@ -445,10 +570,7 @@ missing_cmds = {missing}
                     return;
                 }
                 // Ids are unique across arenas, so a client keeps its id when it moves.
-                let Some(player) = (0..=u8::MAX)
-                    .find(|i| self.clients.iter().all(|c| c.player.0 != *i))
-                    .map(PlayerId)
-                else {
+                let Some(player) = self.free_id() else {
                     return;
                 };
                 self.log.push(format!(
@@ -470,6 +592,8 @@ missing_cmds = {missing}
                     missing: 0,
                     arena: None,
                     past: PlayerStats::default(),
+                    spectate: false,
+                    status_sent: None,
                 });
                 self.place();
                 self.accept(from, player.0);
@@ -532,8 +656,28 @@ missing_cmds = {missing}
                 cmds[a].push((c.player, cmd));
             }
         }
+        let humans = self.arena_counts();
         for (a, arena) in self.arenas.iter_mut().enumerate() {
+            arena.lone_ticks = if humans[a] == 1 {
+                arena.lone_ticks.saturating_add(1)
+            } else {
+                0
+            };
+            if let Some((id, bot)) = &mut arena.bot {
+                let mut cmd = bot.think(&arena.game, *id);
+                cmd.tick = tick;
+                cmds[a].push((*id, cmd));
+            }
             arena.step(&cmds[a], &views[a], &mut self.rewind_stats);
+        }
+        let watched = self.watched_arena();
+        for ci in 0..self.clients.len() {
+            let st = self.status_of(ci, watched);
+            let c = &mut self.clients[ci];
+            if c.status_sent.as_ref() != Some(&st) {
+                c.conn.send_reliable(Control::Status(st.clone()).encode());
+                c.status_sent = Some(st);
+            }
         }
         let send = self
             .game()
@@ -541,8 +685,8 @@ missing_cmds = {missing}
             .0
             .is_multiple_of(self.settings.snapshot_every);
         for c in &mut self.clients {
-            // Queued players watch arena 0 until they get a place.
-            let game = &self.arenas[c.arena.unwrap_or(0)].game;
+            // Queued players and spectators watch the busiest arena.
+            let game = &self.arenas[c.arena.unwrap_or(watched)].game;
             c.pending_events.extend(game.events.iter().cloned());
             if !send {
                 continue;

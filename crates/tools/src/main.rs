@@ -58,18 +58,35 @@ fn run() -> Result<(), String> {
                 .parent()
                 .unwrap()
                 .to_path_buf();
-            let r = matchrun::run_client_smoke(&bin_dir, &out, secs);
-            for l in &r.lines {
-                println!("{l}");
-            }
-            if r.failures.is_empty() {
-                println!("CLIENT SMOKE OK");
-                Ok(())
-            } else {
-                for f in &r.failures {
-                    println!("CLIENT SMOKE FAIL: {f}");
+            // Playing and spectating runs in parallel (separate servers).
+            let runs: Vec<_> = [false, true]
+                .into_iter()
+                .map(|spectate| {
+                    let (bin_dir, out) = (bin_dir.clone(), out.clone());
+                    std::thread::spawn(move || {
+                        matchrun::run_client_smoke(&bin_dir, &out, secs, spectate)
+                    })
+                })
+                .collect();
+            let mut failed = false;
+            for h in runs {
+                let r = h.join().map_err(|_| "client smoke thread panicked")?;
+                for l in &r.lines {
+                    println!("{} {l}", r.profile);
                 }
+                if r.failures.is_empty() {
+                    println!("CLIENT SMOKE {} OK", r.profile);
+                } else {
+                    failed = true;
+                    for f in &r.failures {
+                        println!("CLIENT SMOKE {} FAIL: {f}", r.profile);
+                    }
+                }
+            }
+            if failed {
                 Err("client smoke failed".into())
+            } else {
+                Ok(())
             }
         }
         Some("match") => {

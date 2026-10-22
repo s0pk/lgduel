@@ -138,6 +138,8 @@ impl LocalSession {
                 net: None,
             },
             events: self.events.clone(),
+            spectate: None,
+            status: None,
         }
     }
 

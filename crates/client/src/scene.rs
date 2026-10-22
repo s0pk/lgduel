@@ -32,6 +32,18 @@ pub struct FrameView {
     pub hud: HudInfo,
     /// Game events since the previous frame.
     pub events: Vec<GameEvent>,
+    /// Set while watching someone else (`me` is then the watched player):
+    /// the camera uses their view angles instead of the mouse.
+    pub spectate: Option<SpectateView>,
+    /// One line at the top of the screen (arena / queue / spectating).
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SpectateView {
+    pub pitch: Angle,
+    pub yaw: Angle,
+    pub firing: bool,
 }
 
 impl FrameView {
@@ -162,5 +174,8 @@ pub fn hud_mesh(
     let screen = (size.0 as f32, size.1 as f32);
     let vp = cam.view_proj(screen.0 / screen.1.max(1.0));
     hud::build(&mut v, screen, &vp, &fv.hud, numbers, s);
+    if let Some(t) = &fv.status {
+        hud::status_line(&mut v, screen, t, s);
+    }
     v
 }

@@ -2,7 +2,7 @@
 //! (everyone else), producing the same `FrameView` the offline session does.
 
 use crate::hud::{HudInfo, NetGraph};
-use crate::scene::{FrameView, OtherView};
+use crate::scene::{FrameView, OtherView, SpectateView};
 use lgduel_net::client::{ClientState, NetClient};
 use lgduel_net::hitreg::HitReg;
 use lgduel_net::interp::{InterpSettings, Interpolator};
@@ -37,6 +37,8 @@ pub struct NetSession {
     bw_mark: (u64, u64, u64),
     /// Set when the server's map can't be loaded here (we disconnect).
     pub map_error: Option<String>,
+    /// Player we watch while queued / spectating.
+    follow: Option<lgduel_sim::game::PlayerId>,
 }
 
 impl NetSession {
@@ -59,6 +61,7 @@ impl NetSession {
             snap_times: std::collections::VecDeque::new(),
             bw_mark: (0, 0, 0),
             map_error: None,
+            follow: None,
         })
     }
 
@@ -134,20 +137,7 @@ impl NetSession {
         let Some(snap) = self.latest.clone() else {
             return;
         };
-        let Some(mine) = snap.player(me).cloned() else {
-            // Not in an arena (queued): idle commands keep the connection and clock alive.
-            for t in self.client.advance(now) {
-                self.client.send_cmd(
-                    now,
-                    UserCmd {
-                        tick: t,
-                        ..UserCmd::default()
-                    },
-                );
-            }
-            self.view = None;
-            return;
-        };
+        let mine = snap.player(me).cloned();
         // Remote players as rendered this frame (also what our own beam is judged against).
         let mut others = Vec::new();
         for p in snap.players.iter().filter(|p| p.id != me) {
@@ -175,17 +165,6 @@ impl NetSession {
                 (o.id, Aabb::at(o.origin, mins, maxs))
             })
             .collect();
-        for t in self.client.advance(now) {
-            let cmd = cmd_for(t);
-            self.client.send_cmd_with_view(now, cmd, Some(view_tick));
-            predictor.predict(&cmd);
-            if cmd.pressed(buttons::FIRE) && mine.alive {
-                let (f, _, _) = angle_vectors(cmd.pitch, cmd.yaw);
-                let eye = predictor.state.eye(&cfg.physics);
-                let hs = hitscan(&self.world, eye, f, cfg.lg.range, &targets);
-                self.hitreg.record(t.0, hs.target.is_some());
-            }
-        }
         while self
             .snap_times
             .front()
@@ -211,11 +190,41 @@ impl NetSession {
             rubber_bands: predictor.stats.rubber_bands,
             hitreg_pct: self.hitreg.stats.agreement_pct() as f32,
         };
+        let Some(mine) = mine else {
+            // Not in an arena (queued or spectating): idle commands keep the
+            // connection and clock alive; watch one of the players.
+            for t in self.client.advance(now) {
+                self.client.send_cmd(
+                    now,
+                    UserCmd {
+                        tick: t,
+                        ..UserCmd::default()
+                    },
+                );
+            }
+            self.view = self.spectator_view(&snap, others, events, &cfg, net);
+            return;
+        };
+        for t in self.client.advance(now) {
+            let cmd = cmd_for(t);
+            self.client.send_cmd_with_view(now, cmd, Some(view_tick));
+            predictor.predict(&cmd);
+            if cmd.pressed(buttons::FIRE) && mine.alive {
+                let (f, _, _) = angle_vectors(cmd.pitch, cmd.yaw);
+                let eye = predictor.state.eye(&cfg.physics);
+                let hs = hitscan(&self.world, eye, f, cfg.lg.range, &targets);
+                self.hitreg.record(t.0, hs.target.is_some());
+            }
+        }
         let rate = cfg.tick_rate_hz as f32;
+        let eye = predictor.eye();
+        let status = self.status_text();
         self.view = Some(FrameView {
             me,
             me_alive: mine.alive,
-            eye: predictor.eye(),
+            eye,
+            spectate: None,
+            status,
             others,
             hud: HudInfo {
                 health: mine.health,
@@ -232,6 +241,91 @@ impl NetSession {
             },
             events,
         });
+    }
+
+    /// First-person view of a watched player (the one followed before, else
+    /// the first living one).
+    fn spectator_view(
+        &mut self,
+        snap: &Snapshot,
+        mut others: Vec<OtherView>,
+        events: Vec<GameEvent>,
+        cfg: &GameConfig,
+        net: NetGraph,
+    ) -> Option<FrameView> {
+        let i = self
+            .follow
+            .and_then(|f| others.iter().position(|o| o.id == f))
+            .or_else(|| others.iter().position(|o| o.alive))
+            .or((!others.is_empty()).then_some(0))?;
+        let f = others.remove(i);
+        self.follow = Some(f.id);
+        let p = snap.player(f.id)?;
+        let h = if f.ducked {
+            cfg.physics.crouch_view_height
+        } else {
+            cfg.physics.view_height
+        };
+        let rate = cfg.tick_rate_hz as f32;
+        Some(FrameView {
+            me: f.id,
+            me_alive: f.alive,
+            eye: f.origin + Vec3::new(0.0, 0.0, h),
+            hud: HudInfo {
+                health: p.health,
+                accuracy_pct: p.stats.accuracy_pct(),
+                damage_dealt: p.stats.damage_dealt,
+                damage_taken: p.stats.damage_taken,
+                wins: p.stats.fights_won,
+                losses: p.stats.fights_lost,
+                fight_secs: snap
+                    .fight_start
+                    .map(|s| snap.tick.0.saturating_sub(s.0) as f32 / rate),
+                opponent_health: others
+                    .first()
+                    .and_then(|o| snap.player(o.id))
+                    .map(|o| o.health),
+                net: Some(net),
+            },
+            others,
+            events,
+            spectate: Some(SpectateView {
+                pitch: f.pitch,
+                yaw: f.yaw,
+                firing: f.buttons & buttons::FIRE != 0,
+            }),
+            status: self.status_text(),
+        })
+    }
+
+    /// The server's arena/queue status as one HUD line.
+    pub fn status_text(&self) -> Option<String> {
+        let s = self.client.status.as_ref()?;
+        let watch = s.watching as u32 + 1;
+        Some(if s.spectating {
+            format!("SPECTATING ARENA {watch} - ESC > PLAY TO JOIN")
+        } else if s.queue_pos > 0 {
+            format!("QUEUE #{} - WATCHING ARENA {watch}", s.queue_pos)
+        } else {
+            let a = s.arena? as u32 + 1;
+            if s.opponent_bot {
+                format!("ARENA {a} - PRACTICE BOT UNTIL AN OPPONENT JOINS")
+            } else if s.opponent.is_empty() {
+                format!("ARENA {a} - WAITING FOR AN OPPONENT")
+            } else {
+                format!("ARENA {a} - VS {}", s.opponent.to_uppercase())
+            }
+        })
+    }
+
+    /// Watching instead of playing (as last reported by the server).
+    pub fn spectating(&self) -> bool {
+        self.client.status.as_ref().is_some_and(|s| s.spectating)
+    }
+
+    /// Ask the server to let us watch (`true`) or play (`false`).
+    pub fn set_spectate(&mut self, on: bool) {
+        self.client.set_spectate(on);
     }
 
     /// True if we were receiving snapshots and the server went quiet for `secs`.

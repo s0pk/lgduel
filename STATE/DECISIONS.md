@@ -477,3 +477,16 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
   arena's player moves). Players beyond 2·max_arenas wait queued and are sent arena 0's snapshots (watching);
   clients not in the snapshot send idle commands so the connection and clock stay alive.
 - Stats: a client's stats = stats from arenas it left (`past`) + current arena.
+
+## D48 — Practice bot, spectating, status line (2026-10-22)
+- Protocol v4: reliable `Control::Status(ArenaStatus{arena, queue_pos, opponent, opponent_bot, spectating,
+  watching})` server → client whenever it changes; `Control::Spectate{on}` client → server.
+- Practice bot (`practice_bot`, default on, `practice_bot_after_ms` 2000): an arena with exactly one human for
+  that long gets a server-side `lgduel_bot::Bot` (medium aim, random A/D; full game knowledge, but aim error
+  from the skill preset). It leaves as soon as the arena has 0 or 2 humans. Bot ids come from the same pool as
+  client ids. Bots are excluded from the stats file and the browser's player count.
+- Spectators leave their arena (stats kept) and are never queued or placed; spectators and queued players get
+  the busiest arena's snapshots. The client renders a watched player first-person (their view angles and beam;
+  HUD shows their numbers) and keeps sending idle commands. Esc menu online: Spectate / Play.
+- HUD status line (top centre): "ARENA n - VS NAME", "... PRACTICE BOT UNTIL AN OPPONENT JOINS",
+  "QUEUE #k - WATCHING ARENA n", "SPECTATING ARENA n - ESC > PLAY TO JOIN".

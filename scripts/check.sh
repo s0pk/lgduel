@@ -37,7 +37,7 @@ done
 stage "headless match: server + 2 bots, 60 s vamp duel × {clean@arena_flat, lossy 2% 30±10 ms@arena_pillars, highping 100 ms@arena_tiers} in parallel"
 "target/$PROFILE/lgduel-tools" match --secs "${MATCH_SECS:-60}" --maps arena_flat,arena_pillars,arena_tiers --out artifacts
 
-stage "online client smoke: real lgduel --headless --connect vs server + bot"
+stage "online client smoke: real lgduel --headless --connect vs server + bot, and spectating 2 bots (parallel)"
 "target/$PROFILE/lgduel-tools" client-smoke --secs 5 --out artifacts
 
 stage "netem matrix: {0,50,100,200} ms × {0,1,2.5,5}% loss × ±20 ms jitter (MemNet, thresholds asserted)"

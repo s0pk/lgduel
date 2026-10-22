@@ -28,3 +28,5 @@
 - KI-12 (2026-10-22): Bots don't navigate: they strafe/aim where they are, so on multi-level maps
   (arena_tiers) they often fight across levels or without line of sight (hit rate ~7–10% vs ~60% on
   arena_flat). Fine for match/net tests; real practice on those maps wants waypoint-following bots.
+- KI-13 (2026-10-22): Spectators and queued players always watch the busiest arena and follow its first living
+  player; there is no way yet to pick an arena or switch the followed player.

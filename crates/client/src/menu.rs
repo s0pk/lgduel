@@ -79,6 +79,8 @@ pub enum Action {
         address: String,
     },
     RemoveServer(String),
+    /// Online: watch (`true`) or play (`false`).
+    Spectate(bool),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -100,6 +102,8 @@ pub struct Menu {
     /// "Add server" form.
     pub add_name: String,
     pub add_address: String,
+    /// Online: whether we are spectating (None offline); set by the app each frame.
+    pub spectating: Option<bool>,
 }
 
 pub const TITLE: &str = "LGDuel";
@@ -169,6 +173,12 @@ impl Menu {
                             }
                             if ui.button("Settings").clicked() {
                                 self.open_settings(Screen::Pause);
+                            }
+                            if let Some(sp) = self.spectating {
+                                let label = if sp { "Play" } else { "Spectate" };
+                                if ui.button(label).clicked() {
+                                    action = Some(Action::Spectate(!sp));
+                                }
                             }
                             let leave = if online {
                                 "Disconnect"
