@@ -26,7 +26,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] 2.14 Determinism test: input log replayed twice → identical state hash; wired into check.sh
 
 ## Phase 3 — Local playable (deps: 2.x)
-- [ ] 3.1 Client window (winit + wgpu), low-latency present mode, vsync off default, frame-time p50/p99 logging
+- [x] 3.1 Client window (winit + wgpu), low-latency present mode, vsync off default, frame-time p50/p99 logging
 - [ ] 3.2 Offscreen/headless render path + screenshot to artifacts/ + non-blank/colour assertion in check.sh
 - [ ] 3.3 Flat-shaded fullbright arena rendering from map file
 - [ ] 3.4 Raw mouse input, sub-pixel accumulation, cm/360 + DPI sensitivity, FOV 10–130

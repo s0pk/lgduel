@@ -128,3 +128,10 @@ Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update th
 - Determinism test records a 60 s seeded duel's inputs and replays them; hashes must match each other and
   the pinned golden hash 0x9e74a8ea7918ee78. Running the same test on Linux (KI-1) is the cross-platform
   drift check. Any intentional sim change updates the pin (note it in PROGRESS).
+
+## D12 — Client rendering base (2026-10-22)
+- wgpu 30 + winit 0.30, `ControlFlow::Poll`, redraw requested every frame (uncapped). Present mode:
+  vsync off → Immediate > Mailbox > Fifo; vsync on → Fifo. `desired_maximum_frame_latency = 1`.
+- Optional `--fps-cap N` uses sleep-based pacing (good enough for now; a spin-wait tail can be added in
+  Phase 10 if cap accuracy matters).
+- `lgduel --frames N` renders N frames then prints a `FRAMESTATS` line (p50/p99/max, avg fps, present mode).

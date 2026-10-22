@@ -59,3 +59,8 @@
 - `crates/sim/tests/determinism.rs`: seeded drivers (random A/D strafes 150–600 ms, 10% jump segments, range keeping 200–450u, aim with 1.5° vs 4° jitter, always firing) play 7500 ticks; inputs recorded, replayed on a fresh game; hashes equal + pinned. New check.sh stage prints the result.
 - Measured: hash 0x9e74a8ea7918ee78; 994 damage events, 25 kills; accuracy a 57.1% / b 44.1% → 25W-0L in vamp (accuracy gap decides fights, as in the real format). 60 s sim runs in ~0.01 s (release-dbg).
 - Phase 2 (sim core) complete. Verified: check.sh GREEN.
+
+## 2026-10-22 — iteration 13: PLAN 3.1 client window
+- `client`: winit 0.30 app + wgpu 30 `Gfx` (high-perf adapter, sRGB surface, present-mode picker, resize, robust acquire), `FrameStats` (nearest-rank p50/p99), arg parsing (`--frames`, `--vsync`, `--fps-cap`, `--version`). check.sh now runs `lgduel --version` (bare `lgduel` opens a window).
+- Measured (Windows 11, NVIDIA RTX 4060, Vulkan, 1280×720, Immediate, clear-only frames): 1999 frames, p50 0.118 ms, p99 1.623 ms, max 2.051 ms, avg 5709 fps.
+- Verified: `target/release-dbg/lgduel.exe --frames 2000` ran and exited cleanly; check.sh GREEN; unit tests: present-mode preference, percentiles, arg parsing.
