@@ -55,5 +55,6 @@ stage "client offscreen render (1920x1080, screenshot + pixel checks)"
 "target/$PROFILE/lgduel" --headless --frames 3 --menu pause --size 1280x720 --screenshot artifacts/menu.png | grep -E "IMAGE menu|MENU CHECK"
 "target/$PROFILE/lgduel" --headless --frames 3 --menu settings --size 1280x720 --screenshot artifacts/settings.png | grep -E "IMAGE menu|MENU CHECK"
 "target/$PROFILE/lgduel" --headless --frames 3 --menu main --size 1280x720 --screenshot artifacts/mainmenu.png | grep -E "IMAGE menu|MENU CHECK"
+"target/$PROFILE/lgduel" --headless --frames 3 --menu online --size 1280x720 --screenshot artifacts/online_menu.png | grep -E "IMAGE menu|MENU CHECK"
 
 printf '\nCHECK GREEN in %ss\n' "$(( $(date +%s) - start ))"

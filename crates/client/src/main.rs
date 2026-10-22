@@ -11,6 +11,7 @@
 //! that it rendered (non-blank, expected colours present); exit code 1 if not.
 
 mod audio;
+mod browser;
 mod effects;
 mod font;
 mod frame_stats;
@@ -344,15 +345,27 @@ fn run_headless(opts: &Options) -> Result<(), String> {
             ..menu::Menu::default()
         };
         let mut s = opts.s.clone();
+        let entries = server_entries(&s);
+        let mut b = browser::Browser::new();
+        if screen == menu::Screen::Online {
+            // Give listed servers half a second to answer.
+            b.refresh(&entries);
+            let t = Instant::now();
+            while t.elapsed() < Duration::from_millis(500) {
+                b.update(&entries);
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        let rows = b.rows(&entries);
         // A few frames: egui sizes windows on the first and fades them in.
         for _ in 0..5 {
             let out = ui.run_headless((w, h), |ctx| {
-                menu.draw(ctx, &mut s, false);
+                menu.draw(ctx, &mut s, false, &rows);
             });
             ui.skip(out);
         }
         let out = ui.run_headless((w, h), |ctx| {
-            menu.draw(ctx, &mut s, false);
+            menu.draw(ctx, &mut s, false, &rows);
         });
         ui.paint(&off.device, &off.queue, off.color_view(), (w, h), out);
     }
@@ -486,6 +499,20 @@ impl Session {
             Session::Net(n) => (n.world(), n.config()),
         }
     }
+}
+
+/// Shipped servers (official) followed by the player's own.
+fn server_entries(s: &Settings) -> Vec<(settings::ServerEntry, bool)> {
+    let mut v: Vec<_> = browser::shipped_servers()
+        .into_iter()
+        .map(|e| (e, true))
+        .collect();
+    for e in &s.servers {
+        if !v.iter().any(|(o, _)| o.address == e.address) {
+            v.push((e.clone(), false));
+        }
+    }
+    v
 }
 
 /// Offline practice session per the options (bot from practice settings).
@@ -674,6 +701,8 @@ struct App {
     world: World,
     /// When the app started (main-menu camera orbit).
     started: Instant,
+    /// Server browser (created when the Online screen is first shown).
+    browser: Option<browser::Browser>,
     /// None = main menu.
     session: Option<Session>,
     connect_started: Option<Instant>,
@@ -1175,11 +1204,21 @@ impl ApplicationHandler for App {
                         .unwrap_or_default();
                     r.set_hud(&g.device, &g.queue, &hud);
                     let mut action = None;
+                    let entries = server_entries(&self.opts.s);
+                    let rows = if self.menu.screen == menu::Screen::Online {
+                        let b = self.browser.get_or_insert_with(browser::Browser::new);
+                        b.update(&entries);
+                        b.rows(&entries)
+                    } else {
+                        Vec::new()
+                    };
                     let ui_out = match (&mut self.ui, &self.window) {
                         (Some(ui), Some(w)) if self.menu.is_open() => {
                             let online = matches!(self.session, Some(Session::Net(_)));
                             let (menu, s) = (&mut self.menu, &mut self.opts.s);
-                            Some(ui.run_windowed(w, |ctx| action = menu.draw(ctx, s, online)))
+                            Some(
+                                ui.run_windowed(w, |ctx| action = menu.draw(ctx, s, online, &rows)),
+                            )
                         }
                         _ => None,
                     };
@@ -1205,6 +1244,32 @@ impl ApplicationHandler for App {
                         }
                         Some(menu::Action::StartPractice) => self.start_practice(),
                         Some(menu::Action::Connect(addr)) => self.start_online(&addr),
+                        Some(menu::Action::RefreshServers) => {
+                            if let Some(b) = &mut self.browser {
+                                b.refresh(&entries);
+                            }
+                        }
+                        Some(menu::Action::AddServer { name, address }) => {
+                            if !self.opts.s.servers.iter().any(|e| e.address == address) {
+                                self.opts
+                                    .s
+                                    .servers
+                                    .push(settings::ServerEntry { name, address });
+                                self.menu.dirty = true;
+                                self.save_settings();
+                                if let Some(b) = &mut self.browser {
+                                    b.refresh(&server_entries(&self.opts.s));
+                                }
+                            }
+                        }
+                        Some(menu::Action::RemoveServer(address)) => {
+                            self.opts.s.servers.retain(|e| e.address != address);
+                            self.menu.dirty = true;
+                            self.save_settings();
+                            if let Some(b) = &mut self.browser {
+                                b.forget(&address);
+                            }
+                        }
                         Some(menu::Action::Quit) => {
                             self.finish(el);
                             return;
@@ -1332,6 +1397,7 @@ fn main() {
         session,
         connect_started: None,
         started: Instant::now(),
+        browser: None,
         look,
         keys: Keys::default(),
         alt: false,

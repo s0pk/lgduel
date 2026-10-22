@@ -250,3 +250,8 @@
 ## 2026-10-22 — iteration 45: M2.2 main menu state machine
 - menu.rs: screens Main / Practice / Online / Connecting (+ Pause, Settings with return target), actions StartPractice / Connect / CancelConnect, Esc-back; main.rs: `session: Option<Session>`, start_practice / start_online / check_connection / leave_session / end_session, orbit camera, `--practice`, default port in `resolve`; NetSession `server_silent`.
 - Verified (real windowed runs): no args → main menu (3746 fps); `--synthetic-input` → practice; `--connect` to `lgduel host` → "ONLINE joined", net-graph live; connect to a dead port → "MENU No answer from 127.0.0.1:27999 …"; host shutting down mid-game → "MENU Lost connection to the server"; main-menu screenshot inspected; check.sh GREEN (now also renders the main menu).
+
+## 2026-10-22 — iteration 46: M2.3 server browser
+- `config/servers.toml`, `client/src/browser.rs` (Browser: background lookups, Pinger, rows/status), Online screen table + Refresh + Add/Remove + direct connect; per-screen fixed window widths.
+- Bug found by test: inline DNS resolution in refresh blocked (and inflated pings) → background threads.
+- Verified: browser tests (shipped list parses; real UDP server answers with max 16 and RTT < 100 ms; unresolvable name → bad address); Online screen rendered against a live `lgduel host` ("LGDuel Server 6 ms 0/16 arena_flat Vamp 100% On Join") and inspected; check.sh GREEN (renders main/online/pause/settings screens).

@@ -1,0 +1,7 @@
+# Servers listed in the in-game browser (Play online). Shipped with the game.
+# Players can add their own in the browser; those are saved in their settings.
+# Official public servers are added here once they are running.
+
+[[server]]
+name = "This PC (lgduel host)"
+address = "127.0.0.1:27960"

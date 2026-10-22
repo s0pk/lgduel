@@ -2,6 +2,7 @@
 //! Settings edit a `Settings` value in place; the app applies changes live and
 //! saves them when the settings screen is left.
 
+use crate::browser::{Row, Status};
 use crate::effects::BeamStyle;
 use crate::settings::Settings;
 
@@ -69,6 +70,12 @@ pub enum Action {
     /// Connect to this address (host[:port]).
     Connect(String),
     CancelConnect,
+    RefreshServers,
+    AddServer {
+        name: String,
+        address: String,
+    },
+    RemoveServer(String),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -85,6 +92,9 @@ pub struct Menu {
     pub message: Option<String>,
     /// What we are connecting to (Connecting screen).
     pub connecting_to: String,
+    /// "Add server" form.
+    pub add_name: String,
+    pub add_address: String,
 }
 
 pub const TITLE: &str = "LGDuel";
@@ -126,7 +136,13 @@ impl Menu {
     }
 
     /// Draw the current screen; may edit `s` (sets `dirty`) and return an action.
-    pub fn draw(&mut self, ctx: &egui::Context, s: &mut Settings, online: bool) -> Option<Action> {
+    pub fn draw(
+        &mut self,
+        ctx: &egui::Context,
+        s: &mut Settings,
+        online: bool,
+        servers: &[Row],
+    ) -> Option<Action> {
         let mut action = None;
         match self.screen {
             Screen::Closed => {}
@@ -241,7 +257,41 @@ impl Menu {
                 }
             }
             Screen::Online => {
-                centered(ctx, "Play online", 520.0, |ui| {
+                centered(ctx, "Play online", 820.0, |ui| {
+                    action = server_table(ui, servers).or(action.take());
+                    ui.horizontal(|ui| {
+                        if ui.button("Refresh").clicked() {
+                            action = Some(Action::RefreshServers);
+                        }
+                    });
+                    ui.separator();
+                    ui.label("Add a server to the list");
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.add_name)
+                                .hint_text("name")
+                                .desired_width(200.0),
+                        );
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.add_address)
+                                .hint_text("address:port")
+                                .desired_width(260.0),
+                        );
+                        let ok = !self.add_address.trim().is_empty();
+                        if ui.add_enabled(ok, egui::Button::new("Add")).clicked() {
+                            let name = if self.add_name.trim().is_empty() {
+                                self.add_address.trim()
+                            } else {
+                                self.add_name.trim()
+                            };
+                            action = Some(Action::AddServer {
+                                name: name.to_string(),
+                                address: self.add_address.trim().to_string(),
+                            });
+                            self.add_name.clear();
+                            self.add_address.clear();
+                        }
+                    });
                     ui.label("Direct connect (address or address:port)");
                     ui.horizontal(|ui| {
                         let edit = ui.add(
@@ -283,6 +333,78 @@ impl Menu {
         }
         action
     }
+}
+
+/// The server list; returns Join / Remove actions.
+fn server_table(ui: &mut egui::Ui, rows: &[Row]) -> Option<Action> {
+    let mut action = None;
+    if rows.is_empty() {
+        ui.label("No servers listed.");
+        return None;
+    }
+    egui::Grid::new("servers")
+        .striped(true)
+        .num_columns(8)
+        .spacing([12.0, 6.0])
+        .show(ui, |ui| {
+            for h in [
+                "Server", "Ping", "Players", "Map", "Mode", "Anti-lag", "", "",
+            ] {
+                ui.strong(h);
+            }
+            ui.end_row();
+            for r in rows {
+                let dim = egui::Color32::from_gray(130);
+                match &r.status {
+                    Status::Online(p) => {
+                        let compatible = p.info.protocol == lgduel_net::PROTOCOL_VERSION;
+                        ui.label(if p.info.name.is_empty() {
+                            r.name.as_str()
+                        } else {
+                            p.info.name.as_str()
+                        })
+                        .on_hover_text(&r.address);
+                        ui.label(format!("{:.0} ms", p.rtt_ms));
+                        ui.label(format!("{}/{}", p.info.players, p.info.max_players));
+                        ui.label(&p.info.map);
+                        ui.label(if p.info.classic {
+                            "Classic".to_string()
+                        } else {
+                            format!("Vamp {}%", p.info.lifesteal_percent)
+                        });
+                        ui.label(if p.info.anti_lag { "On" } else { "Off" });
+                        if compatible {
+                            if ui.button("Join").clicked() {
+                                action = Some(Action::Connect(r.address.clone()));
+                            }
+                        } else {
+                            ui.colored_label(dim, "other version");
+                        }
+                    }
+                    other => {
+                        ui.colored_label(dim, &r.name).on_hover_text(&r.address);
+                        let what = match other {
+                            Status::Waiting => "…".to_string(),
+                            Status::NoAnswer => "no answer".to_string(),
+                            Status::BadAddress(e) => format!("bad address: {e}"),
+                            Status::Online(_) => unreachable!(),
+                        };
+                        ui.colored_label(dim, what);
+                        for _ in 0..4 {
+                            ui.label("");
+                        }
+                        ui.label("");
+                    }
+                }
+                if r.official {
+                    ui.label("");
+                } else if ui.small_button("Remove").clicked() {
+                    action = Some(Action::RemoveServer(r.address.clone()));
+                }
+                ui.end_row();
+            }
+        });
+    action
 }
 
 /// A fixed-width window in the middle of the screen.

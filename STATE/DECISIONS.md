@@ -423,3 +423,11 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
   without a port get 27960.
 - In game, Esc = pause menu; "Leave practice"/"Disconnect" returns to the main menu (no longer quits).
   On menu screens Esc goes one level back; the cursor is only grabbed while a session runs with no menu.
+
+## D42 — Server browser (2026-10-22)
+- List = shipped `config/servers.toml` (embedded; official, not removable; currently "This PC") + player
+  entries in settings (Add/Remove in the Online screen). Each entry is pinged with the info query on open,
+  every 5 s and on Refresh; shows name (server-reported), ping, players/max, map, Vamp %/Classic, anti-lag,
+  Join (disabled for other protocol versions); "…", "no answer" (2 s), "bad address".
+- Hostnames resolve on background threads (a slow/unknown DNS name must never freeze the UI; found by a
+  test whose ping was inflated by an inline lookup).
