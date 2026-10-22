@@ -10,7 +10,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] 1.4 Shared `sim::config` (serde + TOML) with every gameplay default from DECISIONS.md, load/round-trip test
 
 ## Phase 2 — Sim core (deps: 1.x)
-- [ ] 2.1 Math foundation: Vec3, deterministic float policy (no FMA-dependent ops, fixed op order), state hash
+- [x] 2.1 Math foundation: Vec3, deterministic float policy (no FMA-dependent ops, fixed op order), state hash
 - [ ] 2.2 Fixed-tick loop abstraction (accumulator, tick index; no clocks inside sim)
 - [ ] 2.3 Usercmd: view angles (exact, quantized like wire format), forward/right/up move, buttons (jump/crouch/fire)
 - [ ] 2.4 World geometry: AABB brush list + map data file format, loader + tests

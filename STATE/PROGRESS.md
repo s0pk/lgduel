@@ -11,3 +11,7 @@
 - Added `lgduel_sim::config::GameConfig` (physics, lg, rules sections; `DuelMode` vamp/classic, `HitMode` anti_lag/no_anti_lag) with serde + toml. Defaults = D3 table. Missing keys → defaults; unknown keys rejected; `validate()` enforces invariants (tick 10–1000 Hz, lifesteal ≤100, finite non-negative physics, hull sanity, refire > 0, spawn_health ≤ max_health, classic frag_limit > 0).
 - Added `config/server.example.toml`; a test asserts it equals the defaults so docs cannot drift.
 - Verified: `./scripts/check.sh` → CHECK GREEN (9s). sim tests: 8 passed (defaults valid, round-trip identical, empty doc = defaults, partial override, example file = defaults, unknown field rejected, 7 invalid docs rejected).
+
+## 2026-10-22 — iteration 3: PLAN 2.1 math foundation
+- `sim::math`: `Vec3` (Quake axes, no FMA: `mad` = two rounded ops), `Angle(u32)` = 2^32 units per turn (exact on the wire, wraps naturally, signed view for pitch + clamp), deterministic `sin_cos` (integer octant reduction + fixed Taylor polynomials in f64, only + and *), `angle_vectors` (Quake convention, roll 0), `StateHasher` (FNV-1a 64, stable forever; hashes exact f32 bits).
+- Verified: check.sh GREEN. sim tests 15 passed. Max |sin/cos error| vs std over 100k angles < 1e-14 (asserted). Cardinal angles exact (sin 90° = 1, cos 90° = +0).

@@ -64,3 +64,10 @@ original or CC0/MIT.
   revisit in 2.12 if the community format allows overheal.
 - `lg.knockback = 1.0` is a placeholder scale; real formula and value are decided in PLAN 2.11.
 - Default `hit_mode = anti_lag`; both modes are first-class settings shown in the server browser later.
+
+## D6 — Angles & hashing (2026-10-22)
+- View angles are `Angle(u32)`, 2^32 per 360° (≈8.4e-8°): the client sends exact angles (no Q3 16-bit
+  ANGLE2SHORT loss), so sub-pixel mouse input survives the wire.
+- Trig is our own: integer octant reduction + degree-15/16 Taylor in f64, then cast to f32. Same bits on
+  every IEEE platform. Error < 1e-14 vs std.
+- State hash: FNV-1a 64 over exact bit patterns (not `std::hash`, whose output may change between releases).
