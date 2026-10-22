@@ -22,6 +22,8 @@ pub struct Video {
     pub fps_cap: Option<u32>,
     /// Horizontal FOV at 4:3, Quake style (10–130).
     pub fov: f32,
+    /// Map theme (`classic` = the original flat look).
+    pub theme: String,
 }
 
 impl Default for Video {
@@ -32,6 +34,7 @@ impl Default for Video {
             vsync: false,
             fps_cap: None,
             fov: 110.0,
+            theme: "classic".into(),
         }
     }
 }

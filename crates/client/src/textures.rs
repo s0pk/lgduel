@@ -9,7 +9,6 @@ pub const TEX: u32 = 256;
 /// Mip levels down to 1x1.
 pub const MIPS: u32 = 9;
 /// Most layers in the array (extra textures fall back to layer 0).
-#[allow(dead_code)] // used by themes (next milestone)
 pub const MAX_LAYERS: usize = 64;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -83,7 +82,6 @@ impl TextureSet {
     }
 
     /// Layer for `name`, adding `img` the first time. Past `MAX_LAYERS`: layer 0.
-    #[allow(dead_code)] // used by themes (next milestone)
     pub fn add(&mut self, name: &str, img: Image) -> u32 {
         if let Some(i) = self.index.get(name) {
             return *i;

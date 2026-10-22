@@ -30,6 +30,7 @@ mod render;
 mod scene;
 mod settings;
 mod textures;
+mod theme;
 mod ttf;
 mod ui;
 
@@ -59,12 +60,17 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::CursorGrabMode;
 use winit::window::{Window, WindowId};
 
-const CLEAR: wgpu::Color = wgpu::Color {
-    r: 0.02,
-    g: 0.02,
-    b: 0.03,
-    a: 1.0,
-};
+/// The map theme named in the settings (built-in; unknown names give classic).
+fn theme_style(s: &Settings) -> theme::ThemeStyle {
+    if theme::Theme::builtin(&s.video.theme).is_none() {
+        eprintln!("lgduel: unknown theme {:?}; using classic", s.video.theme);
+    }
+    let style = theme::ThemeStyle::builtin(&s.video.theme);
+    for p in &style.problems {
+        eprintln!("lgduel: {p}");
+    }
+    style
+}
 
 #[derive(Debug, Clone, PartialEq)]
 struct Options {
@@ -167,6 +173,7 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
         match a.as_str() {
             "--frames" => o.frames = Some(num("--frames", val("--frames")?)?),
             "--fps-cap" => o.s.video.fps_cap = Some(num("--fps-cap", val("--fps-cap")?)? as u32),
+            "--theme" => o.s.video.theme = val("--theme")?,
             "--fov" => {
                 o.s.video.fov = val("--fov")?
                     .parse::<f32>()
@@ -427,8 +434,9 @@ fn run_headless_demo(opts: &Options) -> Result<(), String> {
     let (world, cfg) = d.world_cfg();
     let (w, h) = opts.s.video.size;
     let off = offscreen::Offscreen::new(w, h)?;
+    let style = theme_style(&opts.s);
     let mut r = Renderer::new(&off.device, offscreen::FORMAT);
-    r.set_world(&off.device, &off.queue, world, &render::ClassicStyle::new());
+    r.set_world(&off.device, &off.queue, world, &style);
     let cam = scene::view_camera(
         &fv,
         Default::default(),
@@ -466,7 +474,7 @@ fn run_headless_demo(opts: &Options) -> Result<(), String> {
             );
             (cam, scene, hud)
         },
-        CLEAR,
+        style.sky(),
     );
     if let Some(shot) = &opts.screenshot {
         offscreen::save_png(std::path::Path::new(shot), w, h, &off.read_pixels())?;
@@ -498,13 +506,9 @@ fn run_headless(opts: &Options) -> Result<(), String> {
     );
     let world = load_world(&opts.s.practice.map);
     println!("MAP {} ({:016x})", world.name, world.content_hash());
+    let style = theme_style(&opts.s);
     let mut r = Renderer::new(&off.device, offscreen::FORMAT);
-    r.set_world(
-        &off.device,
-        &off.queue,
-        &world,
-        &render::ClassicStyle::new(),
-    );
+    r.set_world(&off.device, &off.queue, &world, &style);
     // Local player at spawn 1, an idle opponent at spawn 2; look at the opponent's chest.
     // Opponent placed 400u in front (mid LG range) so effects are a few pixels wide.
     // Knockback off so the opponent stays put and the picture is stable frame to frame.
@@ -590,7 +594,7 @@ fn run_headless(opts: &Options) -> Result<(), String> {
             );
             (cam, scene, hud)
         },
-        CLEAR,
+        style.sky(),
     );
     println!("SIM hits {total_hits}, HUD {:?}", session.frame_view().hud);
     if let Some(s) = stats.summary() {
@@ -667,12 +671,20 @@ fn run_headless(opts: &Options) -> Result<(), String> {
     let distinct = offscreen::distinct_colors(&px);
     let floor = offscreen::linear_to_srgb8(world.colors[0]);
     let floor_frac = offscreen::color_fraction(&px, floor, 2);
+    let classic = style.is_classic();
     println!(
         "IMAGE distinct colours {distinct}, floor {floor:?} {:.1}%",
         floor_frac * 100.0
     );
     if distinct < 4 {
         return Err(format!("render looks blank ({distinct} colours)"));
+    }
+    // A textured theme has no single floor colour; it must show many (filtered) colours instead.
+    if !classic && distinct < 50 {
+        return Err(format!(
+            "theme {} looks flat ({distinct} colours)",
+            style.name()
+        ));
     }
     let total = (w * h) as f64;
     // The pause menu sits in front of the opponent in the --menu check.
@@ -753,7 +765,7 @@ fn run_headless(opts: &Options) -> Result<(), String> {
             return Err(format!("{name} not visible ({px_count} px)"));
         }
     }
-    if floor_frac < 0.05 {
+    if classic && floor_frac < 0.05 {
         return Err(format!(
             "floor colour covers only {:.2}%",
             floor_frac * 100.0
@@ -958,6 +970,7 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
     };
     let (w, h) = opts.s.video.size;
     let off = offscreen::Offscreen::new(w, h)?;
+    let style = theme_style(&opts.s);
     let mut r = Renderer::new(&off.device, offscreen::FORMAT);
     let colors = EnemyColors::default();
     let hud_settings = HudSettings::default();
@@ -1035,12 +1048,7 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
         .ok_or(format!("never got a frame from {server}: {:?}", n.state()))?;
     let world = n.world().clone();
     println!("MAP {} ({:016x})", world.name, world.content_hash());
-    r.set_world(
-        &off.device,
-        &off.queue,
-        &world,
-        &render::ClassicStyle::new(),
-    );
+    r.set_world(&off.device, &off.queue, &world, &style);
     let cfg = n.config().cloned().ok_or("no config from server")?;
     let cam = Camera {
         eye: fv.eye,
@@ -1076,7 +1084,7 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
             );
             (cam, scene, hud)
         },
-        CLEAR,
+        style.sky(),
     );
     let px = off.read_pixels();
     if let Some(path) = &opts.screenshot {
@@ -1175,6 +1183,8 @@ struct App {
     window: Option<Arc<Window>>,
     gfx: Option<Gfx>,
     renderer: Option<Renderer>,
+    /// How the world is drawn (the map theme).
+    style: theme::ThemeStyle,
     ui: Option<ui::Ui>,
     menu: menu::Menu,
     depth: Option<wgpu::TextureView>,
@@ -1210,6 +1220,16 @@ impl App {
     }
 
     /// Push edited settings into the running game (called while the settings screen is open).
+    /// Rebuild the world style when the theme setting changed.
+    fn refresh_style(&mut self) {
+        if self.style.name() != self.opts.s.video.theme {
+            self.style = theme_style(&self.opts.s);
+            let msg = format!("theme: {}", self.style.name());
+            println!("THEME {msg}");
+            self.menu.console.print(&msg);
+        }
+    }
+
     fn apply_settings(&mut self) {
         let s = &self.opts.s;
         self.look.settings = s.mouse;
@@ -1731,12 +1751,7 @@ impl ApplicationHandler for App {
                     g.config.present_mode
                 );
                 let mut r = Renderer::new(&g.device, g.config.format);
-                r.set_world(
-                    &g.device,
-                    &g.queue,
-                    &self.world,
-                    &render::ClassicStyle::new(),
-                );
+                r.set_world(&g.device, &g.queue, &self.world, &self.style);
                 self.depth = Some(render::depth_texture(
                     &g.device,
                     g.config.width,
@@ -1837,6 +1852,7 @@ impl ApplicationHandler for App {
                     self.simulate(now - last);
                 }
                 self.last_frame = Some(now);
+                self.refresh_style();
                 let fv = self.session.as_ref().and_then(Session::frame_view);
                 let (world, cfg) = match &self.session {
                     Some(s) => s.world_cfg(),
@@ -1878,7 +1894,7 @@ impl ApplicationHandler for App {
                     (&mut self.gfx, &mut self.renderer, &self.depth)
                 {
                     let size = (g.config.width, g.config.height);
-                    r.set_world(&g.device, &g.queue, world, &render::ClassicStyle::new());
+                    r.set_world(&g.device, &g.queue, world, &self.style);
                     r.set_dynamic(&g.device, &g.queue, &dynamic);
                     let hud = fv
                         .as_ref()
@@ -1970,9 +1986,10 @@ impl ApplicationHandler for App {
                         }
                         _ => None,
                     };
+                    let sky = self.style.sky();
                     let ui = &mut self.ui;
                     g.frame(|d, q, v| {
-                        r.draw(d, q, v, depth, size, &cam, CLEAR);
+                        r.draw(d, q, v, depth, size, &cam, sky);
                         if let (Some(ui), Some(out)) = (ui.as_mut(), ui_out) {
                             ui.paint(d, q, v, size, out);
                         }
@@ -2185,7 +2202,9 @@ fn main() {
         opts.s.mouse.degrees_per_count()
     );
     let opts_record = opts.record.clone();
+    let style = theme_style(&opts.s);
     let mut app = App {
+        style,
         world,
         session,
         connect_started: None,

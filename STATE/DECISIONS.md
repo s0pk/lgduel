@@ -608,3 +608,13 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
   old `world_mesh`, kept test-only).
 - `WorldStyle` trait (`key`, `textures`, `look(map, Surface)`) is what themes implement; the renderer re-uploads when
   (map content hash, style key) changes. UVs are planar along the dominant normal axis.
+
+## D61 — Themes (2026-10-23)
+- `theme.rs`: `Theme` (sky, defaults by orientation, materials, per-map overrides; BTreeMaps so the style key is
+  stable) → `ThemeStyle` (implements `WorldStyle`: textures loaded into layers, key = fingerprint). Resolution:
+  map tag (if the theme defines it) → orientation default (floor n.z>0.7, ceiling < -0.7, wall, ramp = convex face
+  with 0.2<n.z≤0.99) → classic look. Built-ins: `classic` (empty theme = the old look, sky 0.02/0.02/0.03) and `grid`
+  (procedural tiles/concrete/panel, light greys tinted by the map colour). Setting `video.theme`, `--theme`,
+  Visuals → Map → Theme; the App rebuilds the style when the setting changes (also via the console cvar).
+- Headless checks: classic keeps the exact floor-colour check; other themes require ≥ 50 distinct colours and the
+  same enemy/HUD/beam checks.

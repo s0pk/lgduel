@@ -376,3 +376,7 @@
 ## 2026-10-23 — iteration 67: visuals T2 textured world pipeline
 - textures.rs (Image, mips, TextureSet, upload), render.rs (box_faces, WorldVertex, Surface/Look/WorldStyle/ClassicStyle, planar_uv, world_mesh_textured, world pipeline + texture bind group, set_world(device, queue, world, style)); callers updated.
 - Verified: classic textured mesh == old mesh for all built-in maps, planar_uv test, mip/dedupe tests, check.sh GREEN 112 s with no pixel-assertion changes, 4552 fps at 1080p (arena_tiers).
+
+## 2026-10-23 — iteration 68: visuals T3 themes
+- theme.rs (Theme, Material, ThemeStyle, procedural textures, available()), settings `video.theme`, menu combo, `--theme`, App `style` + `refresh_style`, headless uses the theme's sky and per-theme checks, check.sh grid render.
+- Verified: 7 theme tests (classic = classic look everywhere, grid layers by orientation, resolution order with per-map override and unknown tag, typo rejection, missing texture reported, procedural textures deterministic with pinned fingerprint, style key stable/different); grid screenshot inspected (textured floor/walls/ceiling, enemy clearly visible, 593 colours); windowed run OK; 6858 fps at 1080p with grid; check.sh GREEN 113 s.

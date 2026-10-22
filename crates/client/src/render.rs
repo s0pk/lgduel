@@ -119,8 +119,6 @@ pub struct WorldVertex {
 }
 
 /// What a world face is, as far as a style can tell.
-// Themes (next milestone) read the tag, normal and kind.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub struct Surface<'a> {
     /// The map entry's material tag.
@@ -153,11 +151,14 @@ pub trait WorldStyle {
     fn look(&self, map: &str, s: Surface) -> Look;
 }
 
-/// The original flat look: map colours, per-face brightness, no texture.
+/// The original flat look: map colours, per-face brightness, no texture
+/// (the reference the classic theme must equal).
+#[cfg(test)]
 pub struct ClassicStyle {
     textures: crate::textures::TextureSet,
 }
 
+#[cfg(test)]
 impl ClassicStyle {
     pub fn new() -> Self {
         Self {
@@ -166,12 +167,14 @@ impl ClassicStyle {
     }
 }
 
+#[cfg(test)]
 impl Default for ClassicStyle {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(test)]
 impl WorldStyle for ClassicStyle {
     fn key(&self) -> u64 {
         0

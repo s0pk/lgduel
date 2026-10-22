@@ -796,6 +796,17 @@ fn color_row(ui: &mut egui::Ui, label: &str, c: &mut [f32; 3]) {
 }
 
 fn visuals_tab(ui: &mut egui::Ui, s: &mut Settings) {
+    ui.heading("Map");
+    row(ui, "Theme", |ui| {
+        let themes = crate::theme::available();
+        egui::ComboBox::from_id_salt("theme")
+            .selected_text(s.video.theme.clone())
+            .show_ui(ui, |ui| {
+                for t in &themes {
+                    ui.selectable_value(&mut s.video.theme, t.clone(), t);
+                }
+            });
+    });
     ui.heading("Beam");
     row(ui, "Style", |ui| {
         egui::ComboBox::from_id_salt("beam")
