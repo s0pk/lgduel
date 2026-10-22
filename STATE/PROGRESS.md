@@ -191,3 +191,10 @@
 - Product fix found by the matrix: `NetClient` arrival-spread now counts every snapshot arrival, not only those arriving as newest → interpolation test improved to 0.00% starved / max 0.320u in all 3 conditions (was 0.03% / 1.04u in the 100±20 ms + 2% case).
 - Test bug found and fixed: the matrix only called `interp.sample` after warm-up, so the adaptive delay (which adapts inside `sample`) hadn't converged on the 200 ms rows → spurious 3.5u jumps right after warm-up.
 - Results table recorded in DECISIONS D31. Verified: check.sh GREEN.
+
+## 2026-10-22 — iteration 35: PLAN 5.3 hit-reg agreement
+- `crates/net/src/hitreg.rs` (HitReg, HitRegStats), `crates/server/tests/hitreg.rs`, NetSession records verdicts per fired command (others sampled before command generation so the verdict uses exactly what is drawn); headless online run now fires and prints agreement.
+- Measured: anti-lag 100.0% (50 ms, 100 ms RTT) vs no-anti-lag 54.0% / 38.2%; 150±40 ms + 2% loss: 77.4% at cap 200 → 100.0% at cap 300 (no-anti-lag 37.0%). Real UDP smoke: 100.0% of 64 shots.
+- Test design fixes: ±1.5° aim noise never produced on-screen misses (false-miss path untested) → ±4°; shot-count bound 150 → 100 for lossy links (events lost with snapshots, KI-10).
+- Finding: rewind ≈ RTT + lead margin + interp delay → default 200 ms cap covers RTT ≲ 140 ms (D32, KI-11).
+- Verified: check.sh GREEN.

@@ -4,15 +4,17 @@
 use crate::hud::HudInfo;
 use crate::scene::{FrameView, OtherView};
 use lgduel_net::client::{ClientState, NetClient};
+use lgduel_net::hitreg::HitReg;
 use lgduel_net::interp::{InterpSettings, Interpolator};
 use lgduel_net::predict::Predictor;
 use lgduel_net::snapshot::Snapshot;
 use lgduel_net::transport::UdpTransport;
 use lgduel_sim::config::GameConfig;
-use lgduel_sim::game::GameEvent;
+use lgduel_sim::game::{GameEvent, hitscan};
+use lgduel_sim::math::{Vec3, angle_vectors};
 use lgduel_sim::tick::Tick;
-use lgduel_sim::usercmd::UserCmd;
-use lgduel_sim::world::World;
+use lgduel_sim::usercmd::{UserCmd, buttons};
+use lgduel_sim::world::{Aabb, World};
 use std::net::SocketAddr;
 use std::time::Instant;
 
@@ -25,6 +27,8 @@ pub struct NetSession {
     latest: Option<Snapshot>,
     view: Option<FrameView>,
     last_us: u64,
+    /// Client-vs-server hit verdict agreement for our LG cells.
+    pub hitreg: HitReg,
 }
 
 impl NetSession {
@@ -42,6 +46,7 @@ impl NetSession {
             latest: None,
             view: None,
             last_us: 0,
+            hitreg: HitReg::default(),
         })
     }
 
@@ -77,6 +82,7 @@ impl NetSession {
         let mut events: Vec<GameEvent> = Vec::new();
         for snap in self.client.take_snapshots() {
             self.interp.push(snap.tick.0, &snap.players);
+            self.hitreg.on_snapshot(me, &snap);
             events.extend(snap.events.iter().cloned());
             let newest = self.latest.as_ref().is_none_or(|l| snap.tick > l.tick);
             if newest {
@@ -91,13 +97,13 @@ impl NetSession {
             return;
         };
         let view_tick = clock - self.interp.settings.delay_ticks;
-        for t in self.client.advance(now) {
-            let cmd = cmd_for(t);
-            self.client.send_cmd_with_view(now, cmd, Some(view_tick));
-            predictor.predict(&cmd);
-        }
-        let Some(snap) = &self.latest else { return };
-        let Some(mine) = snap.player(me) else { return };
+        let Some(snap) = self.latest.clone() else {
+            return;
+        };
+        let Some(mine) = snap.player(me).cloned() else {
+            return;
+        };
+        // Remote players as rendered this frame (also what our own beam is judged against).
         let mut others = Vec::new();
         for p in snap.players.iter().filter(|p| p.id != me) {
             if let Some(v) = self.interp.sample(p.id, clock) {
@@ -110,6 +116,29 @@ impl NetSession {
                     alive: v.alive,
                     buttons: v.buttons,
                 });
+            }
+        }
+        let mins = Vec3::from_array(cfg.physics.player_mins);
+        let targets: Vec<_> = others
+            .iter()
+            .filter(|o| o.alive)
+            .map(|o| {
+                let mut maxs = Vec3::from_array(cfg.physics.player_maxs);
+                if o.ducked {
+                    maxs.z = cfg.physics.crouch_maxs_z;
+                }
+                (o.id, Aabb::at(o.origin, mins, maxs))
+            })
+            .collect();
+        for t in self.client.advance(now) {
+            let cmd = cmd_for(t);
+            self.client.send_cmd_with_view(now, cmd, Some(view_tick));
+            predictor.predict(&cmd);
+            if cmd.pressed(buttons::FIRE) && mine.alive {
+                let (f, _, _) = angle_vectors(cmd.pitch, cmd.yaw);
+                let eye = predictor.state.eye(&cfg.physics);
+                let hs = hitscan(&self.world, eye, f, cfg.lg.range, &targets);
+                self.hitreg.record(t.0, hs.target.is_some());
             }
         }
         let rate = cfg.tick_rate_hz as f32;

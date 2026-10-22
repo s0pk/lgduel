@@ -327,3 +327,16 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
 ≤ 0.31% (only the 0 ms rows with loss and 100 ms/5% exceed 0.02%); max jump 0.32u in 10 cells, ≤ 2.56u worst.
 - Fix found by the matrix: spread estimate now includes late out-of-order snapshot arrivals (the ones the
   buffer must cover). Interpolation test went to 0.00% starved / 0.320u in all 3 of its conditions.
+
+## D32 — Hit-reg agreement & the rewind cap (2026-10-22)
+- `net::hitreg::HitReg`: per fired command the client records its on-screen verdict (hitscan from the
+  predicted eye vs. remote players at their interpolated positions); compared with the server's `Fire`
+  event for that tick (snapshots every tick ⇒ events of tick `snap.tick − 1`). Outcomes: agree / false hit
+  ("I hit on my screen") / false miss. Real client tracks it (`NetSession.hitreg`), printed in the online smoke.
+- Measured (MemNet, ±4° noisy perfect-tracking aim at an A/D strafer, 300u):
+  RTT 50 ms: anti-lag 100.0% vs no-anti-lag 54.0%; RTT 100 ms: 100.0% vs 38.2%;
+  RTT 150±40 ms + 2% loss: 77.4% with the default 200 ms cap, 100.0% with a 300 ms cap (no-anti-lag 37.0%).
+- **Rewind needed ≈ RTT + input-lead margin (2×jitter + 1 tick) + interpolation delay** (the command executes
+  `lead` ticks after it was made; the view is snapshot-clock − delay). With the default `max_rewind_ms = 200`
+  (spec: "e.g. ≤ 200 ms") full compensation covers RTT up to ~140 ms on a clean link. Kept as default;
+  servers for high-ping regions can raise it. Real UDP smoke: 100.0% agreement over 64 shots.

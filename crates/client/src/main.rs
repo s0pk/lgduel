@@ -440,10 +440,16 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
     let mut seen_opponent_frames = 0u64;
     while start.elapsed().as_secs_f64() < opts.secs {
         let a = aim;
+        let fire = if start.elapsed().as_secs_f64() > 1.0 {
+            lgduel_sim::usercmd::buttons::FIRE
+        } else {
+            0
+        };
         n.update(|t| UserCmd {
             tick: t,
             pitch: a.0,
             yaw: a.1,
+            buttons: fire,
             ..UserCmd::default()
         });
         if let Some(fv) = n.frame_view()
@@ -489,12 +495,14 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
         .map(|p| p.stats.clone())
         .unwrap_or_default();
     println!(
-        "ONLINE {:?} | frames {frames}, opponent visible in {seen_opponent_frames} | rtt {:.1} ms | interp delay {:.2} ticks | prediction checked {} mean {:.4} | HUD {:?}",
+        "ONLINE {:?} | frames {frames}, opponent visible in {seen_opponent_frames} | rtt {:.1} ms | interp delay {:.2} ticks | prediction checked {} mean {:.4} | hitreg {:.1}% of {} | HUD {:?}",
         n.state(),
         n.client.conn.stats.rtt_us / 1000.0,
         n.interp.settings.delay_ticks,
         pred.checked,
         pred.mean_error(),
+        n.hitreg.stats.agreement_pct(),
+        n.hitreg.stats.shots(),
         fv.hud
     );
     if let Some(s) = stats.summary() {

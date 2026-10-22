@@ -3,6 +3,7 @@
 
 pub mod client;
 pub mod conn;
+pub mod hitreg;
 pub mod interp;
 pub mod predict;
 pub mod protocol;
