@@ -46,6 +46,108 @@ pub struct SpectateView {
     pub pitch: Angle,
     pub yaw: Angle,
     pub firing: bool,
+    /// The watched player's buttons (jump / crouch / fire for the input display).
+    pub buttons: u8,
+}
+
+/// The camera for a frame: the view eye and the player's own view angles, or
+/// the watched player's. Nothing else moves it: no screen shake or kick on
+/// damage, frags or firing (visibility first; asserted in tests).
+pub fn view_camera(
+    fv: &FrameView,
+    look_pitch: Angle,
+    look_yaw: Angle,
+    fov: f32,
+) -> crate::render::Camera {
+    crate::render::Camera {
+        eye: fv.eye,
+        pitch: fv.spectate.map_or(look_pitch, |s| s.pitch),
+        yaw: fv.spectate.map_or(look_yaw, |s| s.yaw),
+        fov,
+    }
+}
+
+/// Simple LG model in the lower right of the view: barrel + body, flat shaded.
+fn push_gun(v: &mut Vec<Vertex>, cam: &Camera, gun: effects::GunModel) {
+    let scale = match gun {
+        effects::GunModel::None => return,
+        effects::GunModel::Small => 0.45,
+        effects::GunModel::Normal => 0.7,
+    };
+    let (f, r, u) = angle_vectors(cam.pitch, cam.yaw);
+    let (mf, mr, md) = effects::MUZZLE;
+    let at = |fwd: f32, right: f32, down: f32| cam.eye + f * fwd + r * right - u * down;
+    // (centre forward, half length, half width, colour)
+    let parts = [
+        (
+            mf - 4.0 * scale,
+            4.0 * scale,
+            0.9 * scale,
+            [0.30, 0.32, 0.36],
+        ),
+        (
+            mf - 11.0 * scale,
+            4.0 * scale,
+            1.8 * scale,
+            [0.22, 0.24, 0.28],
+        ),
+    ];
+    for (cf, hl, hw, color) in parts {
+        let c = at(cf, mr, md);
+        let corner = |a: f32, b: f32, d: f32| c + f * (a * hl) + r * (b * hw) + u * (d * hw);
+        // Six faces, each two triangles; shaded by which way the face looks.
+        let faces = [
+            (
+                [(1., -1., -1.), (1., 1., -1.), (1., 1., 1.), (1., -1., 1.)],
+                1.0,
+            ),
+            (
+                [
+                    (-1., -1., -1.),
+                    (-1., -1., 1.),
+                    (-1., 1., 1.),
+                    (-1., 1., -1.),
+                ],
+                0.55,
+            ),
+            (
+                [(-1., 1., -1.), (-1., 1., 1.), (1., 1., 1.), (1., 1., -1.)],
+                0.85,
+            ),
+            (
+                [
+                    (-1., -1., -1.),
+                    (1., -1., -1.),
+                    (1., -1., 1.),
+                    (-1., -1., 1.),
+                ],
+                0.72,
+            ),
+            (
+                [(-1., -1., 1.), (1., -1., 1.), (1., 1., 1.), (-1., 1., 1.)],
+                1.0,
+            ),
+            (
+                [
+                    (-1., -1., -1.),
+                    (-1., 1., -1.),
+                    (1., 1., -1.),
+                    (1., -1., -1.),
+                ],
+                0.55,
+            ),
+        ];
+        for (q, shade) in faces {
+            let p = q.map(|(a, b, d)| corner(a, b, d));
+            let col = [color[0] * shade, color[1] * shade, color[2] * shade];
+            for i in [0, 1, 2, 0, 2, 3] {
+                v.push(Vertex {
+                    pos: p[i].to_array(),
+                    color: col,
+                });
+            }
+        }
+    }
 }
 
 impl FrameView {
@@ -141,6 +243,9 @@ pub fn scene_mesh(
             &mut v, fv, world, cfg, fv.me, cam.eye, cam.pitch, cam.yaw, cam.eye, fx, seed,
         );
     }
+    if fv.me_alive {
+        push_gun(&mut v, cam, fx.gun);
+    }
     v
 }
 
@@ -172,6 +277,7 @@ pub fn hud_mesh(
     numbers: &DamageNumbers,
     s: &HudSettings,
     summary: Option<&crate::fight::FightSummary>,
+    input: Option<hud::InputView>,
 ) -> Vec<Vertex> {
     let mut v = Vec::new();
     let screen = (size.0 as f32, size.1 as f32);
@@ -183,5 +289,161 @@ pub fn hud_mesh(
     if let Some(f) = summary {
         hud::centre_block(&mut v, screen, &f.lines(), s);
     }
+    if s.input_display
+        && let Some(i) = input
+    {
+        hud::input_display(&mut v, screen, i, s);
+    }
     v
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::render::Camera;
+    use lgduel_sim::world::builtin;
+
+    fn setup() -> (World, GameConfig, FrameView) {
+        let cfg = GameConfig::default();
+        let p = &cfg.physics;
+        let world = builtin::load(
+            "arena_flat",
+            (
+                Vec3::from_array(p.player_mins),
+                Vec3::from_array(p.player_maxs),
+            ),
+        )
+        .unwrap();
+        let fv = FrameView {
+            me: PlayerId(0),
+            me_alive: true,
+            eye: Vec3::new(-300.0, 0.0, 50.0),
+            others: vec![OtherView {
+                id: PlayerId(1),
+                origin: Vec3::new(100.0, 0.0, 24.0),
+                pitch: Angle::ZERO,
+                yaw: Angle::from_degrees(180.0),
+                ducked: false,
+                alive: true,
+                buttons: buttons::FIRE,
+            }],
+            hud: HudInfo::default(),
+            events: vec![],
+            spectate: None,
+            status: None,
+            stats: vec![],
+        };
+        (world, cfg, fv)
+    }
+
+    fn violent(fv: &FrameView) -> FrameView {
+        let mut f = fv.clone();
+        f.events = vec![
+            GameEvent::Damage {
+                attacker: PlayerId(1),
+                target: PlayerId(0),
+                amount: 7,
+                healed: 7,
+            },
+            GameEvent::Damage {
+                attacker: PlayerId(0),
+                target: PlayerId(1),
+                amount: 7,
+                healed: 7,
+            },
+            GameEvent::Kill {
+                killer: PlayerId(0),
+                victim: PlayerId(1),
+            },
+        ];
+        f
+    }
+
+    #[test]
+    fn no_screen_shake_and_no_blood() {
+        let (world, cfg, fv) = setup();
+        let hurt = violent(&fv);
+        let (p, y) = (Angle::from_degrees(-5.0), Angle::from_degrees(3.0));
+        // The camera never moves because of damage, frags or firing.
+        assert_eq!(
+            view_camera(&fv, p, y, 110.0),
+            view_camera(&hurt, p, y, 110.0)
+        );
+        // Hits and frags add no geometry at all (no blood, gibs or screen flashes):
+        // the dynamic scene is identical with and without them, gun drawn or not.
+        let cam = view_camera(&fv, p, y, 110.0);
+        for gun in [effects::GunModel::None, effects::GunModel::Normal] {
+            let fx = EffectSettings {
+                gun,
+                ..EffectSettings::default()
+            };
+            let colors = EnemyColors::default();
+            let a = scene_mesh(&fv, &world, &cfg, &cam, true, &colors, &fx, 1);
+            let b = scene_mesh(&hurt, &world, &cfg, &cam, true, &colors, &fx, 1);
+            assert_eq!(a, b);
+            assert!(!a.is_empty());
+        }
+    }
+
+    #[test]
+    fn gun_model_options() {
+        let (world, cfg, fv) = setup();
+        let cam = Camera {
+            eye: fv.eye,
+            pitch: Angle::ZERO,
+            yaw: Angle::ZERO,
+            fov: 110.0,
+        };
+        let count = |gun| {
+            let fx = EffectSettings {
+                gun,
+                ..EffectSettings::default()
+            };
+            scene_mesh(
+                &fv,
+                &world,
+                &cfg,
+                &cam,
+                false,
+                &EnemyColors::default(),
+                &fx,
+                1,
+            )
+            .len()
+        };
+        let none = count(effects::GunModel::None);
+        assert_eq!(count(effects::GunModel::Small), none + 72, "two boxes");
+        assert_eq!(count(effects::GunModel::Normal), none + 72);
+        // A dead player sees no gun (compared with gun off, also dead: remote
+        // beams no longer hit a dead player, so the rest of the scene differs).
+        let mut dead = fv.clone();
+        dead.me_alive = false;
+        let fx_none = EffectSettings::default();
+        let none = scene_mesh(
+            &dead,
+            &world,
+            &cfg,
+            &cam,
+            false,
+            &EnemyColors::default(),
+            &fx_none,
+            1,
+        )
+        .len();
+        let fx = EffectSettings {
+            gun: effects::GunModel::Normal,
+            ..EffectSettings::default()
+        };
+        let d = scene_mesh(
+            &dead,
+            &world,
+            &cfg,
+            &cam,
+            false,
+            &EnemyColors::default(),
+            &fx,
+            1,
+        );
+        assert_eq!(d.len(), none);
+    }
 }

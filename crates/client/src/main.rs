@@ -193,6 +193,15 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
                 o.s.effects.beam_style = BeamStyle::parse(&v)
                     .ok_or(format!("--beam must be none|thin|thick|zigzag, got {v}"))?
             }
+            "--gun" => {
+                o.s.effects.gun = match val("--gun")?.as_str() {
+                    "none" => effects::GunModel::None,
+                    "small" => effects::GunModel::Small,
+                    "normal" => effects::GunModel::Normal,
+                    other => return Err(format!("--gun must be none|small|normal, got {other}")),
+                }
+            }
+            "--input-display" => o.s.hud.input_display = true,
             "--no-sparks" => o.s.effects.sparks = false,
             "--no-net-graph" => o.s.hud.net_graph = false,
             "--no-sound" => o.s.audio.volume = 0.0,
@@ -383,7 +392,11 @@ fn run_headless(opts: &Options) -> Result<(), String> {
         fov: opts.s.video.fov,
     };
     let colors = EnemyColors::default();
-    let hud_settings = HudSettings::default();
+    // Default HUD look (the pixel checks expect it), plus the optional input display.
+    let hud_settings = HudSettings {
+        input_display: opts.s.hud.input_display,
+        ..HudSettings::default()
+    };
     let mut numbers = DamageNumbers::default();
     let demo = opts.summary_demo.then_some(fight::FightSummary {
         won: true,
@@ -427,7 +440,22 @@ fn run_headless(opts: &Options) -> Result<(), String> {
                 &opts.s.effects,
                 i,
             );
-            let hud = scene::hud_mesh(&fv, &cam, (w, h), &numbers, &hud_settings, demo.as_ref());
+            // Sample input for the input display: strafing right while firing.
+            let input = hud::InputView {
+                forward: true,
+                right: true,
+                fire: true,
+                ..Default::default()
+            };
+            let hud = scene::hud_mesh(
+                &fv,
+                &cam,
+                (w, h),
+                &numbers,
+                &hud_settings,
+                demo.as_ref(),
+                Some(input),
+            );
             (cam, scene, hud)
         },
         CLEAR,
@@ -870,6 +898,7 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
                 (w, h),
                 &DamageNumbers::default(),
                 &hud_settings,
+                None,
                 None,
             );
             (cam, scene, hud)
@@ -1545,12 +1574,9 @@ impl ApplicationHandler for App {
                 };
                 let cam = match &fv {
                     // Spectating: through the watched player's eyes.
-                    Some(f) => Camera {
-                        eye: f.eye,
-                        pitch: f.spectate.map_or(self.look.pitch, |s| s.pitch),
-                        yaw: f.spectate.map_or(self.look.yaw, |s| s.yaw),
-                        fov: self.opts.s.video.fov,
-                    },
+                    Some(f) => {
+                        scene::view_camera(f, self.look.pitch, self.look.yaw, self.opts.s.video.fov)
+                    }
                     // Main menu: slow orbit around the arena.
                     None => {
                         let t = self.started.elapsed().as_secs_f64() * 0.08;
@@ -1587,6 +1613,24 @@ impl ApplicationHandler for App {
                     let hud = fv
                         .as_ref()
                         .map(|fv| {
+                            let k = self.keys;
+                            let input = match fv.spectate {
+                                Some(sv) => hud::InputView {
+                                    jump: sv.buttons & lgduel_sim::usercmd::buttons::JUMP != 0,
+                                    crouch: sv.buttons & lgduel_sim::usercmd::buttons::CROUCH != 0,
+                                    fire: sv.firing,
+                                    ..Default::default()
+                                },
+                                None => hud::InputView {
+                                    forward: k.forward,
+                                    back: k.back,
+                                    left: k.left,
+                                    right: k.right,
+                                    jump: k.jump,
+                                    crouch: k.crouch,
+                                    fire: k.fire,
+                                },
+                            };
                             scene::hud_mesh(
                                 fv,
                                 &cam,
@@ -1594,6 +1638,7 @@ impl ApplicationHandler for App {
                                 &self.numbers,
                                 &self.opts.s.hud,
                                 self.fights.summary(),
+                                Some(input),
                             )
                         })
                         .unwrap_or_default();

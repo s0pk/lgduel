@@ -568,3 +568,13 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
   runs a file (comments // and #, nesting ≤ 4). Names restricted to [A-Za-z0-9_-] (no paths).
 - UI: ` toggles an opaque top console (egui Area; egui 0.37 panels need a parent Ui); it counts as an open
   menu (mouse released). Console lines can connect/join/practice/disconnect/quit.
+
+## D56 — Input display, gun model, no shake / no blood (2026-10-23)
+- Input display (HUD, off by default): W / A S D / JP CR LG keys above the bottom centre, lit when held; own
+  keys while playing, the watched player's jump/crouch/fire while spectating (movement keys aren't in
+  snapshots).
+- Gun model `effects.gun = none | small | normal` (default none): two flat-shaded boxes along the muzzle line
+  in view space, not drawn while dead.
+- `scene::view_camera` is the only camera source; tests assert the camera and the whole dynamic scene are
+  identical with and without damage/kill events (no screen shake, kick, blood, gibs or flashes).
+- With these, every §1 visibility option is in Settings → Visuals (PLAN 8.2).

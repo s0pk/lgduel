@@ -141,7 +141,7 @@ pub fn push_convex(out: &mut Vec<Vertex>, b: &lgduel_sim::brush::ConvexBrush) {
 }
 
 /// Camera in Quake terms.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Camera {
     pub eye: Vec3,
     pub pitch: Angle,

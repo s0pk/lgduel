@@ -354,6 +354,7 @@ impl NetSession {
                 pitch: f.pitch,
                 yaw: f.yaw,
                 firing: f.buttons & buttons::FIRE != 0,
+                buttons: f.buttons,
             }),
             status: self.status_text(),
             stats: snap.players.iter().map(|p| (p.id, p.stats)).collect(),

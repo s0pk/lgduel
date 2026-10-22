@@ -845,6 +845,19 @@ fn visuals_tab(ui: &mut egui::Ui, s: &mut Settings) {
     row(ui, "Net-graph (F3)", |ui| {
         ui.checkbox(&mut s.hud.net_graph, "");
     });
+    row(ui, "Input display", |ui| {
+        ui.checkbox(&mut s.hud.input_display, "W A S D, jump, crouch, fire");
+    });
+    row(ui, "Gun model", |ui| {
+        use crate::effects::GunModel;
+        for (g, name) in [
+            (GunModel::None, "None"),
+            (GunModel::Small, "Small"),
+            (GunModel::Normal, "Normal"),
+        ] {
+            ui.selectable_value(&mut s.effects.gun, g, name);
+        }
+    });
 }
 
 /// Returns true when "Test hit sound" was pressed.

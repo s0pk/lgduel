@@ -29,9 +29,21 @@ impl BeamStyle {
     }
 }
 
+/// First-person gun model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GunModel {
+    /// No gun (nothing in the lower right of the view).
+    None,
+    Small,
+    Normal,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct EffectSettings {
+    /// Gun model drawn in the own view (default: none).
+    pub gun: GunModel,
     pub beam_style: BeamStyle,
     pub beam_color: [f32; 3],
     /// Impact sparks on/off.
@@ -44,6 +56,7 @@ pub struct EffectSettings {
 impl Default for EffectSettings {
     fn default() -> Self {
         Self {
+            gun: GunModel::None,
             beam_style: BeamStyle::Thin,
             beam_color: [0.55, 0.8, 1.0],
             sparks: true,

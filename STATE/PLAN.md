@@ -103,10 +103,10 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 
 ## Phase 8 — Visibility & settings (deps: 3.x)
 - [x] 8.1 Console + cvar system, `exec`/`writeconfig` profiles
-- [ ] 8.2 Settings UI covering every §1 visibility option
+- [x] 8.2 Settings UI covering every §1 visibility option (with 8.4/8.5, iteration 63)
 - [x] 8.3 Crosshair editor — done in M1.3 (Settings → Visuals, live preview)
-- [ ] 8.4 Input display (WASD/jump/crouch)
-- [ ] 8.5 Gun model options (configurable/absent), no screen shake, no blood (assert)
+- [x] 8.4 Input display (WASD/jump/crouch)
+- [x] 8.5 Gun model options (configurable/absent), no screen shake, no blood (assert)
 
 ## Phase 9 — Demos & stats (deps: 4.x)
 - [ ] 9.1 Demo recording (inputs + snapshots)

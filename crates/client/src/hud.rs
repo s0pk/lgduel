@@ -43,6 +43,20 @@ pub struct HudSettings {
     pub text_shadow: bool,
     pub net_graph: bool,
     pub net_graph_color: [f32; 3],
+    /// Show pressed movement keys (W A S D, jump, crouch, fire) on screen.
+    pub input_display: bool,
+}
+
+/// Keys to show in the input display.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct InputView {
+    pub forward: bool,
+    pub back: bool,
+    pub left: bool,
+    pub right: bool,
+    pub jump: bool,
+    pub crouch: bool,
+    pub fire: bool,
 }
 
 impl Default for HudSettings {
@@ -55,6 +69,7 @@ impl Default for HudSettings {
             text_scale: 3.0,
             text_shadow: true,
             net_graph: true,
+            input_display: false,
             net_graph_color: [1.0, 0.85, 0.4],
         }
     }
@@ -248,6 +263,38 @@ pub fn project(view_proj: &Mat4, screen: (f32, f32), p: Vec3) -> Option<(f32, f3
     }
     let (x, y) = (c.x / c.w, c.y / c.w);
     Some(((x + 1.0) * 0.5 * screen.0, (1.0 - y) * 0.5 * screen.1))
+}
+
+/// Pressed keys as a small key grid above the bottom centre of the screen.
+pub fn input_display(out: &mut Vec<Vertex>, screen: (f32, f32), k: InputView, s: &HudSettings) {
+    let unit = 9.0 * s.text_scale.max(1.0);
+    let gap = unit * 0.15;
+    let x0 = screen.0 * 0.5 - (unit * 1.5 + gap);
+    let y0 = screen.1 - 16.0 - unit * 3.0 - gap * 2.0;
+    let dim = [0.25, 0.25, 0.28];
+    let ts = (s.text_scale * 0.67).max(1.0);
+    let key = |out: &mut Vec<Vertex>, x: f32, y: f32, w: f32, on: bool, text: &str| {
+        let (fill, ink) = if on {
+            (s.text_color, [0.05, 0.05, 0.05])
+        } else {
+            (dim, [0.6, 0.6, 0.6])
+        };
+        push_rect(out, screen, x, y, w, unit, fill);
+        let tx = x + (w - text_width(text, ts)) * 0.5;
+        let ty = y + (unit - GLYPH_H as f32 * ts) * 0.5;
+        push_text(out, screen, tx, ty, ts, ink, text);
+    };
+    let col = |i: f32| x0 + i * (unit + gap);
+    key(out, col(1.0), y0, unit, k.forward, "W");
+    let y1 = y0 + unit + gap;
+    key(out, col(0.0), y1, unit, k.left, "A");
+    key(out, col(1.0), y1, unit, k.back, "S");
+    key(out, col(2.0), y1, unit, k.right, "D");
+    let y2 = y1 + unit + gap;
+    let wide = (unit * 3.0 + gap * 2.0 - gap * 2.0) / 3.0;
+    key(out, col(0.0), y2, wide, k.jump, "JP");
+    key(out, col(0.0) + wide + gap, y2, wide, k.crouch, "CR");
+    key(out, col(0.0) + (wide + gap) * 2.0, y2, wide, k.fire, "LG");
 }
 
 /// One centred line at the top (arena / queue / spectating status).
