@@ -16,10 +16,11 @@ pub struct HostArgs {
     pub bind: Option<String>,
     pub duration: Option<f64>,
     pub stats_file: Option<String>,
+    /// Built-in map name or map file path (overrides the config file).
+    pub map: Option<String>,
 }
 
-pub const USAGE: &str =
-    "[--config server.toml] [--port N] [--bind ADDR] [--duration-secs N] [--stats-file out.toml]";
+pub const USAGE: &str = "[--config server.toml] [--port N] [--bind ADDR] [--map NAME|FILE] [--duration-secs N] [--stats-file out.toml]";
 
 pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<HostArgs, String> {
     let mut a = HostArgs::default();
@@ -30,6 +31,7 @@ pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<HostArgs, St
             "--config" => a.config = Some(val()?),
             "--port" => a.port = Some(val()?.parse().map_err(|_| "--port needs a number")?),
             "--bind" => a.bind = Some(val()?),
+            "--map" => a.map = Some(val()?),
             "--stats-file" => a.stats_file = Some(val()?),
             "--duration-secs" => {
                 a.duration = Some(
@@ -50,9 +52,12 @@ pub fn load_world(map: &str, cfg: &ServerConfig) -> Result<World, String> {
         Vec3::from_array(p.player_mins),
         Vec3::from_array(p.player_maxs),
     );
-    let text = match map {
-        "arena_flat" => builtin::ARENA_FLAT.to_string(),
-        path => std::fs::read_to_string(path).map_err(|e| format!("map {path}: {e}"))?,
+    let text = match builtin::source(map) {
+        Some(src) => src.to_string(),
+        None => std::fs::read_to_string(map).map_err(|e| {
+            let names: Vec<&str> = builtin::ALL.iter().map(|(n, _)| *n).collect();
+            format!("map {map}: {e} (built-in maps: {})", names.join(", "))
+        })?,
     };
     World::from_toml_str(&text, hull).map_err(|e| e.to_string())
 }
@@ -93,6 +98,9 @@ pub fn config_from_args(args: &HostArgs) -> Result<ServerConfig, String> {
     }
     if let Some(b) = &args.bind {
         cfg.server.bind = b.clone();
+    }
+    if let Some(m) = &args.map {
+        cfg.server.map = m.clone();
     }
     Ok(cfg)
 }
@@ -205,9 +213,10 @@ mod tests {
     fn parses_host_args() {
         assert_eq!(parse_args(args("")).unwrap(), HostArgs::default());
         let a = parse_args(args(
-            "--port 1234 --bind 127.0.0.1 --duration-secs 2.5 --config c.toml --stats-file s.toml",
+            "--port 1234 --bind 127.0.0.1 --duration-secs 2.5 --config c.toml --stats-file s.toml --map arena_tiers",
         ))
         .unwrap();
+        assert_eq!(a.map.as_deref(), Some("arena_tiers"));
         assert_eq!(a.port, Some(1234));
         assert_eq!(a.bind.as_deref(), Some("127.0.0.1"));
         assert_eq!(a.duration, Some(2.5));

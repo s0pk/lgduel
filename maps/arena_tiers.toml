@@ -1,0 +1,83 @@
+# arena_tiers — three levels: ground (west), a mid deck 96 up (east) reached by a ramp and stairs,
+# and a high deck 192 up in the south-east corner reached by a ramp from the mid deck.
+# Original map, CC0. Units: Quake units; floor top z = 0.
+
+name = "arena_tiers"
+default_color = [0.55, 0.55, 0.58]
+
+# ground floor
+[[brush]]
+min = [-1024.0, -1024.0, -32.0]
+max = [1024.0, 1024.0, 0.0]
+color = [0.35, 0.36, 0.40]
+
+# walls and ceiling
+[[brush]]
+min = [1024.0, -1056.0, -32.0]
+max = [1056.0, 1056.0, 1024.0]
+[[brush]]
+min = [-1056.0, -1056.0, -32.0]
+max = [-1024.0, 1056.0, 1024.0]
+[[brush]]
+min = [-1024.0, 1024.0, -32.0]
+max = [1024.0, 1056.0, 1024.0]
+[[brush]]
+min = [-1024.0, -1056.0, -32.0]
+max = [1024.0, -1024.0, 1024.0]
+[[brush]]
+min = [-1056.0, -1056.0, 1024.0]
+max = [1056.0, 1056.0, 1056.0]
+color = [0.25, 0.25, 0.28]
+
+# mid deck (east half, 96 up)
+[[brush]]
+min = [256.0, -1024.0, 0.0]
+max = [1024.0, 1024.0, 96.0]
+color = [0.42, 0.45, 0.52]
+
+# ramp onto the mid deck (run 256 → ~20.6°)
+[[ramp]]
+min = [0.0, -160.0, 0.0]
+max = [256.0, 160.0, 96.0]
+rise = "+x"
+color = [0.48, 0.51, 0.58]
+
+# stairs onto the mid deck (6 × 16u)
+[[stairs]]
+min = [64.0, 560.0, 0.0]
+max = [256.0, 752.0, 96.0]
+rise = "+x"
+steps = 6
+color = [0.48, 0.51, 0.58]
+
+# high deck (south-east, 192 up)
+[[brush]]
+min = [704.0, -1024.0, 96.0]
+max = [1024.0, -448.0, 192.0]
+color = [0.46, 0.42, 0.50]
+
+# ramp from the mid deck to the high deck (run 224 → ~23°)
+[[ramp]]
+min = [480.0, -800.0, 96.0]
+max = [704.0, -608.0, 192.0]
+rise = "+x"
+color = [0.52, 0.48, 0.56]
+
+# a low wall on the ground floor for cover
+[[brush]]
+min = [-480.0, 256.0, 0.0]
+max = [-448.0, 640.0, 48.0]
+color = [0.50, 0.48, 0.46]
+
+[[spawn]]
+origin = [-768.0, 0.0, 24.0]
+yaw = 0.0
+[[spawn]]
+origin = [640.0, 400.0, 120.0]
+yaw = 180.0
+[[spawn]]
+origin = [-768.0, 700.0, 24.0]
+yaw = 0.0
+[[spawn]]
+origin = [864.0, -736.0, 216.0]
+yaw = 135.0

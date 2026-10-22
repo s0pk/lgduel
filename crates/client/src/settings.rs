@@ -58,6 +58,8 @@ pub struct Practice {
     pub pattern: String,
     /// Aim: easy | medium | hard | aimbot.
     pub skill: String,
+    /// Built-in map name.
+    pub map: String,
 }
 
 impl Default for Practice {
@@ -66,6 +68,7 @@ impl Default for Practice {
             bot: true,
             pattern: "ad".into(),
             skill: "medium".into(),
+            map: "arena_flat".into(),
         }
     }
 }
@@ -80,6 +83,8 @@ pub struct HostSettings {
     pub classic: bool,
     pub lifesteal_percent: u32,
     pub anti_lag: bool,
+    /// Built-in map name.
+    pub map: String,
 }
 
 impl Default for HostSettings {
@@ -90,6 +95,7 @@ impl Default for HostSettings {
             classic: false,
             lifesteal_percent: 100,
             anti_lag: true,
+            map: "arena_flat".into(),
         }
     }
 }
@@ -167,6 +173,11 @@ impl Settings {
             self.name = "player".into();
         }
         self.host.lifesteal_percent = self.host.lifesteal_percent.min(100);
+        for map in [&mut self.practice.map, &mut self.host.map] {
+            if lgduel_sim::world::builtin::source(map).is_none() {
+                *map = "arena_flat".into();
+            }
+        }
         if self.host.port == 0 {
             self.host.port = 27960;
         }
@@ -278,6 +289,11 @@ mod tests {
         assert_eq!(s.audio.volume, 1.0);
         assert_eq!(s.mouse.dpi, MouseSettings::default().dpi);
         assert_eq!(s.name, "player");
+        let s =
+            Settings::from_toml("[practice]\nmap = \"nowhere\"\n[host]\nmap = \"arena_tiers\"\n")
+                .unwrap();
+        assert_eq!(s.practice.map, "arena_flat");
+        assert_eq!(s.host.map, "arena_tiers");
     }
 
     #[test]

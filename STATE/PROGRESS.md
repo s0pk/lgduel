@@ -269,3 +269,11 @@
 ## 2026-10-22 — iteration 49: M3.2 map format + convex rendering
 - world.rs: `[[ramp]]` (min/max/rise/color → wedge), `[[stairs]]` (steps 1–64 → boxes climbing toward `rise`), `[[convex]]` (raw planes); errors name the entry; spawns rejected if inside a convex solid. render.rs: `push_convex` (fan-triangulated faces from `ConvexBrush::face`), `shade_for` (normal-blended fullbright shade, identical to box shades on axis normals).
 - Verified: map test (floor + 4 stairs + ramp + convex load; tallest step at the −x end reaching max.z; bad rise / steps 0 / spawn inside ramp rejected with reasons); render test (ramp → 8 triangles, shades); client 45 / sim 59 tests; check.sh GREEN.
+
+
+## 2026-10-22 — iteration 50: M3.3 new maps + map agreement
+- maps/arena_pillars.toml (4 pillars, raised centre with ramps E/W and stairs N/S), maps/arena_tiers.toml (ground, mid deck 96u via ramp + stairs, high deck 192u via ramp, low cover wall); both original (CC0).
+- sim: `World::content_hash` (parsed geometry, not colours/bytes), `builtin::{ALL, source, load, matching}`.
+- net: protocol v3, `Accept{.., map, map_hash}`, `NetClient.map`. server: sends name + hash; `--map`; example config gains `[server]` (still = defaults). client: NetSession/NetBot switch to the announced built-in map or disconnect with `map_error` (menu shows "Can't join: …"); renderer re-uploads world on hash change; Practice + Host screens get a Map combo (settings `practice.map`, `host.map`, sanitised); `--map`.
+- tools: `match --maps a,b,c` (per profile); check.sh runs clean@arena_flat, lossy@arena_pillars, highping@arena_tiers and renders both new maps.
+- Verified: tests — builtin maps load (names match, distinct hashes), hash ignores colour/CRLF but tracks geometry/spawns, server tests/maps.rs (bots holding arena_flat switch to pillars/tiers and fight, prediction exact; edited same-name map → "differs" + disconnected; unknown name → "doesn't have"), settings sanitise unknown map; headless screenshots of both maps inspected (ramps, stairs, decks visible; RENDER CHECK OK); check.sh GREEN 101 s (matches on all three maps OK).

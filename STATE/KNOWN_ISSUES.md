@@ -25,3 +25,6 @@
 - KI-11 (2026-10-22): Default anti-lag cap (200 ms) only fully compensates RTT ≲ 140 ms because the rewind
   includes the input lead and interpolation delay (D32). Consider exposing "max ping fully compensated" in
   the server browser, or a 250–300 ms default after community feedback.
+- KI-12 (2026-10-22): Bots don't navigate: they strafe/aim where they are, so on multi-level maps
+  (arena_tiers) they often fight across levels or without line of sight (hit rate ~7–10% vs ~60% on
+  arena_flat). Fine for match/net tests; real practice on those maps wants waypoint-following bots.

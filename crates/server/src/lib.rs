@@ -117,6 +117,8 @@ pub struct Server<T: Transport> {
     /// Anti-lag diagnostics: how far back shots were rewound (ticks), and how
     /// many requests exceeded `max_rewind_ms` and were clamped.
     pub rewind_stats: RewindStats,
+    /// `World::content_hash` of the map (sent in the accept).
+    map_hash: u64,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -151,6 +153,7 @@ impl<T: Transport> Server<T> {
     pub fn new(transport: T, cfg: ServerConfig, world: World, secret: u64) -> Self {
         Self {
             transport,
+            map_hash: world.content_hash(),
             game: Game::new(cfg.game, world),
             settings: cfg.server,
             clients: Vec::new(),
@@ -375,6 +378,8 @@ missing_cmds = {missing}
             player,
             tick_rate: self.game.cfg.tick_rate_hz,
             config_toml: self.game.cfg.to_toml_string(),
+            map: self.game.world.name.clone(),
+            map_hash: self.map_hash,
         };
         self.reply(to, m);
     }

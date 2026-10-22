@@ -219,6 +219,15 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
             "--settings" => o.settings_path = Some(val("--settings")?.into()),
             "--connect" => o.connect = Some(val("--connect")?),
             "--practice" => o.practice = true,
+            "--map" => {
+                let m = val("--map")?;
+                if builtin::source(&m).is_none() {
+                    let names: Vec<&str> = builtin::ALL.iter().map(|(n, _)| *n).collect();
+                    return Err(format!("unknown map {m} (built-in: {})", names.join(", ")));
+                }
+                o.s.practice.map = m.clone();
+                o.s.host.map = m;
+            }
             "--host-game" => o.host_game = true,
             "--name" => o.s.name = val("--name")?,
             "--secs" => {
@@ -259,13 +268,17 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
     Ok(o)
 }
 
-fn load_world() -> World {
+/// A built-in map by name (arena_flat if unknown).
+fn load_world(name: &str) -> World {
     let p = GameConfig::default().physics;
     let hull = (
         Vec3::from_array(p.player_mins),
         Vec3::from_array(p.player_maxs),
     );
-    World::from_toml_str(builtin::ARENA_FLAT, hull).expect("builtin map")
+    builtin::load(name, hull).unwrap_or_else(|e| {
+        eprintln!("{e}; using arena_flat");
+        builtin::load("arena_flat", hull).expect("builtin map")
+    })
 }
 
 fn run_headless(opts: &Options) -> Result<(), String> {
@@ -275,7 +288,8 @@ fn run_headless(opts: &Options) -> Result<(), String> {
         "GPU {} ({:?}) offscreen {w}x{h}",
         off.adapter_info.name, off.adapter_info.backend
     );
-    let world = load_world();
+    let world = load_world(&opts.s.practice.map);
+    println!("MAP {} ({:016x})", world.name, world.content_hash());
     let mut r = Renderer::new(&off.device, offscreen::FORMAT);
     r.set_world(&off.device, &world);
     // Local player at spawn 1, an idle opponent at spawn 2; look at the opponent's chest.
@@ -518,6 +532,7 @@ impl HostHandle {
         let mut cfg = lgduel_server::ServerConfig::default();
         cfg.server.name = h.name.clone();
         cfg.server.port = h.port;
+        cfg.server.map = h.map.clone();
         cfg.game.rules.mode = if h.classic {
             lgduel_sim::config::DuelMode::Classic
         } else {
@@ -615,13 +630,11 @@ fn resolve(addr: &str) -> Result<std::net::SocketAddr, String> {
 /// colours. Proves network + snapshots + interpolation + prediction + render.
 fn run_headless_online(opts: &Options) -> Result<(), String> {
     let server = resolve(opts.connect.as_deref().unwrap())?;
-    let world = load_world();
-    let mut n =
-        NetSession::connect(server, &opts.s.name, world.clone()).map_err(|e| e.to_string())?;
+    let mut n = NetSession::connect(server, &opts.s.name, load_world(&opts.s.practice.map))
+        .map_err(|e| e.to_string())?;
     let (w, h) = opts.s.video.size;
     let off = offscreen::Offscreen::new(w, h)?;
     let mut r = Renderer::new(&off.device, offscreen::FORMAT);
-    r.set_world(&off.device, &world);
     let colors = EnemyColors::default();
     let hud_settings = HudSettings::default();
     let start = Instant::now();
@@ -651,10 +664,16 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
         frames += 1;
         std::thread::sleep(Duration::from_millis(2));
     }
+    if let Some(e) = &n.map_error {
+        return Err(format!("can't join {server}: {e}"));
+    }
     let fv = n
         .frame_view()
         .cloned()
         .ok_or(format!("never got a frame from {server}: {:?}", n.state()))?;
+    let world = n.world().clone();
+    println!("MAP {} ({:016x})", world.name, world.content_hash());
+    r.set_world(&off.device, &world);
     let cfg = n.config().cloned().ok_or("no config from server")?;
     let cam = Camera {
         eye: fv.eye,
@@ -960,6 +979,7 @@ impl App {
     fn start_practice(&mut self) {
         self.save_settings();
         self.opts.bot = practice_bot(&self.opts.s.practice);
+        self.world = load_world(&self.opts.s.practice.map);
         let (session, yaw) = new_practice(&self.opts, &self.world);
         self.look = MouseLook::new(self.opts.s.mouse, yaw);
         self.session = Some(session);
@@ -1019,6 +1039,10 @@ impl App {
             return;
         };
         let problem = match n.state() {
+            _ if n.map_error.is_some() => Some(format!(
+                "Can't join: {}",
+                n.map_error.as_deref().unwrap_or_default()
+            )),
             lgduel_net::client::ClientState::Rejected(r) => Some(format!("Server refused: {r}")),
             lgduel_net::client::ClientState::Disconnected(r) => Some(format!("Disconnected: {r}")),
             _ if self.menu.screen == menu::Screen::Connecting
@@ -1284,6 +1308,7 @@ impl ApplicationHandler for App {
                     (&mut self.gfx, &mut self.renderer, &self.depth)
                 {
                     let size = (g.config.width, g.config.height);
+                    r.set_world(&g.device, world);
                     r.set_dynamic(&g.device, &g.queue, &dynamic);
                     let hud = fv
                         .as_ref()
@@ -1460,7 +1485,7 @@ fn main() {
         println!("SOUND TEST played 5 hit sounds");
         return;
     }
-    let world = load_world();
+    let world = load_world(&opts.s.practice.map);
     let mut first_menu = menu::Menu::default();
     let mut connect_to = None;
     let (session, start_yaw) = if let Some(addr) = &opts.connect {

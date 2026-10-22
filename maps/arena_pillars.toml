@@ -1,0 +1,92 @@
+# arena_pillars — open 2048x2048 floor with four pillars and a raised centre platform
+# (ramps east/west, stairs north/south). Original map, CC0. Units: Quake units; floor top z = 0.
+
+name = "arena_pillars"
+default_color = [0.55, 0.55, 0.58]
+
+# floor
+[[brush]]
+min = [-1024.0, -1024.0, -32.0]
+max = [1024.0, 1024.0, 0.0]
+color = [0.35, 0.36, 0.40]
+
+# walls (+x, -x, +y, -y) and ceiling
+[[brush]]
+min = [1024.0, -1056.0, -32.0]
+max = [1056.0, 1056.0, 1024.0]
+[[brush]]
+min = [-1056.0, -1056.0, -32.0]
+max = [-1024.0, 1056.0, 1024.0]
+[[brush]]
+min = [-1024.0, 1024.0, -32.0]
+max = [1024.0, 1056.0, 1024.0]
+[[brush]]
+min = [-1024.0, -1056.0, -32.0]
+max = [1024.0, -1024.0, 1024.0]
+[[brush]]
+min = [-1056.0, -1056.0, 1024.0]
+max = [1056.0, 1056.0, 1056.0]
+color = [0.25, 0.25, 0.28]
+
+# four pillars
+[[brush]]
+min = [-512.0, -512.0, 0.0]
+max = [-448.0, -448.0, 384.0]
+color = [0.48, 0.47, 0.52]
+[[brush]]
+min = [448.0, -512.0, 0.0]
+max = [512.0, -448.0, 384.0]
+color = [0.48, 0.47, 0.52]
+[[brush]]
+min = [-512.0, 448.0, 0.0]
+max = [-448.0, 512.0, 384.0]
+color = [0.48, 0.47, 0.52]
+[[brush]]
+min = [448.0, 448.0, 0.0]
+max = [512.0, 512.0, 384.0]
+color = [0.48, 0.47, 0.52]
+
+# raised centre platform (64 high)
+[[brush]]
+min = [-192.0, -192.0, 0.0]
+max = [192.0, 192.0, 64.0]
+color = [0.44, 0.46, 0.50]
+
+# ramps up to it from east and west (128 run → ~27°)
+[[ramp]]
+min = [192.0, -96.0, 0.0]
+max = [320.0, 96.0, 64.0]
+rise = "-x"
+color = [0.50, 0.52, 0.56]
+[[ramp]]
+min = [-320.0, -96.0, 0.0]
+max = [-192.0, 96.0, 64.0]
+rise = "+x"
+color = [0.50, 0.52, 0.56]
+
+# stairs from north and south (4 × 16u steps)
+[[stairs]]
+min = [-64.0, 192.0, 0.0]
+max = [64.0, 320.0, 64.0]
+rise = "-y"
+steps = 4
+color = [0.50, 0.52, 0.56]
+[[stairs]]
+min = [-64.0, -320.0, 0.0]
+max = [64.0, -192.0, 64.0]
+rise = "+y"
+steps = 4
+color = [0.50, 0.52, 0.56]
+
+[[spawn]]
+origin = [-768.0, 0.0, 24.0]
+yaw = 0.0
+[[spawn]]
+origin = [768.0, 0.0, 24.0]
+yaw = 180.0
+[[spawn]]
+origin = [0.0, -768.0, 24.0]
+yaw = 90.0
+[[spawn]]
+origin = [0.0, 768.0, 24.0]
+yaw = 270.0

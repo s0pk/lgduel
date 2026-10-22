@@ -35,6 +35,8 @@ pub struct NetSession {
     snap_times: std::collections::VecDeque<u64>,
     /// (time, bytes in, bytes out) at the start of the bandwidth window.
     bw_mark: (u64, u64, u64),
+    /// Set when the server's map can't be loaded here (we disconnect).
+    pub map_error: Option<String>,
 }
 
 impl NetSession {
@@ -56,6 +58,7 @@ impl NetSession {
             last_snapshot_us: None,
             snap_times: std::collections::VecDeque::new(),
             bw_mark: (0, 0, 0),
+            map_error: None,
         })
     }
 
@@ -84,6 +87,26 @@ impl NetSession {
         let (Some(me), Some(cfg)) = (self.client.player(), self.client.config.clone()) else {
             return;
         };
+        if self.map_error.is_some() {
+            return;
+        }
+        if self.predictor.is_none()
+            && let Some((name, hash)) = self.client.map.clone()
+            && self.world.content_hash() != hash
+        {
+            let hull = (
+                Vec3::from_array(cfg.physics.player_mins),
+                Vec3::from_array(cfg.physics.player_maxs),
+            );
+            match lgduel_sim::world::builtin::matching(&name, hash, hull) {
+                Ok(w) => self.world = w,
+                Err(e) => {
+                    self.map_error = Some(e);
+                    self.client.disconnect(now);
+                    return;
+                }
+            }
+        }
         self.interp.settings.tick_hz = cfg.tick_rate_hz as f64;
         let predictor = self
             .predictor

@@ -34,9 +34,15 @@ fn kv(line: &str) -> HashMap<String, String> {
         .collect()
 }
 
-pub fn run_match(bin_dir: &Path, profile_name: &str, secs: f64, out_dir: &Path) -> MatchResult {
+pub fn run_match(
+    bin_dir: &Path,
+    profile_name: &str,
+    map: &str,
+    secs: f64,
+    out_dir: &Path,
+) -> MatchResult {
     let mut r = MatchResult {
-        profile: profile_name.to_string(),
+        profile: format!("{profile_name}@{map}"),
         lines: vec![],
         failures: vec![],
     };
@@ -64,6 +70,8 @@ pub fn run_match(bin_dir: &Path, profile_name: &str, secs: f64, out_dir: &Path) 
             &port.to_string(),
             "--duration-secs",
             &format!("{}", secs + 3.0),
+            "--map",
+            map,
         ])
         .arg("--stats-file")
         .arg(&stats_path)

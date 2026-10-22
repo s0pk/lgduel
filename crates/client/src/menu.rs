@@ -114,6 +114,11 @@ const RESOLUTIONS: [(u32, u32); 6] = [
 ];
 const PATTERNS: [&str; 6] = ["still", "ad", "mirror", "anti", "hsw", "hswanti"];
 const SKILLS: [&str; 4] = ["easy", "medium", "hard", "aimbot"];
+const MAPS: [&str; 3] = [
+    lgduel_sim::world::builtin::ALL[0].0,
+    lgduel_sim::world::builtin::ALL[1].0,
+    lgduel_sim::world::builtin::ALL[2].0,
+];
 
 impl Menu {
     pub fn is_open(&self) -> bool {
@@ -339,6 +344,9 @@ impl Menu {
                                 .char_limit(lgduel_net::protocol::MAX_INFO_TEXT),
                         );
                     });
+                    row(ui, "Map", |ui| {
+                        combo(ui, "host_map", &mut h.map, &MAPS);
+                    });
                     row(ui, "UDP port", |ui| {
                         ui.add(egui::DragValue::new(&mut h.port).range(1024..=65535));
                     });
@@ -473,6 +481,9 @@ fn centered(ctx: &egui::Context, title: &str, width: f32, add: impl FnOnce(&mut 
 }
 
 fn practice_settings(ui: &mut egui::Ui, s: &mut Settings) {
+    row(ui, "Map", |ui| {
+        combo(ui, "practice_map", &mut s.practice.map, &MAPS);
+    });
     row(ui, "Bot", |ui| {
         ui.checkbox(&mut s.practice.bot, "");
     });

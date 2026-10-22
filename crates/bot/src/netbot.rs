@@ -18,6 +18,8 @@ pub struct NetBot<T: Transport> {
     mirror: Option<Game>,
     predictor: Option<Predictor>,
     pub snapshots: u64,
+    /// Set when the server's map isn't one we have (the bot then stays idle).
+    pub map_error: Option<String>,
 }
 
 impl<T: Transport> NetBot<T> {
@@ -29,11 +31,17 @@ impl<T: Transport> NetBot<T> {
             mirror: None,
             predictor: None,
             snapshots: 0,
+            map_error: None,
         }
     }
 
     pub fn state(&self) -> &ClientState {
         &self.client.state
+    }
+
+    /// The map the bot plays on (the server's, once connected).
+    pub fn world(&self) -> &World {
+        &self.world
     }
 
     /// Run one frame at `now_us`.
@@ -42,6 +50,27 @@ impl<T: Transport> NetBot<T> {
         let (Some(me), Some(cfg)) = (self.client.player(), self.client.config.clone()) else {
             return;
         };
+        if self.map_error.is_some() {
+            return;
+        }
+        // Play on the server's map (a built-in one) if it isn't the one we were given.
+        if self.mirror.is_none()
+            && let Some((name, hash)) = self.client.map.clone()
+            && self.world.content_hash() != hash
+        {
+            let hull = (
+                lgduel_sim::math::Vec3::from_array(cfg.physics.player_mins),
+                lgduel_sim::math::Vec3::from_array(cfg.physics.player_maxs),
+            );
+            match lgduel_sim::world::builtin::matching(&name, hash, hull) {
+                Ok(w) => self.world = w,
+                Err(e) => {
+                    self.map_error = Some(e);
+                    self.client.disconnect(now_us);
+                    return;
+                }
+            }
+        }
         let mirror = self
             .mirror
             .get_or_insert_with(|| Game::new(cfg.clone(), self.world.clone()));

@@ -34,8 +34,8 @@ for bin in lgduel-bot lgduel-tools; do
     echo "ok: $bin"
 done
 
-stage "headless match: server + 2 bots, 60 s vamp duel × {clean, lossy 2% 30±10 ms, highping 100 ms} in parallel"
-"target/$PROFILE/lgduel-tools" match --secs "${MATCH_SECS:-60}" --out artifacts
+stage "headless match: server + 2 bots, 60 s vamp duel × {clean@arena_flat, lossy 2% 30±10 ms@arena_pillars, highping 100 ms@arena_tiers} in parallel"
+"target/$PROFILE/lgduel-tools" match --secs "${MATCH_SECS:-60}" --maps arena_flat,arena_pillars,arena_tiers --out artifacts
 
 stage "online client smoke: real lgduel --headless --connect vs server + bot"
 "target/$PROFILE/lgduel-tools" client-smoke --secs 5 --out artifacts
@@ -51,6 +51,10 @@ stage "client offscreen render (1920x1080, screenshot + pixel checks)"
 # Visibility toggles: no-beam and sparks-off must draw zero beam / spark pixels; zigzag style renders.
 "target/$PROFILE/lgduel" --headless --frames 3 --beam none --no-sparks | grep -E "IMAGE (beam|sparks)|CHECK"
 "target/$PROFILE/lgduel" --headless --frames 3 --beam zigzag --spark-size 6 | grep -E "IMAGE (beam|sparks)|CHECK"
+# Every built-in map renders with the duel checks passing.
+for m in arena_pillars arena_tiers; do
+  "target/$PROFILE/lgduel" --headless --frames 3 --map "$m" --size 1280x720 --screenshot "artifacts/map_$m.png" | grep -E "^MAP|CHECK"
+done
 # egui pause menu (pixel font) over the scene.
 "target/$PROFILE/lgduel" --headless --frames 3 --menu pause --size 1280x720 --screenshot artifacts/menu.png | grep -E "IMAGE menu|MENU CHECK"
 "target/$PROFILE/lgduel" --headless --frames 3 --menu settings --size 1280x720 --screenshot artifacts/settings.png | grep -E "IMAGE menu|MENU CHECK"

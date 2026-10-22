@@ -449,3 +449,13 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
   (nearest wins, solid flags OR-ed). Box-only maps skip the convex path entirely → bit-identical behaviour
   (determinism golden hash unchanged).
 - pmove needed no changes for slopes (ground normal, MIN_WALK_NORMAL 0.7 ≈ 45.6°, clip velocity).
+
+## D45 — Map agreement: name + geometry hash in Accept (2026-10-22)
+- Protocol v3: `Accept` carries `map` (the map's `name`) and `map_hash` = `World::content_hash()`, an FNV hash
+  of the *parsed* geometry (boxes, convex planes incl. bevels, spawns; not colours). Hashing parsed values, not
+  file bytes, makes CRLF/LF checkouts and comments irrelevant.
+- Clients (NetSession, NetBot) switch to the built-in map with that name if its hash matches; otherwise they
+  disconnect with a clear message ("differs from yours" / "doesn't have"). Custom-map download is later work.
+- Built-in maps: `world::builtin::ALL` (arena_flat, arena_pillars, arena_tiers). Server `[server] map` /
+  `--map` takes a built-in name or a file path; client practice/host map in settings + menu, `--map`.
+- Renderer re-uploads the world mesh only when the content hash changes (called every frame).

@@ -1,7 +1,16 @@
-# LGDuel gameplay config. Every key is optional; omitted keys use these defaults.
+# LGDuel server config. Every key is optional; omitted keys use these defaults.
 # Values and sources: STATE/DECISIONS.md (D3). A test asserts this file equals the defaults.
 
 tick_rate_hz = 125
+
+[server]
+name = "LGDuel server"     # shown in the server browser
+bind = "0.0.0.0"
+port = 27960               # UDP
+max_clients = 16
+snapshot_every = 1         # send a snapshot every N ticks
+timeout_ms = 5000          # drop silent clients after this
+map = "arena_flat"         # arena_flat | arena_pillars | arena_tiers, or a path to a map .toml
 
 [physics]
 gravity = 800.0            # u/s²

@@ -50,6 +50,8 @@ pub struct NetClient<T: Transport> {
     pub conn: Connection,
     /// Gameplay config sent by the server on accept.
     pub config: Option<GameConfig>,
+    /// (map name, content hash) the server runs, from the accept.
+    pub map: Option<(String, u64)>,
     nonce: u64,
     last_request_us: Option<u64>,
     pub snapshots: SnapshotHistory,
@@ -96,6 +98,7 @@ impl<T: Transport> NetClient<T> {
             name: name.to_string(),
             conn: Connection::new(),
             config: None,
+            map: None,
             nonce,
             last_request_us: None,
             snapshots: SnapshotHistory::new(64),
@@ -196,7 +199,10 @@ impl<T: Transport> NetClient<T> {
                 player,
                 tick_rate,
                 config_toml,
+                map,
+                map_hash,
             }) if self.state == ClientState::Connecting => {
+                self.map = Some((map, map_hash));
                 self.tick_us = 1_000_000.0 / tick_rate.max(1) as f64;
                 if let Some(t) = self.response_sent_us {
                     self.handshake_rtt_us = now_us.saturating_sub(t) as f64;

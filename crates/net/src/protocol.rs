@@ -5,7 +5,8 @@
 //!   client → `ConnectRequest{version, nonce}`
 //!   server → `Challenge{nonce, cookie}`   (cookie = keyed hash of addr+nonce)
 //!   client → `ConnectResponse{version, nonce, cookie, name}`
-//!   server → `Accept{player id, tick rate, config}` or `Reject{reason}`
+//!   server → `Accept{player id, tick rate, config, map name + content hash}`
+//!            or `Reject{reason}`
 //! The cookie round trip means a spoofed source address can't claim a slot.
 //!
 //! Connected (inside `Connection` payloads):
@@ -44,6 +45,9 @@ pub enum Connectionless {
         player: u8,
         tick_rate: u32,
         config_toml: String,
+        /// Map the server runs and its `World::content_hash` (the client must have the same map).
+        map: String,
+        map_hash: u64,
     },
     Reject {
         reason: String,
@@ -119,11 +123,15 @@ impl Connectionless {
                 player,
                 tick_rate,
                 config_toml,
+                map,
+                map_hash,
             } => {
                 w.u8(4);
                 w.u8(*player);
                 w.u32(*tick_rate);
                 w.bytes(config_toml.as_bytes());
+                w.bytes(map.as_bytes());
+                w.u64(*map_hash);
             }
             Self::Reject { reason } => {
                 w.u8(5);
@@ -183,6 +191,8 @@ impl Connectionless {
                 player: r.u8()?,
                 tick_rate: r.u32()?,
                 config_toml: text(&mut r)?,
+                map: text(&mut r)?,
+                map_hash: r.u64()?,
             },
             5 => Self::Reject {
                 reason: text(&mut r)?,
@@ -454,6 +464,8 @@ mod tests {
                 player: 3,
                 tick_rate: 125,
                 config_toml: "tick_rate_hz = 125\n".into(),
+                map: "arena_tiers".into(),
+                map_hash: 0x1234_5678_9abc_def0,
             },
             Connectionless::Reject {
                 reason: "server full".into(),

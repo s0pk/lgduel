@@ -253,9 +253,80 @@ impl World {
     }
 }
 
-/// Maps shipped in the repo (`maps/`), embedded so tests and the server always have them.
+impl World {
+    /// Hash of everything that affects the simulation (name, boxes, convex
+    /// planes, spawns; not colours). Server and client must agree on it.
+    pub fn content_hash(&self) -> u64 {
+        let mut h = crate::math::StateHasher::new();
+        h.bytes(self.name.as_bytes());
+        h.u32(self.brushes.len() as u32);
+        let v = |h: &mut crate::math::StateHasher, v: Vec3| {
+            h.f32(v.x);
+            h.f32(v.y);
+            h.f32(v.z);
+        };
+        for b in &self.brushes {
+            v(&mut h, b.min);
+            v(&mut h, b.max);
+        }
+        h.u32(self.convex.len() as u32);
+        for c in &self.convex {
+            h.u32(c.planes.len() as u32);
+            for p in &c.planes {
+                v(&mut h, p.normal);
+                h.f32(p.dist);
+                h.bytes(&[p.bevel as u8]);
+            }
+        }
+        h.u32(self.spawns.len() as u32);
+        for s in &self.spawns {
+            v(&mut h, s.origin);
+            h.u32(s.yaw.0);
+        }
+        h.finish()
+    }
+}
+
+/// Maps shipped in the repo (`maps/`), embedded so tests, the server and the
+/// client always have them.
 pub mod builtin {
+    use super::{MapError, World};
+    use crate::math::Vec3;
+
     pub const ARENA_FLAT: &str = include_str!("../../../maps/arena_flat.toml");
+    pub const ARENA_PILLARS: &str = include_str!("../../../maps/arena_pillars.toml");
+    pub const ARENA_TIERS: &str = include_str!("../../../maps/arena_tiers.toml");
+
+    /// (name, TOML source) of every built-in map, in menu order.
+    pub const ALL: [(&str, &str); 3] = [
+        ("arena_flat", ARENA_FLAT),
+        ("arena_pillars", ARENA_PILLARS),
+        ("arena_tiers", ARENA_TIERS),
+    ];
+
+    pub fn source(name: &str) -> Option<&'static str> {
+        ALL.iter().find(|(n, _)| *n == name).map(|(_, s)| *s)
+    }
+
+    /// Load a built-in map by name.
+    pub fn load(name: &str, hull: (Vec3, Vec3)) -> Result<World, MapError> {
+        let src = source(name)
+            .ok_or_else(|| MapError::Invalid(format!("no built-in map named {name:?}")))?;
+        World::from_toml_str(src, hull)
+    }
+
+    /// The built-in map a server announced (name + content hash), or why we can't play it.
+    pub fn matching(name: &str, hash: u64, hull: (Vec3, Vec3)) -> Result<World, String> {
+        match load(name, hull) {
+            Ok(w) if w.content_hash() == hash => Ok(w),
+            Ok(_) => Err(format!(
+                "the server's map {name:?} differs from yours (different LGDuel version?)"
+            )),
+            Err(_) => Err(format!(
+                "the server runs map {name:?}, which this LGDuel doesn't have"
+            )),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -277,6 +348,34 @@ mod tests {
         assert!(w.brushes.len() >= 6);
         assert_eq!(w.colors.len(), w.brushes.len());
         assert!(w.spawns.len() >= 2);
+        let mut hashes = Vec::new();
+        for (name, _) in builtin::ALL {
+            let w = builtin::load(name, hull()).unwrap();
+            assert_eq!(w.name, name, "map file name field");
+            assert!(w.spawns.len() >= 2, "{name}");
+            hashes.push(w.content_hash());
+        }
+        hashes.dedup();
+        assert_eq!(hashes.len(), builtin::ALL.len(), "hashes differ per map");
+        assert!(builtin::load("nope", hull()).is_err());
+    }
+
+    #[test]
+    fn content_hash_tracks_geometry_not_colour() {
+        let a = builtin::load("arena_tiers", hull()).unwrap();
+        let mut b = a.clone();
+        b.colors[0] = [0.0; 3];
+        b.convex[0].color = [0.0; 3];
+        assert_eq!(a.content_hash(), b.content_hash());
+        b.brushes[0].max.z += 1.0;
+        assert_ne!(a.content_hash(), b.content_hash());
+        let mut c = a.clone();
+        c.spawns[0].origin.x += 0.5;
+        assert_ne!(a.content_hash(), c.content_hash());
+        // Line endings in the file don't matter (git may check out CRLF).
+        let crlf = builtin::ARENA_TIERS.replace('\n', "\r\n");
+        let d = World::from_toml_str(&crlf, hull()).unwrap();
+        assert_eq!(a.content_hash(), d.content_hash());
     }
 
     #[test]

@@ -194,6 +194,7 @@ pub struct Renderer {
     uniforms: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     world_vb: Option<(wgpu::Buffer, u32)>,
+    world_hash: Option<u64>,
     dyn_vb: wgpu::Buffer,
     dyn_capacity: u64,
     dyn_count: u32,
@@ -304,6 +305,7 @@ impl Renderer {
             uniforms,
             bind_group,
             world_vb: None,
+            world_hash: None,
             dyn_vb,
             dyn_capacity,
             dyn_count: 0,
@@ -319,7 +321,13 @@ impl Renderer {
         })
     }
 
+    /// Upload the world mesh (no-op if this exact map is already uploaded).
     pub fn set_world(&mut self, device: &wgpu::Device, w: &World) {
+        let hash = w.content_hash();
+        if self.world_hash == Some(hash) {
+            return;
+        }
+        self.world_hash = Some(hash);
         let verts = world_mesh(w);
         let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("world"),

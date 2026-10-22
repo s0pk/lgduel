@@ -2,7 +2,7 @@
 //!
 //!   lgduel-tools netem --listen ADDR --upstream ADDR [--profile clean|lossy|highping] [--secs N]
 //!   lgduel-tools client-smoke [--secs 5] [--out artifacts]   (real client online, headless)
-//!   lgduel-tools match [--secs 60] [--profiles clean,lossy,highping] [--out artifacts]
+//!   lgduel-tools match [--secs 60] [--profiles clean,lossy,highping] [--maps arena_flat,...] [--out artifacts]
 //!       Runs the headless match test (profiles in parallel); exit 1 on any failure.
 
 mod matchrun;
@@ -77,6 +77,9 @@ fn run() -> Result<(), String> {
                 .map_or(Ok(60.0), |s| s.parse())
                 .map_err(|_| "bad --secs")?;
             let profiles = arg(&args, "--profiles").unwrap_or("clean,lossy,highping".into());
+            // Map per profile (by position; the last one repeats).
+            let maps = arg(&args, "--maps").unwrap_or("arena_flat".into());
+            let maps: Vec<String> = maps.split(',').map(String::from).collect();
             let out = PathBuf::from(arg(&args, "--out").unwrap_or("artifacts".into()));
             let bin_dir = std::env::current_exe()
                 .map_err(|e| e.to_string())?
@@ -85,9 +88,11 @@ fn run() -> Result<(), String> {
                 .to_path_buf();
             let handles: Vec<_> = profiles
                 .split(',')
-                .map(|p| {
+                .enumerate()
+                .map(|(i, p)| {
+                    let map = maps[i.min(maps.len() - 1)].clone();
                     let (p, bin_dir, out) = (p.to_string(), bin_dir.clone(), out.clone());
-                    std::thread::spawn(move || matchrun::run_match(&bin_dir, &p, secs, &out))
+                    std::thread::spawn(move || matchrun::run_match(&bin_dir, &p, &map, secs, &out))
                 })
                 .collect();
             let mut failed = false;
