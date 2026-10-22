@@ -28,3 +28,7 @@
 - `sim::world`: `Aabb` (strict overlap, Minkowski expand), `World { name, brushes, colors, spawns }`, TOML map loader with validation (≥1 brush, ≥2 spawns, min<max, finite, spawns not overlapping solids with the standing hull). Maps embedded via `world::builtin`.
 - `maps/arena_flat.toml`: original CC0 2048×2048 open floor, 512+ walls to a ceiling at 1024, 4 spawns.
 - Verified: check.sh GREEN. Tests: builtin map loads, bad maps rejected (spawn in floor, single spawn, inverted brush, parse error), AABB overlap/expand.
+
+## 2026-10-22 — iteration 7: PLAN 2.5 trace
+- `sim::trace`: swept AABB vs world brushes (6 half-spaces per expanded brush, Quake-style 0.125 surface epsilon), returns fraction/end/normal/start_solid/all_solid; `World::trace`, `World::trace_ray` (zero hull for hitscan).
+- Verified: check.sh GREEN. Tests: fall onto floor stops at 24.125, wall hit normal + position, sliding epsilon above floor is free, start/all-solid flags, ray hit/miss, diagonal picks nearest plane.

@@ -5,6 +5,7 @@
 pub mod config;
 pub mod math;
 pub mod tick;
+pub mod trace;
 pub mod usercmd;
 pub mod world;
 
