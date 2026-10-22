@@ -64,6 +64,26 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] F.1 `lgduel host`, self-contained Windows release zip (static CRT), PLAY.md guide (LAN / Tailscale / port forward), packaged smoke test
 - [x] F.2 Publish to GitHub: README (how to play/host), prebuilt Windows zip in Releases
 
+## v0.2 — menus, settings, real maps, public server (user plan approved 2026-10-22; runs before the remaining phases)
+- [x] M1.1 egui integration (egui 0.37 = wgpu 30 / winit 0.30): input routing, overlay render after HUD, Esc menu skeleton (Resume/Settings/Disconnect/Quit), headless render check of the menu
+- [ ] M1.2 `Settings` struct + `%APPDATA%/LGDuel/settings.toml` load/save, CLI overrides, round-trip test
+- [ ] M1.3 Settings menu tabs (Mouse, Video, Visuals incl. crosshair editor + enemy colours, Audio, Player), live apply + save
+- [ ] M1.4 Borderless fullscreen (setting + F11 / Alt+Enter)
+- [ ] M2.1 Connectionless Info query (name, map, players/max, hit mode, lifesteal, tick, protocol) + server answer + test
+- [ ] M2.2 Main menu state machine: Practice (pattern/skill/map) / Play online / Host / Settings / Quit; back to menu on disconnect/error
+- [ ] M2.3 Server browser: shipped `servers.toml` + user entries + direct connect, live ping/info, refresh
+- [ ] M2.4 In-app Host: stoppable server thread + auto-join, show LAN address
+- [ ] M3.1 Convex brushes in sim (planes + bounds), Quake-style brush trace with hull offsets + bevels; box path bit-identical (golden hash)
+- [ ] M3.2 Map format: [[ramp]], [[stairs]], [[convex]]; renderer builds convex faces
+- [ ] M3.3 Maps arena_pillars + arena_tiers; map name + content hash in Accept; map selection (server config, practice)
+- [ ] M3.4 Ramp/slope movement golden tests; headless matches + screenshots on every map
+- [ ] M4.1 Multi-arena server: N `Game`s, lobby + auto-queue, per-arena snapshots, isolation test
+- [ ] M4.2 Lone player gets a practice bot; spectate; lobby/queue Control messages + HUD/menu status
+- [ ] M4.3 (= PLAN 5.6) events resent until a snapshot carrying them is acked
+- [ ] M5.1 GitHub Actions: Linux + Windows build, check.sh on Linux (lavapipe), release workflow artifacts
+- [ ] M5.2 Dockerfile + docker-compose + systemd unit + DEPLOY.md (VPS in one command)
+- [ ] M5.3 Release v0.2.0 (official server in servers.toml once the user provides the VPS address)
+
 ## Phase 6 — Multi-duel server (deps: 4.x)
 - [ ] 6.1 Arena instances / pair isolation (no cross-pair damage or collision)
 - [ ] 6.2 Queue + challenge/accept flow

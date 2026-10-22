@@ -386,3 +386,21 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
 - Releases: tag `vX.Y.Z`, asset `LGDuel-windows-x64.zip` from `scripts/package.sh` (smoke-tested before upload,
   and the downloaded asset smoke-tested after). v0.1.0 = first playable test build.
 - `gh` CLI installed via winget (user-approved); user logged in themselves.
+
+## D38 — v0.2 direction (user, 2026-10-22)
+- Public play via a **dedicated server on a rented Linux VPS** (user rents it; we provide Docker/systemd + DEPLOY.md).
+- **Launcher = main menu inside lgduel.exe**; server list = shipped `servers.toml` + manual IP (no master server).
+- **Maps with ramps + platforms** → convex brushes in collision/rendering.
+- UI toolkit: **egui 0.37** (verified: resolves to exactly wgpu 30.0.1 / winit 0.30.13 alongside ours).
+- Multi-arena server (old Phase 6 core) pulled forward: required for a public server.
+
+## D39 — UI layer (2026-10-22)
+- egui 0.37 + egui-wgpu + egui-winit (`client/src/ui.rs`), painted in its own pass after the scene/HUD
+  (LoadOp::Load). While a menu is open, window events go to egui first; game keys/clicks are ignored; Esc
+  toggles the pause menu (releases/regrabs the cursor). Online sessions keep running behind the menu.
+- **Font:** egui's bundled fonts (Ubuntu/OFL licences) are NOT enabled. `client/src/ttf.rs` generates a
+  TrueType font in memory from our original 5×7 glyphs (`font.rs`): each lit pixel = a square contour;
+  tables cmap(12)/glyf/head/hhea/hmtx/loca/maxp/post; lowercase maps to uppercase; sizes 16/24 px (2×/3× pixel
+  scale). Verified by parsing with skrifa (the reader egui uses).
+- Headless egui: frames carry an advancing clock (window fade-in) and texture deltas of skipped frames are
+  kept (`Ui::skip`) — the font atlas from the first frame was otherwise lost (UI drew nothing).

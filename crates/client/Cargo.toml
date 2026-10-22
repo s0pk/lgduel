@@ -21,7 +21,13 @@ glam = "0.34.1"
 bytemuck = { version = "1.25.2", features = ["derive"] }
 png = "0.18.1"
 cpal = "0.18.2"
+egui = "0.37"
+egui-wgpu = "0.37"
+egui-winit = "0.37"
 
 [[bin]]
 name = "lgduel"
 path = "src/main.rs"
+
+[dev-dependencies]
+skrifa = "0.44"

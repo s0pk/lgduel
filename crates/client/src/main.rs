@@ -18,11 +18,14 @@ mod gfx;
 mod hud;
 mod input;
 mod local;
+mod menu;
 mod net_session;
 mod offscreen;
 mod players;
 mod render;
 mod scene;
+mod ttf;
+mod ui;
 
 use effects::{BeamStyle, EffectSettings};
 use frame_stats::FrameStats;
@@ -63,6 +66,8 @@ struct Options {
     fps_cap: Option<u32>,
     size: (u32, u32),
     headless: bool,
+    /// Headless: draw the pause menu over the scene (UI render check).
+    menu: bool,
     screenshot: Option<String>,
     fov: f32,
     mouse: MouseSettings,
@@ -90,6 +95,7 @@ impl Default for Options {
             fps_cap: None,
             size: (1280, 720),
             headless: false,
+            menu: false,
             screenshot: None,
             fov: 110.0,
             mouse: MouseSettings::default(),
@@ -211,6 +217,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Options, String>
             }
             "--vsync" => o.vsync = true,
             "--headless" => o.headless = true,
+            "--menu" => o.menu = true,
             "--screenshot" => o.screenshot = Some(val("--screenshot")?),
             "--version" => {
                 println!(
@@ -302,6 +309,21 @@ fn run_headless(opts: &Options) -> Result<(), String> {
     if let Some(s) = stats.summary() {
         println!("FRAMESTATS {s} | offscreen (GPU wait per frame)");
     }
+    if opts.menu {
+        let mut ui = ui::Ui::new(&off.device, offscreen::FORMAT, None);
+        let mut screen = menu::Screen::Pause;
+        // A few frames: egui sizes windows on the first and fades them in.
+        for _ in 0..5 {
+            let out = ui.run_headless((w, h), |ctx| {
+                menu::draw(ctx, &mut screen, false);
+            });
+            ui.skip(out);
+        }
+        let out = ui.run_headless((w, h), |ctx| {
+            menu::draw(ctx, &mut screen, false);
+        });
+        ui.paint(&off.device, &off.queue, off.color_view(), (w, h), out);
+    }
     let px = off.read_pixels();
     if let Some(path) = &opts.screenshot {
         offscreen::save_png(std::path::Path::new(path), w, h, &px)?;
@@ -319,11 +341,16 @@ fn run_headless(opts: &Options) -> Result<(), String> {
         return Err(format!("render looks blank ({distinct} colours)"));
     }
     let total = (w * h) as f64;
-    for (name, c) in [
-        ("head", colors.head),
-        ("upper", colors.upper),
-        ("lower", colors.lower),
-    ] {
+    // The pause menu sits in front of the opponent in the --menu check.
+    for (name, c) in if opts.menu {
+        vec![]
+    } else {
+        vec![
+            ("head", colors.head),
+            ("upper", colors.upper),
+            ("lower", colors.lower),
+        ]
+    } {
         let srgb = offscreen::linear_to_srgb8(c);
         let px_count = (offscreen::color_fraction(&px, srgb, 2) * total).round() as u64;
         println!("IMAGE enemy {name} {srgb:?}: {px_count} px");
@@ -332,6 +359,18 @@ fn run_headless(opts: &Options) -> Result<(), String> {
                 "forced enemy {name} colour not visible ({px_count} px)"
             ));
         }
+    }
+    if opts.menu {
+        let fill = egui::Visuals::dark().window_fill;
+        let rgb = [fill.r(), fill.g(), fill.b()];
+        let px_count = (offscreen::color_fraction(&px, rgb, 2) * total).round() as u64;
+        println!("IMAGE menu panel {rgb:?}: {px_count} px");
+        if px_count < 5_000 {
+            return Err(format!("pause menu not drawn ({px_count} px)"));
+        }
+        println!("MENU CHECK OK");
+        // The menu covers the screen centre (crosshair, beam, damage numbers).
+        return Ok(());
     }
     let mut hud_checks = vec![
         ("crosshair", hud_settings.crosshair.color, 20),
@@ -576,6 +615,8 @@ struct App {
     window: Option<Arc<Window>>,
     gfx: Option<Gfx>,
     renderer: Option<Renderer>,
+    ui: Option<ui::Ui>,
+    screen: menu::Screen,
     depth: Option<wgpu::TextureView>,
     stats: FrameStats,
     last_frame: Option<Instant>,
@@ -600,6 +641,17 @@ impl App {
         }
     }
 
+    fn toggle_menu(&mut self) {
+        if self.screen == menu::Screen::Closed {
+            self.screen = menu::Screen::Pause;
+            self.keys = Keys::default();
+            self.set_grab(false);
+        } else {
+            self.screen = menu::Screen::Closed;
+            self.set_grab(true);
+        }
+    }
+
     fn key(&mut self, code: KeyCode, down: bool) {
         match code {
             KeyCode::KeyW => self.keys.forward = down,
@@ -608,7 +660,7 @@ impl App {
             KeyCode::KeyD => self.keys.right = down,
             KeyCode::Space => self.keys.jump = down,
             KeyCode::ControlLeft | KeyCode::KeyC => self.keys.crouch = down,
-            KeyCode::Escape if down => self.set_grab(false),
+            KeyCode::Escape if down => self.toggle_menu(),
             KeyCode::F3 if down => self.hud.net_graph = !self.hud.net_graph,
             _ => {}
         }
@@ -732,6 +784,7 @@ impl ApplicationHandler for App {
                     g.config.height,
                 ));
                 self.renderer = Some(r);
+                self.ui = Some(ui::Ui::new(&g.device, g.config.format, Some(&window)));
                 self.gfx = Some(g);
             }
             Err(e) => {
@@ -757,6 +810,23 @@ impl ApplicationHandler for App {
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        if self.screen != menu::Screen::Closed
+            && let (Some(ui), Some(w)) = (&mut self.ui, &self.window)
+        {
+            let consumed = ui.on_window_event(w, &event);
+            let esc = matches!(&event, WindowEvent::KeyboardInput { event: k, .. }
+                if k.physical_key == PhysicalKey::Code(KeyCode::Escape));
+            let game_input = matches!(
+                event,
+                WindowEvent::KeyboardInput { .. } | WindowEvent::MouseInput { .. }
+            );
+            if (consumed || game_input) && !esc {
+                if let Some(w) = &self.window {
+                    w.request_redraw();
+                }
+                return;
+            }
+        }
         match event {
             WindowEvent::CloseRequested => self.finish(el),
             WindowEvent::KeyboardInput { event, .. } => {
@@ -836,7 +906,30 @@ impl ApplicationHandler for App {
                         .map(|fv| scene::hud_mesh(fv, &cam, size, &self.numbers, &self.hud))
                         .unwrap_or_default();
                     r.set_hud(&g.device, &g.queue, &hud);
-                    g.frame(|d, q, v| r.draw(d, q, v, depth, size, &cam, CLEAR));
+                    let mut action = None;
+                    let ui_out = match (&mut self.ui, &self.window) {
+                        (Some(ui), Some(w)) if self.screen != menu::Screen::Closed => {
+                            let online = matches!(self.session, Session::Net(_));
+                            let screen = &mut self.screen;
+                            Some(ui.run_windowed(w, |ctx| action = menu::draw(ctx, screen, online)))
+                        }
+                        _ => None,
+                    };
+                    let ui = &mut self.ui;
+                    g.frame(|d, q, v| {
+                        r.draw(d, q, v, depth, size, &cam, CLEAR);
+                        if let (Some(ui), Some(out)) = (ui.as_mut(), ui_out) {
+                            ui.paint(d, q, v, size, out);
+                        }
+                    });
+                    match action {
+                        Some(menu::Action::Resume) => self.set_grab(true),
+                        Some(menu::Action::Disconnect) | Some(menu::Action::Quit) => {
+                            self.finish(el);
+                            return;
+                        }
+                        None => {}
+                    }
                 }
                 self.frames += 1;
                 if self.opts.frames.is_some_and(|n| self.frames >= n) {
@@ -961,6 +1054,8 @@ fn main() {
         window: None,
         gfx: None,
         renderer: None,
+        ui: None,
+        screen: menu::Screen::Closed,
         depth: None,
         stats: FrameStats::default(),
         last_frame: None,

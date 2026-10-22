@@ -223,3 +223,9 @@
 - gh 2.103.0 installed (winget, user-approved); user logged in as s0pk. History rewritten to the noreply email (39 commits, verified no other address remains), repo `s0pk/lgduel` created public and pushed; tag v0.1.0; release "LGDuel v0.1.0 — first playable test build" with `LGDuel-windows-x64.zip` (4,259,676 bytes, built from ec34411).
 - Verified: release asset downloaded from GitHub into a fresh folder, unzipped, VERSION ec34411; packaged `lgduel host` + bot + headless client: both connected, ONLINE CHECK OK (ping 3.9 ms, 125 snapshots/s, hitreg 100%).
 - Note: Windows refuses to start executables from very long working-directory paths (scratchpad) — use short paths for such smoke tests.
+
+## 2026-10-22 — iteration 40: M1.1 egui integration + pause menu
+- v0.2 plan approved by the user; PLAN gained M1–M5 items (D38). egui 0.37 verified to resolve to exactly wgpu 30.0.1 / winit 0.30.13.
+- `client/src/ui.rs` (Ui: context, egui-wgpu renderer, egui-winit state, headless runs, paint, pending textures), `client/src/menu.rs` (Pause / Settings placeholder; Resume / Disconnect-or-Leave / Quit), `client/src/ttf.rs` (in-memory TrueType from our pixel glyphs), font.rs gained 13 punctuation glyphs + `chars()`/`glyph_rows()`; Esc toggles the menu; `--headless --menu` check in check.sh.
+- Debugged by measurement: (1) nothing drawn → egui shapes 13 but 0 texture uploads in the painted frame (font atlas came in an unpainted warm-up frame) → keep deltas; (2) tofu boxes → no font (egui default fonts are a feature with non-MIT licences) → generated font; (3) menu check thresholds set after first real measurement (panel 10,211 px; threshold 5,000); centre-screen checks skipped in menu mode.
+- Verified: menu screenshot inspected (pixel-font title + 4 buttons); font tests 2 passed (skrifa parse, mapping, metrics, distinct glyphs); windowed smoke 2000 frames 5200 fps p99 0.457 ms; check.sh GREEN (87 s).

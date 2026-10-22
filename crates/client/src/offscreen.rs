@@ -95,6 +95,11 @@ impl Offscreen {
         stats
     }
 
+    /// The colour target (to paint overlays such as the UI on top).
+    pub fn color_view(&self) -> &wgpu::TextureView {
+        &self.color_view
+    }
+
     /// Read back the colour target as tightly packed RGBA8 (sRGB-encoded).
     pub fn read_pixels(&self) -> Vec<u8> {
         let (w, h) = self.size;
