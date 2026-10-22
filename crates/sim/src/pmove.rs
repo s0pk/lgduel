@@ -395,6 +395,7 @@ mod tests {
         )];
         brushes.extend_from_slice(extra);
         World {
+            convex: Vec::new(),
             name: "test".into(),
             colors: vec![[0.5; 3]; brushes.len()],
             brushes,

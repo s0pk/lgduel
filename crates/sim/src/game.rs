@@ -730,6 +730,7 @@ mod tests {
     #[test]
     fn hitscan_prefers_nearest() {
         let w = World {
+            convex: Vec::new(),
             name: "t".into(),
             brushes: vec![Aabb::new(
                 Vec3::new(500.0, -50.0, -50.0),

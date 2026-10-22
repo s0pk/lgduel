@@ -51,6 +51,8 @@ pub struct World {
     pub brushes: Vec<Aabb>,
     /// RGB per brush for flat-shaded rendering (sim ignores it).
     pub colors: Vec<[f32; 3]>,
+    /// Non-box solids (ramps, wedges); each carries its own colour.
+    pub convex: Vec<crate::brush::ConvexBrush>,
     pub spawns: Vec<Spawn>,
 }
 
@@ -143,6 +145,7 @@ impl World {
             name: f.name,
             brushes,
             colors,
+            convex: Vec::new(),
             spawns,
         })
     }

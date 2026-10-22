@@ -119,9 +119,125 @@ pub fn trace_boxes(boxes: &[Aabb], start: Vec3, end: Vec3, mins: Vec3, maxs: Vec
     }
 }
 
+/// Trace a box through convex brushes (Quake brush tracing: each plane is
+/// pushed out by the box's support along its normal; axial bevels included).
+pub fn trace_convex(
+    brushes: &[crate::brush::ConvexBrush],
+    start: Vec3,
+    end: Vec3,
+    mins: Vec3,
+    maxs: Vec3,
+) -> TraceResult {
+    let mut fraction = 1.0f32;
+    let mut normal = Vec3::ZERO;
+    let mut start_solid = false;
+    let mut all_solid = false;
+    // Swept bounds of the moving box (for a cheap rejection test).
+    let sweep_min = Vec3::new(start.x.min(end.x), start.y.min(end.y), start.z.min(end.z)) + mins;
+    let sweep_max = Vec3::new(start.x.max(end.x), start.y.max(end.y), start.z.max(end.z)) + maxs;
+    for b in brushes {
+        let m = 1.0;
+        if sweep_max.x < b.bounds.min.x - m
+            || sweep_min.x > b.bounds.max.x + m
+            || sweep_max.y < b.bounds.min.y - m
+            || sweep_min.y > b.bounds.max.y + m
+            || sweep_max.z < b.bounds.min.z - m
+            || sweep_min.z > b.bounds.max.z + m
+        {
+            continue;
+        }
+        let mut enter = -1.0f32;
+        let mut leave = 1.0f32;
+        let mut enter_normal = Vec3::ZERO;
+        let mut starts_out = false;
+        let mut gets_out = false;
+        let mut missed = false;
+        for p in &b.planes {
+            let n = p.normal;
+            // Box corner that reaches furthest *into* the plane.
+            let c = Vec3::new(
+                if n.x > 0.0 { mins.x } else { maxs.x },
+                if n.y > 0.0 { mins.y } else { maxs.y },
+                if n.z > 0.0 { mins.z } else { maxs.z },
+            );
+            let dist = p.dist - c.dot(n);
+            let d1 = start.dot(n) - dist;
+            let d2 = end.dot(n) - dist;
+            if d2 > 0.0 {
+                gets_out = true;
+            }
+            if d1 > 0.0 {
+                starts_out = true;
+            }
+            if d1 > 0.0 && (d2 >= SURFACE_EPSILON || d2 >= d1) {
+                missed = true;
+                break;
+            }
+            if d1 <= 0.0 && d2 <= 0.0 {
+                continue;
+            }
+            if d1 > d2 {
+                let f = ((d1 - SURFACE_EPSILON) / (d1 - d2)).max(0.0);
+                if f > enter {
+                    enter = f;
+                    enter_normal = n;
+                }
+            } else {
+                let f = ((d1 + SURFACE_EPSILON) / (d1 - d2)).min(1.0);
+                if f < leave {
+                    leave = f;
+                }
+            }
+        }
+        if missed {
+            continue;
+        }
+        if !starts_out {
+            start_solid = true;
+            if !gets_out {
+                all_solid = true;
+                fraction = 0.0;
+            }
+            continue;
+        }
+        if enter < leave && enter > -1.0 && enter < fraction {
+            fraction = enter.max(0.0);
+            normal = enter_normal;
+        }
+    }
+    let end_pos = if fraction == 1.0 {
+        end
+    } else {
+        start + (end - start) * fraction
+    };
+    TraceResult {
+        fraction,
+        end: end_pos,
+        normal,
+        start_solid,
+        all_solid,
+    }
+}
+
 impl World {
     pub fn trace(&self, start: Vec3, end: Vec3, mins: Vec3, maxs: Vec3) -> TraceResult {
-        trace_boxes(&self.brushes, start, end, mins, maxs)
+        let boxes = trace_boxes(&self.brushes, start, end, mins, maxs);
+        if self.convex.is_empty() {
+            return boxes; // box-only maps: exactly the original behaviour
+        }
+        let conv = trace_convex(&self.convex, start, end, mins, maxs);
+        let mut r = if conv.fraction < boxes.fraction {
+            conv
+        } else {
+            boxes
+        };
+        r.start_solid = boxes.start_solid || conv.start_solid;
+        r.all_solid = boxes.all_solid || conv.all_solid;
+        if r.all_solid {
+            r.fraction = 0.0;
+            r.end = start;
+        }
+        r
     }
 
     /// Zero-size ray (hitscan).

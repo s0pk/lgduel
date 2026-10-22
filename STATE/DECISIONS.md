@@ -439,3 +439,13 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
   saved `HostSettings` (name, UDP port, vamp/classic, lifesteal %, anti-lag) → start server → auto-join
   127.0.0.1:port; pause menu shows "Hosting: friends connect to <LAN IP>:<port>"; leaving stops the server.
   `--host-game` does the same from the command line.
+
+## D44 — Convex brushes (2026-10-22)
+- `sim::brush::ConvexBrush` = normalised face planes + bounds + axial bevel planes (added unless a face already
+  has that normal; never drawn). Vertices by triple-plane intersection (f64), faces = vertices on a plane sorted
+  around the centroid. `ConvexBrush::ramp(min, max, rise ±x/±y)` builds wedges.
+- `World.convex` traced by `trace_convex` (Quake brush trace: plane dist pushed out by the box corner that
+  reaches furthest into the plane, same enter/leave/epsilon logic as boxes) and merged with the box trace
+  (nearest wins, solid flags OR-ed). Box-only maps skip the convex path entirely → bit-identical behaviour
+  (determinism golden hash unchanged).
+- pmove needed no changes for slopes (ground normal, MIN_WALK_NORMAL 0.7 ≈ 45.6°, clip velocity).

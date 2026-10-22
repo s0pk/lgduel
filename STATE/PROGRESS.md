@@ -260,3 +260,8 @@
 - server host.rs: `config_from_args`, stoppable `run_config` with bind callback; client: `HostSettings`, Host screen, `HostHandle`, `start_host`, hosting info in pause menu, `--host-game`, `--menu host`.
 - Verified (real runs): `--host-game` → "HOST Hosting: friends connect to 192.168.1.45:27975", self-joined; external `lgduel-bot` joined as player 1 and fought (2 kills, 200 dmg); port already in use → "MENU Can't host: can't use port 27976: … (os error 10048)"; Host screen screenshot inspected; check.sh GREEN. M2 (launcher) complete.
 - Test-harness slip: a trailing `&` backgrounded my whole `&&` chain (variables unset) — first run invalid, rerun with separate lines.
+
+## 2026-10-22 — iteration 48: M3.1 convex brush collision
+- `crates/sim/src/brush.rs` (ConvexBrush, Plane, Rise, ramp/from_planes/vertices/face/contains + tests), `trace_convex` + merged `World::trace`, `World.convex`; `crates/sim/tests/ramps.rs`.
+- Verified: brush tests (ramp has 6 vertices, 5 faces + 2 bevels, face polygons 4/4/4/3/3, all four rise directions, unbounded/empty rejected); ramp tests 6 passed (box rests on 30° slope within 0.3u of analytic height with slope normal; walks up onto platform at top height; walks back down to the floor; cannot climb 55° (max < half height); no sinking at seam positions −14…30; jump off the top clears platform + 30u); determinism golden hash unchanged; check.sh GREEN.
+- Test fixes (my setup errors): platform too short (player walked off its far end); jump timed by tick instead of position.

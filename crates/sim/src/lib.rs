@@ -2,6 +2,7 @@
 //!
 //! Pure: no I/O, no rendering, no wall clocks.
 
+pub mod brush;
 pub mod config;
 pub mod game;
 pub mod math;
