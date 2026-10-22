@@ -122,3 +122,9 @@
 ## 2026-10-22 — iteration 23: PLAN 4.2 protocol messages
 - `net::protocol`: Connectionless handshake messages + cookie, `Inputs` (8× redundant cmds), `InputBuffer` (dedup, sanitize, late/dup counters, lead), `Control`. `net::snapshot`: `Snapshot` capture/apply/encode/decode with all player state and events.
 - Verified: net tests 24 passed — handshake round trips, no-amplification sizes, name truncation, cookie keyed on secret/addr/nonce, inputs exact, input buffer survives a lost packet via redundancy (10 received, 6 dups), sanitisation, snapshot of a 900-tick fight → decode → apply → identical state hash and identical next tick; truncated snapshots rejected. Full snapshot 173 bytes. check.sh GREEN.
+
+## 2026-10-22 — iteration 24: PLAN 4.3 snapshot delta compression
+- `Snapshot::encode_delta/decode_delta/delta_base`, field masks, `SnapshotHistory`.
+- Tooling: bash heredoc containing Python triple quotes failed to parse in the Bash tool; switched that edit to the Edit tool (no changes had been applied).
+- Measured: 1500-tick fight, every 5th snapshot lost → every delivered delta reproduced the exact snapshot; 118,056 B vs 285,535 B full (41%); unchanged state 25 B; wrong/missing baseline rejected.
+- Verified: net tests 27 passed; check.sh GREEN.

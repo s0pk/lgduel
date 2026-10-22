@@ -294,6 +294,335 @@ fn read_event(r: &mut Reader) -> Option<GameEvent> {
     })
 }
 
+// ---------------------------------------------------------------------------
+// Delta compression against a baseline the client has acknowledged.
+// ---------------------------------------------------------------------------
+
+const F_ORIGIN: u16 = 1 << 0;
+const F_VELOCITY: u16 = 1 << 1;
+const F_GROUND: u16 = 1 << 2;
+const F_FLAGS: u16 = 1 << 3;
+const F_PITCH: u16 = 1 << 4;
+const F_YAW: u16 = 1 << 5;
+const F_HEALTH: u16 = 1 << 6;
+const F_ARMOR: u16 = 1 << 7;
+const F_RESPAWN: u16 = 1 << 8;
+const F_WEAPON: u16 = 1 << 9;
+const F_LIFESTEAL: u16 = 1 << 10;
+const F_BUTTONS: u16 = 1 << 11;
+const F_FRAGS: u16 = 1 << 12;
+const F_STATS: u16 = 1 << 13;
+/// Player not in the baseline: full record follows.
+const F_FULL: u16 = 1 << 15;
+
+fn bits_eq(a: Vec3, b: Vec3) -> bool {
+    a.x.to_bits() == b.x.to_bits()
+        && a.y.to_bits() == b.y.to_bits()
+        && a.z.to_bits() == b.z.to_bits()
+}
+
+fn player_flags(p: &Player) -> u8 {
+    p.pm.ducked as u8 | (p.pm.jump_held as u8) << 1 | (p.alive as u8) << 2
+}
+
+fn ground_eq(a: Option<Vec3>, b: Option<Vec3>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(x), Some(y)) => bits_eq(x, y),
+        _ => false,
+    }
+}
+
+fn changed(b: &Player, p: &Player) -> u16 {
+    let checks = [
+        (F_ORIGIN, !bits_eq(b.pm.origin, p.pm.origin)),
+        (F_VELOCITY, !bits_eq(b.pm.velocity, p.pm.velocity)),
+        (F_GROUND, !ground_eq(b.pm.ground_normal, p.pm.ground_normal)),
+        (F_FLAGS, player_flags(b) != player_flags(p)),
+        (F_PITCH, b.pitch != p.pitch),
+        (F_YAW, b.yaw != p.yaw),
+        (F_HEALTH, b.health != p.health),
+        (F_ARMOR, b.armor != p.armor),
+        (F_RESPAWN, b.respawn_tick != p.respawn_tick),
+        (F_WEAPON, b.weapon_time_us != p.weapon_time_us),
+        (F_LIFESTEAL, b.lifesteal_rem != p.lifesteal_rem),
+        (F_BUTTONS, b.buttons != p.buttons),
+        (F_FRAGS, b.frags != p.frags),
+        (F_STATS, b.stats != p.stats),
+    ];
+    checks
+        .iter()
+        .filter(|(_, d)| *d)
+        .fold(0, |m, (bit, _)| m | bit)
+}
+
+fn write_stats(w: &mut Writer, s: &PlayerStats) {
+    for v in [
+        s.shots,
+        s.hits,
+        s.damage_dealt,
+        s.damage_taken,
+        s.healed,
+        s.lifesteal_earned,
+        s.kills,
+        s.deaths,
+        s.fights_won,
+        s.fights_lost,
+        s.fight_ticks,
+    ] {
+        w.var(v as u64);
+    }
+}
+
+fn read_stats(r: &mut Reader) -> Option<PlayerStats> {
+    let mut v = [0u32; 11];
+    for x in &mut v {
+        *x = u32::try_from(r.var()?).ok()?;
+    }
+    Some(PlayerStats {
+        shots: v[0],
+        hits: v[1],
+        damage_dealt: v[2],
+        damage_taken: v[3],
+        healed: v[4],
+        lifesteal_earned: v[5],
+        kills: v[6],
+        deaths: v[7],
+        fights_won: v[8],
+        fights_lost: v[9],
+        fight_ticks: v[10],
+    })
+}
+
+fn write_ground(w: &mut Writer, g: Option<Vec3>) {
+    match g {
+        Some(n) => {
+            w.u8(1);
+            vec3(w, n);
+        }
+        None => w.u8(0),
+    }
+}
+
+fn read_ground(r: &mut Reader) -> Option<Option<Vec3>> {
+    match r.u8()? {
+        0 => Some(None),
+        1 => Some(Some(read_vec3(r)?)),
+        _ => None,
+    }
+}
+
+fn write_player_delta(w: &mut Writer, b: &Player, p: &Player) {
+    let m = changed(b, p);
+    w.u8(p.id.0);
+    w.u16(m);
+    if m & F_ORIGIN != 0 {
+        vec3(w, p.pm.origin);
+    }
+    if m & F_VELOCITY != 0 {
+        vec3(w, p.pm.velocity);
+    }
+    if m & F_GROUND != 0 {
+        write_ground(w, p.pm.ground_normal);
+    }
+    if m & F_FLAGS != 0 {
+        w.u8(player_flags(p));
+    }
+    if m & F_PITCH != 0 {
+        w.u32(p.pitch.0);
+    }
+    if m & F_YAW != 0 {
+        w.u32(p.yaw.0);
+    }
+    if m & F_HEALTH != 0 {
+        w.svar(p.health as i64);
+    }
+    if m & F_ARMOR != 0 {
+        w.svar(p.armor as i64);
+    }
+    if m & F_RESPAWN != 0 {
+        opt_tick(w, p.respawn_tick);
+    }
+    if m & F_WEAPON != 0 {
+        w.svar(p.weapon_time_us as i64);
+    }
+    if m & F_LIFESTEAL != 0 {
+        w.var(p.lifesteal_rem as u64);
+    }
+    if m & F_BUTTONS != 0 {
+        w.u8(p.buttons);
+    }
+    if m & F_FRAGS != 0 {
+        w.var(p.frags as u64);
+    }
+    if m & F_STATS != 0 {
+        write_stats(w, &p.stats);
+    }
+}
+
+fn read_player_fields(r: &mut Reader, m: u16, b: &Player) -> Option<Player> {
+    let mut p = b.clone();
+    if m & F_ORIGIN != 0 {
+        p.pm.origin = read_vec3(r)?;
+    }
+    if m & F_VELOCITY != 0 {
+        p.pm.velocity = read_vec3(r)?;
+    }
+    if m & F_GROUND != 0 {
+        p.pm.ground_normal = read_ground(r)?;
+    }
+    if m & F_FLAGS != 0 {
+        let f = r.u8()?;
+        p.pm.ducked = f & 1 != 0;
+        p.pm.jump_held = f & 2 != 0;
+        p.alive = f & 4 != 0;
+    }
+    if m & F_PITCH != 0 {
+        p.pitch = Angle(r.u32()?);
+    }
+    if m & F_YAW != 0 {
+        p.yaw = Angle(r.u32()?);
+    }
+    if m & F_HEALTH != 0 {
+        p.health = i32::try_from(r.svar()?).ok()?;
+    }
+    if m & F_ARMOR != 0 {
+        p.armor = i32::try_from(r.svar()?).ok()?;
+    }
+    if m & F_RESPAWN != 0 {
+        p.respawn_tick = read_opt_tick(r)?;
+    }
+    if m & F_WEAPON != 0 {
+        p.weapon_time_us = i32::try_from(r.svar()?).ok()?;
+    }
+    if m & F_LIFESTEAL != 0 {
+        p.lifesteal_rem = u32::try_from(r.var()?).ok()?;
+    }
+    if m & F_BUTTONS != 0 {
+        p.buttons = r.u8()?;
+    }
+    if m & F_FRAGS != 0 {
+        p.frags = u32::try_from(r.var()?).ok()?;
+    }
+    if m & F_STATS != 0 {
+        p.stats = read_stats(r)?;
+    }
+    Some(p)
+}
+
+impl Snapshot {
+    /// Encode against `base` (a snapshot the receiver is known to have), or
+    /// self-contained if `base` is None. Events are always sent in full.
+    pub fn encode_delta(&self, base: Option<&Snapshot>) -> Vec<u8> {
+        let mut w = Writer::new();
+        w.u8(3); // message kind: delta snapshot
+        w.u32(self.tick.0);
+        opt_tick(&mut w, base.map(|b| b.tick));
+        opt_tick(&mut w, self.fight_start);
+        opt_tick(&mut w, self.last_cmd);
+        w.u8(self.players.len() as u8);
+        for p in &self.players {
+            match base.and_then(|b| b.player(p.id)) {
+                Some(bp) => write_player_delta(&mut w, bp, p),
+                None => {
+                    w.u8(p.id.0);
+                    w.u16(F_FULL);
+                    write_player(&mut w, p);
+                }
+            }
+        }
+        w.var(self.events.len() as u64);
+        for e in &self.events {
+            write_event(&mut w, e);
+        }
+        w.finish()
+    }
+
+    /// Baseline tick named by a delta snapshot (`Some(None)` = self-contained);
+    /// `None` if the bytes aren't a delta snapshot.
+    pub fn delta_base(data: &[u8]) -> Option<Option<Tick>> {
+        let mut r = Reader::new(data);
+        if r.u8()? != 3 {
+            return None;
+        }
+        r.u32()?;
+        read_opt_tick(&mut r)
+    }
+
+    /// Decode a delta snapshot; `base` must be the snapshot named by `delta_base`.
+    pub fn decode_delta(data: &[u8], base: Option<&Snapshot>) -> Option<Snapshot> {
+        let mut r = Reader::new(data);
+        if r.u8()? != 3 {
+            return None;
+        }
+        let tick = Tick(r.u32()?);
+        if read_opt_tick(&mut r)? != base.map(|b| b.tick) {
+            return None; // wrong or missing baseline
+        }
+        let fight_start = read_opt_tick(&mut r)?;
+        let last_cmd = read_opt_tick(&mut r)?;
+        let n = r.u8()?;
+        let mut players = Vec::with_capacity(n as usize);
+        for _ in 0..n {
+            let id = PlayerId(r.u8()?);
+            let m = r.u16()?;
+            let p = if m == F_FULL {
+                read_player(&mut r)?
+            } else {
+                read_player_fields(&mut r, m, base.and_then(|b| b.player(id))?)?
+            };
+            if p.id != id {
+                return None;
+            }
+            players.push(p);
+        }
+        let ne = r.var()?.min(4096);
+        let mut events = Vec::with_capacity(ne as usize);
+        for _ in 0..ne {
+            events.push(read_event(&mut r)?);
+        }
+        Some(Self {
+            tick,
+            fight_start,
+            players,
+            events,
+            last_cmd,
+        })
+    }
+}
+
+/// Ring of recently sent (server) or received (client) snapshots, by tick.
+#[derive(Debug, Clone, Default)]
+pub struct SnapshotHistory {
+    items: std::collections::VecDeque<Snapshot>,
+    cap: usize,
+}
+
+impl SnapshotHistory {
+    pub fn new(cap: usize) -> Self {
+        Self {
+            items: Default::default(),
+            cap,
+        }
+    }
+
+    pub fn push(&mut self, s: Snapshot) {
+        self.items.retain(|x| x.tick != s.tick);
+        self.items.push_back(s);
+        while self.items.len() > self.cap {
+            self.items.pop_front();
+        }
+    }
+
+    pub fn get(&self, tick: Tick) -> Option<&Snapshot> {
+        self.items.iter().find(|s| s.tick == tick)
+    }
+
+    pub fn latest(&self) -> Option<&Snapshot> {
+        self.items.iter().max_by_key(|s| s.tick)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -382,6 +711,86 @@ mod tests {
         let s = Snapshot::capture(&g, vec![], None).encode();
         println!("full 2-player snapshot: {} bytes", s.len());
         assert!(s.len() < 200, "{}", s.len());
+    }
+
+    #[test]
+    fn delta_chain_reproduces_every_snapshot_and_is_smaller() {
+        let mut g = game();
+        let (a, b) = (g.players[0].id, g.players[1].id);
+        let z = g.players[0].pm.origin.z;
+        g.players[0].pm.origin = Vec3::new(-150.0, 0.0, z);
+        g.players[1].pm.origin = Vec3::new(150.0, 0.0, z);
+        // The client acks every snapshot it gets; every 5th is lost in transit,
+        // so the server keeps deltaing from an older baseline.
+        let mut server_hist = SnapshotHistory::new(64);
+        let mut client_hist = SnapshotHistory::new(64);
+        let mut acked: Option<Tick> = None;
+        let (mut full_bytes, mut delta_bytes) = (0usize, 0usize);
+        for t in 0..1500u32 {
+            let pa = g.player(a).unwrap().pm.eye(&g.cfg.physics);
+            let (pitch, yaw) = look_angles(g.player(b).unwrap().pm.origin - pa);
+            let ca = UserCmd {
+                tick: g.tick,
+                pitch,
+                yaw,
+                right: if (t / 40).is_multiple_of(2) {
+                    127
+                } else {
+                    -127
+                },
+                buttons: buttons::FIRE,
+                ..UserCmd::default()
+            };
+            g.step(&[(a, ca)]);
+            let snap = Snapshot::capture(&g, g.events.clone(), Some(Tick(t)));
+            let base = acked.and_then(|t| server_hist.get(t));
+            let bytes = snap.encode_delta(base);
+            full_bytes += snap.encode().len();
+            delta_bytes += bytes.len();
+            server_hist.push(snap.clone());
+            if t % 5 == 4 {
+                continue; // lost in transit
+            }
+            let base_tick = Snapshot::delta_base(&bytes).unwrap();
+            let cbase = base_tick.and_then(|bt| client_hist.get(bt));
+            let got = Snapshot::decode_delta(&bytes, cbase).expect("client has the baseline");
+            assert_eq!(got, snap, "tick {t}");
+            client_hist.push(got);
+            acked = Some(snap.tick);
+        }
+        println!(
+            "1500 snapshots: full {full_bytes} B, delta {delta_bytes} B ({:.0}%)",
+            100.0 * delta_bytes as f64 / full_bytes as f64
+        );
+        assert!(delta_bytes * 10 < full_bytes * 7, "delta must save >30%");
+    }
+
+    #[test]
+    fn delta_rejects_wrong_baseline() {
+        let (g, _) = played();
+        let base = Snapshot::capture(&g, vec![], None);
+        let mut g2 = g.clone();
+        g2.step(&[]);
+        let s = Snapshot::capture(&g2, vec![], None);
+        let bytes = s.encode_delta(Some(&base));
+        assert!(Snapshot::decode_delta(&bytes, None).is_none());
+        let mut other = base.clone();
+        other.tick = Tick(base.tick.0 + 100);
+        assert!(Snapshot::decode_delta(&bytes, Some(&other)).is_none());
+        assert_eq!(Snapshot::decode_delta(&bytes, Some(&base)), Some(s));
+    }
+
+    #[test]
+    fn unchanged_state_costs_almost_nothing() {
+        let (g, _) = played();
+        let base = Snapshot::capture(&g, vec![], None);
+        let mut s = base.clone();
+        s.tick = Tick(base.tick.0 + 1);
+        let d = s.encode_delta(Some(&base));
+        println!("unchanged-state delta: {} bytes", d.len());
+        // kind + tick + base + fight + last_cmd + count + 2 × (id + mask) + events.
+        assert_eq!(d.len(), 1 + 4 * 4 + 1 + 2 * 3 + 1);
+        assert_eq!(Snapshot::decode_delta(&d, Some(&base)), Some(s));
     }
 
     #[test]

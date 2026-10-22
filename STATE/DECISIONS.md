@@ -221,3 +221,13 @@ Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update th
 - Snapshots (unreliable): full state at `game.tick`, f32 as exact bits, events since the last snapshot, and
   the receiving client's last consumed command tick. 173 bytes for 2 players before delta compression.
 - Control (reliable): Disconnect, ServerEvent.
+
+## D22 — Delta snapshots (2026-10-22)
+- Per-player 14-bit changed-field mask vs. the baseline snapshot the client last acked (via Inputs.ack_snapshot);
+  players absent from the baseline go as full records (mask = 0x8000). Floats compared and sent as exact
+  bits (no quantisation) so prediction stays bit-exact. Events always sent in full.
+- Server keeps a `SnapshotHistory` (64) per client; client keeps its received history (64). Missing/wrong
+  baseline → decode returns None (client simply waits for the next one; server falls back to full when the
+  acked tick has left its history).
+- Measured: active 2-player fight with 20% snapshot loss → 41% of full size (118 KB vs 286 KB over 1500
+  snapshots ≈ 79 B/snapshot ≈ 9.8 KB/s at 125 Hz); unchanged state 25 B.
