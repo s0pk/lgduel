@@ -201,3 +201,12 @@ Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update th
   via min/max band. Seeded PRNG → same seed + same game = same inputs.
 - Measured bot-vs-bot (8 s, 200–400u band, zero reaction): relative lateral speed mirror 0.11v, anti 1.86v,
   HSW 0.31v, HSW anti 1.74v (ideal 0 / 2 / 0.29 / 1.71; transitions between directions account for the gap).
+
+## D20 — Transport & packet layer (2026-10-22)
+- `Transport` trait; `UdpTransport` (std non-blocking socket; ignores Windows WSAECONNRESET from stale ICMP)
+  and `MemNet` (in-memory, manual µs clock, seeded latency/jitter/loss, deterministic — basis of netem tests).
+- `Connection`: header magic/seq/ack/32 ack bits (each packet acks 33); reliable ordered messages resent
+  (RTT×1.25, ≥30 ms) in later packets until a packet carrying them is acked; unreliable payload per packet
+  with `newest` flag; MTU cap 1200 bytes. RTT/jitter: TCP-style smoothing (1/8, 1/4).
+- Loss = packets that fall > 32 behind the newest ack without being acked (and un-counted if a straggler
+  ack arrives later).

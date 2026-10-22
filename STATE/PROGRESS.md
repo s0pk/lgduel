@@ -113,3 +113,8 @@
 - Live windowed run (`--synthetic-input --frames 20000 --no-sound --bot-skill hard`): 583 ticks, bot 50.8% acc, 200 dmg, 2 frags vs the scripted player; 4286 fps avg, p99 1.685 ms (1280×720, RTX 4060).
 - New test `offline_practice_vs_bot_plays_out`: 20 s at uneven ~240 fps → exactly 2500 ticks; bot 269 shots / 105 hits / 7 frags vs a strafing non-shooting player. First threshold (300 shots) was my arithmetic mistake (bot doesn't fire during the 7×1 s respawns); corrected to > 200.
 - Phase 3 (local playable) complete. Verified: check.sh GREEN.
+
+## 2026-10-22 — iteration 22: PLAN 4.1 transport + channels
+- `net::wire` (LE codec, varint/zig-zag, panic-free reader), `net::transport` (Transport trait, UdpTransport, MemNet with latency/jitter/loss), `net::conn` (seq/ack bits, reliable ordered resend, unreliable payload, RTT/jitter/loss stats).
+- Bug found by test and fixed: loss was only counted when a history slot was reused (1024 packets later), so short sessions always reported 0% loss; now counted when a packet leaves the 33-packet ack window.
+- Verified: net tests 13 passed — 500 reliable messages delivered exactly once in order over 40±20 ms / 20% loss; RTT estimate 112 ms for 2×50 ms (+step quantisation); 10% loss link reports loss within 5–15%; duplicates/garbage rejected; MTU cap; real UDP loopback; MemNet loss rate 5% ±1% and deterministic; jitter reorders. check.sh GREEN.

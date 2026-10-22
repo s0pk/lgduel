@@ -39,7 +39,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] 3.10 Offline vs bot practice mode playable
 
 ## Phase 4 — Networking (deps: 2.x; 3.x only for client integration)
-- [ ] 4.1 Transport abstraction + UDP impl; reliable + unreliable channels
+- [x] 4.1 Transport abstraction + UDP impl; reliable + unreliable channels
 - [ ] 4.2 Protocol messages: connect/handshake, usercmd packets (seq, redundant last N cmds), snapshots
 - [ ] 4.3 Snapshot delta compression vs acked baseline
 - [ ] 4.4 Server binary: fixed tick, config TOML, accepts clients, runs sim

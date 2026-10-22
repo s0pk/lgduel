@@ -1,6 +1,10 @@
 //! Network protocol, snapshot delta compression, prediction/reconciliation,
 //! interpolation and lag compensation. Transport-agnostic.
 
+pub mod conn;
+pub mod transport;
+pub mod wire;
+
 /// Protocol version; bump on any wire-format change.
 pub const PROTOCOL_VERSION: u16 = 1;
 
