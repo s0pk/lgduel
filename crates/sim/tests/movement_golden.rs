@@ -17,6 +17,7 @@ const REST_Z: f32 = 24.0 + SURFACE_EPSILON;
 
 fn flat_world() -> World {
     World {
+        materials: Vec::new(),
         convex: Vec::new(),
         name: "golden".into(),
         brushes: vec![Aabb::new(

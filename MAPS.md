@@ -37,6 +37,13 @@ origin = [-768.0, 0.0, 24.0]
 yaw = 0.0                        # degrees, 0 = +x, 90 = +y
 ```
 
+## Materials (visual only)
+
+Any `[[brush]]`, `[[ramp]]`, `[[stairs]]` or `[[convex]]` entry may carry `material = "name"` (for example
+`"trim"` or `"cover"`). The game's theme decides what a material looks like ([themes](STATE/HANDOFF_VISUALS.md)
+are client-side); collision, spawns and the map's content hash ignore it, so tagging never makes a client and
+server disagree about a map. Untagged entries are themed by orientation (floor, wall, ceiling).
+
 ## Movement rules worth knowing
 
 - **Steps** up to 18 units are climbed while walking (stairs with 16-unit steps keep full speed).

@@ -368,3 +368,7 @@
 ## 2026-10-23 — status: every remaining item is blocked on the user
 - Left: M5.1/M5.2 + 7.7 (CI / Docker verification), 7.8 (Linux check.sh, KI-1), M5.3 (v0.2.0 release with the official server), 11.4 (DoD run needs Linux green). Pushed v0.2-dev @ 3e49cb9; CI run 39801090961 again refused: "account is locked due to a billing issue". Docker Desktop on the dev PC still crashes at start (KI-14).
 - Needed from the user: fix the GitHub billing lock (or start Docker Desktop after a reboot), and the VPS address (DEPLOY.md) for the shipped server list + rendezvous.
+
+## 2026-10-23 — iteration 66: visuals T1 material tags
+- world.rs/brush.rs: `material` keys + fields; World literals gained `materials: Vec::new()`; MAPS.md section.
+- Verified: new parse test for all four entry kinds, content-hash test extended (tags don't change it), determinism golden hash 0x9e74a8ea7918ee78 unchanged, check.sh GREEN 133 s.

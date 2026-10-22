@@ -596,3 +596,7 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
 - Docs split by audience: README (overview), PLAY (players), HOSTING (all ways to host), DEPLOY (VPS),
   CONFIG (every server and client key; `lgduel --print-settings`), MAPS (format, movement rules, limits).
   Packages ship all of them.
+
+## D59 — Map material tags (2026-10-23)
+- Optional `material` on brush/ramp/stairs/convex entries → `World.materials` (parallel to `brushes`, stairs steps
+  share their entry's tag) and `ConvexBrush.material`. Purely visual: not in `content_hash`, not used by sim/trace.

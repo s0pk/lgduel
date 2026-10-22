@@ -29,6 +29,7 @@ fn ramp_world(deg: f32, run: f32) -> (World, f32) {
     )
     .unwrap();
     let w = World {
+        materials: Vec::new(),
         name: "ramps".into(),
         brushes: vec![floor, platform],
         colors: vec![[0.5; 3]; 2],

@@ -51,6 +51,9 @@ pub struct World {
     pub brushes: Vec<Aabb>,
     /// RGB per brush for flat-shaded rendering (sim ignores it).
     pub colors: Vec<[f32; 3]>,
+    /// Visual material tag per brush (parallel to `brushes`; may be shorter: missing = none).
+    /// Themes decide what a tag looks like; the sim and the content hash ignore it.
+    pub materials: Vec<Option<String>>,
     /// Non-box solids (ramps, wedges); each carries its own colour.
     pub convex: Vec<crate::brush::ConvexBrush>,
     pub spawns: Vec<Spawn>,
@@ -98,6 +101,8 @@ struct RampFile {
     max: [f32; 3],
     rise: String,
     color: Option<[f32; 3]>,
+    #[serde(default)]
+    material: Option<String>,
 }
 
 /// `steps` boxes in min..max climbing toward `rise`, the last reaching max.z.
@@ -109,6 +114,8 @@ struct StairsFile {
     rise: String,
     steps: u32,
     color: Option<[f32; 3]>,
+    #[serde(default)]
+    material: Option<String>,
 }
 
 /// Any convex solid: planes as [nx, ny, nz, d] (inside: n·p <= d).
@@ -117,6 +124,8 @@ struct StairsFile {
 struct ConvexFile {
     planes: Vec<[f32; 4]>,
     color: Option<[f32; 3]>,
+    #[serde(default)]
+    material: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -125,6 +134,8 @@ struct BrushFile {
     min: [f32; 3],
     max: [f32; 3],
     color: Option<[f32; 3]>,
+    #[serde(default)]
+    material: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -153,6 +164,7 @@ impl World {
         }
         let mut brushes = Vec::with_capacity(f.brush.len());
         let mut colors = Vec::with_capacity(f.brush.len());
+        let mut materials = Vec::with_capacity(f.brush.len());
         for (i, b) in f.brush.iter().enumerate() {
             let all = b.min.iter().chain(&b.max);
             if all.clone().any(|v| !v.is_finite()) {
@@ -163,6 +175,7 @@ impl World {
             }
             brushes.push(Aabb::new(Vec3::from_array(b.min), Vec3::from_array(b.max)));
             colors.push(b.color.unwrap_or(f.default_color));
+            materials.push(b.material.clone());
         }
         let rise = |s: &str, what: String| {
             crate::brush::Rise::parse(s).ok_or(MapError::Invalid(format!(
@@ -199,6 +212,7 @@ impl World {
                 }
                 brushes.push(Aabb::new(lo, hi));
                 colors.push(s.color.unwrap_or(f.default_color));
+                materials.push(s.material.clone());
             }
         }
         let mut convex = Vec::new();
@@ -207,15 +221,15 @@ impl World {
             check_box(r.min, r.max, &what)?;
             let dir = rise(&r.rise, what.clone())?;
             let c = r.color.unwrap_or(f.default_color);
-            convex.push(
-                crate::brush::ConvexBrush::ramp(
-                    Vec3::from_array(r.min),
-                    Vec3::from_array(r.max),
-                    dir,
-                    c,
-                )
-                .map_err(|e| MapError::Invalid(format!("{what}: {e}")))?,
-            );
+            let mut brush = crate::brush::ConvexBrush::ramp(
+                Vec3::from_array(r.min),
+                Vec3::from_array(r.max),
+                dir,
+                c,
+            )
+            .map_err(|e| MapError::Invalid(format!("{what}: {e}")))?;
+            brush.material = r.material.clone();
+            convex.push(brush);
         }
         for (i, c) in f.convex.iter().enumerate() {
             let faces: Vec<(Vec3, f32)> = c
@@ -223,10 +237,11 @@ impl World {
                 .iter()
                 .map(|p| (Vec3::new(p[0], p[1], p[2]), p[3]))
                 .collect();
-            convex.push(
+            let mut brush =
                 crate::brush::ConvexBrush::from_planes(&faces, c.color.unwrap_or(f.default_color))
-                    .map_err(|e| MapError::Invalid(format!("convex {i}: {e}")))?,
-            );
+                    .map_err(|e| MapError::Invalid(format!("convex {i}: {e}")))?;
+            brush.material = c.material.clone();
+            convex.push(brush);
         }
         let mut spawns = Vec::with_capacity(f.spawn.len());
         for (i, s) in f.spawn.iter().enumerate() {
@@ -247,6 +262,7 @@ impl World {
             name: f.name,
             brushes,
             colors,
+            materials,
             convex,
             spawns,
         })
@@ -369,6 +385,11 @@ mod tests {
         assert_eq!(a.content_hash(), b.content_hash());
         b.brushes[0].max.z += 1.0;
         assert_ne!(a.content_hash(), b.content_hash());
+        // Material tags are visual only.
+        let mut m = a.clone();
+        m.materials = vec![Some("trim".into()); m.brushes.len()];
+        m.convex[0].material = Some("trim".into());
+        assert_eq!(a.content_hash(), m.content_hash());
         let mut c = a.clone();
         c.spawns[0].origin.x += 0.5;
         assert_ne!(a.content_hash(), c.content_hash());
@@ -376,6 +397,52 @@ mod tests {
         let crlf = builtin::ARENA_TIERS.replace('\n', "\r\n");
         let d = World::from_toml_str(&crlf, hull()).unwrap();
         assert_eq!(a.content_hash(), d.content_hash());
+    }
+
+    #[test]
+    fn material_tags_parse_on_every_entry_kind() {
+        let doc = r#"
+name = "t"
+[[brush]]
+min = [-500.0, -500.0, -16.0]
+max = [500.0, 500.0, 0.0]
+material = "floor"
+[[brush]]
+min = [-500.0, -500.0, 0.0]
+max = [-480.0, 500.0, 64.0]
+[[ramp]]
+min = [0.0, -50.0, 0.0]
+max = [100.0, 50.0, 40.0]
+rise = "+x"
+material = "ramp"
+[[stairs]]
+min = [-200.0, -50.0, 0.0]
+max = [-100.0, 50.0, 64.0]
+rise = "-x"
+steps = 4
+material = "steps"
+[[convex]]
+planes = [[0.0, 0.0, -1.0, 0.0], [1.0, 0.0, 1.0, 300.0], [-1.0, 0.0, 0.0, -200.0], [0.0, 1.0, 0.0, 50.0], [0.0, -1.0, 0.0, 50.0]]
+material = "wedge"
+[[spawn]]
+origin = [-400.0, 0.0, 24.0]
+[[spawn]]
+origin = [400.0, 0.0, 24.0]
+"#;
+        let w = World::from_toml_str(doc, hull()).unwrap();
+        assert_eq!(w.materials.len(), w.brushes.len());
+        assert_eq!(w.materials[0].as_deref(), Some("floor"));
+        assert_eq!(w.materials[1], None);
+        assert!(
+            w.materials[2..]
+                .iter()
+                .all(|m| m.as_deref() == Some("steps"))
+        );
+        assert_eq!(w.convex[0].material.as_deref(), Some("ramp"));
+        assert_eq!(w.convex[1].material.as_deref(), Some("wedge"));
+        // Built-in maps load unchanged without tags.
+        let flat = builtin::load("arena_flat", hull()).unwrap();
+        assert!(flat.materials.iter().all(|m| m.is_none()));
     }
 
     #[test]

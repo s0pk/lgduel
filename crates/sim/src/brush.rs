@@ -21,6 +21,8 @@ pub struct ConvexBrush {
     pub planes: Vec<Plane>,
     pub bounds: Aabb,
     pub color: [f32; 3],
+    /// Visual material tag (themes only; ignored by collision and the content hash).
+    pub material: Option<String>,
 }
 
 /// Which way a ramp goes up.
@@ -88,6 +90,7 @@ impl ConvexBrush {
             planes,
             bounds: Aabb::new(Vec3::ZERO, Vec3::ZERO),
             color,
+            material: None,
         };
         let verts = b.vertices();
         if verts.len() < 4 {
