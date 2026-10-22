@@ -83,3 +83,10 @@
 - Headless check asserts forced enemy colours visible: head 120 px, upper 300 px, lower 340 px at 768u / FOV 110 / 1080p; screenshot inspected (three bands visible at far wall).
 - Test fix: facing-nub assertion boundary (nub touches the hitbox face at x=15 → `>=`).
 - Verified: check.sh GREEN; client tests 18 passed (incl. other-player interpolation at half tick).
+
+## 2026-10-22 — iteration 17: PLAN 3.7a LG beam + sparks
+- PLAN: split 3.7 into 3.7a (beam + sparks), 3.7b (hit sound); damage numbers moved to 3.8 (needs text).
+- `client::effects`: BeamStyle none/thin/thick/zigzag, EffectSettings (beam colour, sparks on/off, spark size/colour), camera-facing segment quads, deterministic jitter, sparks reflected toward the shooter. Own beam predicted per frame; enemy beams from their state. Flags `--beam`, `--no-sparks`, `--spark-size`. `LocalSession::teleport`.
+- Headless scene now: opponent at 400u, own beam firing. Measured (1080p): thin beam 3582–8066 px, zigzag 5207–5524 px, thick 10449 px; sparks 21–81 px at size 3, 130 px at size 6, 275 px at size 8; `--beam none` → 0 beam px; `--no-sparks` → 0 spark px.
+- Iterated on spark visibility: first version lost half the streaks inside the target and the check at the 768u range limit was fragile; fixed by reflecting streaks and testing at 400u.
+- Verified: check.sh GREEN (now includes none/no-sparks and zigzag/size runs). Screenshot inspected: beam from lower-right muzzle to opponent chest.

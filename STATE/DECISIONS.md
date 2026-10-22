@@ -161,3 +161,14 @@ Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update th
 - Default forced enemy colours: head yellow (1,1,0), upper green (0,1,0), lower cyan (0,0.6,1) —
   configurable in Phase 8.
 - Headless check now asserts each forced colour appears (≥50 px) on an opponent at 768u.
+
+## D16 — LG beam & sparks (2026-10-22)
+- Beam styles: none / thin (1.2u) / thick (3.5u) / zigzag (jagged, ~24u segments, ±5u jitter); camera-facing
+  ribbons in the flat pipeline. Default thin, colour (0.55, 0.8, 1.0).
+- Own beam is predicted every render frame from the latest view angles (not tick-quantized) via
+  `sim::game::hitscan` against interpolated enemy boxes, drawn from a muzzle offset (14 fwd, 6 right, 8 down)
+  so it is visible. Enemy beams come from their latest buttons/angles. Purely visual — hits are authoritative.
+- Sparks: 6 streaks at the impact, reflected into the hemisphere facing the shooter so the target never
+  hides them; on/off + size (0–32u half-size, default 3). Drawn only when something was hit inside range.
+- Headless check places the opponent at 400u and asserts beam/spark pixels; `--beam none --no-sparks` must
+  draw zero beam and zero spark pixels.

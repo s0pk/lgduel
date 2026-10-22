@@ -74,6 +74,19 @@ impl LocalSession {
         }
     }
 
+    /// Move a player instantly (no interpolation smear), e.g. for scripted scenes.
+    pub fn teleport(&mut self, id: PlayerId, origin: Vec3) {
+        if let Some(p) = self.game.player_mut(id) {
+            p.pm.origin = origin;
+        }
+        for e in &mut self.interp {
+            if e.0 == id {
+                e.1 = origin;
+                e.2 = origin;
+            }
+        }
+    }
+
     /// Origin of `id` interpolated between the last two ticks.
     pub fn origin(&self, id: PlayerId) -> Vec3 {
         let a = self.alpha();

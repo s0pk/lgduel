@@ -43,5 +43,8 @@ echo "SKIP: not implemented yet (PLAN Phase 7)"
 
 stage "client offscreen render (1920x1080, screenshot + pixel checks)"
 "target/$PROFILE/lgduel" --headless --frames 300 --size 1920x1080 --screenshot artifacts/offscreen.png
+# Visibility toggles: no-beam and sparks-off must draw zero beam / spark pixels; zigzag style renders.
+"target/$PROFILE/lgduel" --headless --frames 3 --beam none --no-sparks | grep -E "IMAGE (beam|sparks)|CHECK"
+"target/$PROFILE/lgduel" --headless --frames 3 --beam zigzag --spark-size 6 | grep -E "IMAGE (beam|sparks)|CHECK"
 
 printf '\nCHECK GREEN in %ss\n' "$(( $(date +%s) - start ))"

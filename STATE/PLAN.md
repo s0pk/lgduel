@@ -32,8 +32,9 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] 3.4 Raw mouse input, sub-pixel accumulation, cm/360 + DPI sensitivity, FOV 10–130
 - [x] 3.5 Local movement through sim at fixed tick, render interpolation of own view
 - [x] 3.6 Player models: simple original geometry, forced enemy colours head/upper/lower
-- [ ] 3.7 LG beam (styles incl. none), impact sparks on/off + size, hit sound (original/CC0), damage numbers
-- [ ] 3.8 HUD: health, crosshair, fight stats
+- [x] 3.7a LG beam (styles incl. none, own beam from muzzle, enemy beams), impact sparks on/off + size
+- [ ] 3.7b Hit sound (procedurally generated, original), audio output, volume
+- [ ] 3.8 HUD: text rendering, health, crosshair, fight stats, damage numbers
 - [ ] 3.9 Bot crate: strafe patterns (random A/D w/ reaction model, mirror, anti-mirror, HSW), tracking aim w/ accuracy + reaction delay
 - [ ] 3.10 Offline vs bot practice mode playable
 

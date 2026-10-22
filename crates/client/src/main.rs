@@ -7,6 +7,7 @@
 //! `--headless` renders offscreen (no window), saves a screenshot and checks
 //! that it rendered (non-blank, expected colours present); exit code 1 if not.
 
+mod effects;
 mod frame_stats;
 mod gfx;
 mod input;
@@ -15,11 +16,14 @@ mod offscreen;
 mod players;
 mod render;
 
+use effects::{BeamStyle, EffectSettings};
 use frame_stats::FrameStats;
 use gfx::Gfx;
 use input::{Keys, MouseLook, MouseSettings};
 use lgduel_sim::config::GameConfig;
-use lgduel_sim::math::{Vec3, look_angles};
+use lgduel_sim::game::{PlayerId, hitscan};
+use lgduel_sim::math::{Angle, Vec3, angle_vectors, look_angles};
+use lgduel_sim::usercmd::buttons;
 use lgduel_sim::world::{World, builtin};
 use local::LocalSession;
 use players::EnemyColors;
@@ -52,6 +56,7 @@ struct Options {
     mouse: MouseSettings,
     /// Feed scripted input (hold forward+right, turn right) for unattended runs.
     synthetic_input: bool,
+    effects: EffectSettings,
 }
 
 impl Default for Options {
@@ -66,6 +71,7 @@ impl Default for Options {
             fov: 110.0,
             mouse: MouseSettings::default(),
             synthetic_input: false,
+            effects: EffectSettings::default(),
         }
     }
 }
@@ -111,6 +117,19 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Options, String>
                     .ok_or("--dpi needs a positive number")?
             }
             "--invert" => o.mouse.invert_pitch = true,
+            "--beam" => {
+                let v = val("--beam")?;
+                o.effects.beam_style = BeamStyle::parse(&v)
+                    .ok_or(format!("--beam must be none|thin|thick|zigzag, got {v}"))?
+            }
+            "--no-sparks" => o.effects.sparks = false,
+            "--spark-size" => {
+                o.effects.spark_size = val("--spark-size")?
+                    .parse::<f32>()
+                    .ok()
+                    .filter(|v| (0.0..=32.0).contains(v))
+                    .ok_or("--spark-size needs a number in 0..=32")?
+            }
             "--synthetic-input" => o.synthetic_input = true,
             "--vsync" => o.vsync = true,
             "--headless" => o.headless = true,
@@ -139,20 +158,70 @@ fn load_world() -> World {
     World::from_toml_str(builtin::ARENA_FLAT, hull).expect("builtin map")
 }
 
-/// Dynamic geometry for everyone except the local player.
-fn scene_mesh(session: &LocalSession, colors: &EnemyColors) -> Vec<render::Vertex> {
+/// Beam from `eye` along (pitch, yaw), drawn from a muzzle offset; sparks where it hits.
+#[allow(clippy::too_many_arguments)]
+fn push_lg(
+    v: &mut Vec<render::Vertex>,
+    session: &LocalSession,
+    shooter: PlayerId,
+    eye: Vec3,
+    pitch: Angle,
+    yaw: Angle,
+    view_eye: Vec3,
+    fx: &EffectSettings,
+    seed: u32,
+) {
+    let g = &session.game;
+    let targets: Vec<_> = g
+        .players
+        .iter()
+        .filter(|p| p.alive && p.id != shooter)
+        .map(|p| {
+            let (mins, maxs) = p.pm.hull(&g.cfg.physics);
+            (
+                p.id,
+                lgduel_sim::world::Aabb::at(session.origin(p.id), mins, maxs),
+            )
+        })
+        .collect();
+    let (f, r, u) = angle_vectors(pitch, yaw);
+    let hs = hitscan(&g.world, eye, f, g.cfg.lg.range, &targets);
+    let (mf, mr, md) = effects::MUZZLE;
+    let muzzle = eye + f * mf + r * mr - u * md;
+    effects::push_beam(v, muzzle, hs.end, view_eye, fx, seed);
+    if (hs.end - eye).length() < g.cfg.lg.range - 0.5 {
+        effects::push_sparks(v, hs.end, f, view_eye, fx, seed);
+    }
+}
+
+/// Dynamic geometry: opponents, their beams, and (if firing) the own beam from `cam`.
+fn scene_mesh(
+    session: &LocalSession,
+    cam: &Camera,
+    firing: bool,
+    colors: &EnemyColors,
+    fx: &EffectSettings,
+    seed: u32,
+) -> Vec<render::Vertex> {
     let mut v = Vec::new();
+    let phys = &session.game.cfg.physics;
     for p in &session.game.players {
         if p.id == session.me || !p.alive {
             continue;
         }
-        players::push_player(
-            &mut v,
-            session.origin(p.id),
-            p.yaw,
-            p.pm.ducked,
-            &session.game.cfg.physics,
-            colors,
+        let origin = session.origin(p.id);
+        players::push_player(&mut v, origin, p.yaw, p.pm.ducked, phys, colors);
+        if p.buttons & buttons::FIRE != 0 {
+            let eye = origin + (p.pm.eye(phys) - p.pm.origin);
+            push_lg(
+                &mut v, session, p.id, eye, p.pitch, p.yaw, cam.eye, fx, seed,
+            );
+        }
+    }
+    let me_alive = session.game.player(session.me).is_some_and(|p| p.alive);
+    if firing && me_alive {
+        push_lg(
+            &mut v, session, session.me, cam.eye, cam.pitch, cam.yaw, cam.eye, fx, seed,
         );
     }
     v
@@ -169,8 +238,12 @@ fn run_headless(opts: &Options) -> Result<(), String> {
     let mut r = Renderer::new(&off.device, offscreen::FORMAT);
     r.set_world(&off.device, &world);
     // Local player at spawn 1, an idle opponent at spawn 2; look at the opponent's chest.
-    let session = LocalSession::new(GameConfig::default(), world.clone(), 1);
-    let enemy = session.game.players[1].pm.origin;
+    // Opponent placed 400u in front (mid LG range) so effects are a few pixels wide.
+    let mut session = LocalSession::new(GameConfig::default(), world.clone(), 1);
+    let me = session.game.player(session.me).unwrap().pm.origin;
+    let enemy_id = session.game.players[1].id;
+    session.teleport(enemy_id, me + Vec3::new(400.0, 0.0, 0.0));
+    let enemy = session.game.player(enemy_id).unwrap().pm.origin;
     let eye = session.eye();
     let (pitch, yaw) = look_angles(enemy + Vec3::new(0.0, 0.0, 8.0) - eye);
     let cam = Camera {
@@ -184,7 +257,12 @@ fn run_headless(opts: &Options) -> Result<(), String> {
     let stats = off.render(
         &mut r,
         frames,
-        |_| (cam, scene_mesh(&session, &colors)),
+        |i| {
+            (
+                cam,
+                scene_mesh(&session, &cam, true, &colors, &opts.effects, i),
+            )
+        },
         CLEAR,
     );
     if let Some(s) = stats.summary() {
@@ -219,6 +297,36 @@ fn run_headless(opts: &Options) -> Result<(), String> {
             return Err(format!(
                 "forced enemy {name} colour not visible ({px_count} px)"
             ));
+        }
+    }
+    let fx = &opts.effects;
+    let mut fx_checks = vec![];
+    if fx.beam_style != BeamStyle::None {
+        fx_checks.push(("beam", fx.beam_color, 50));
+    } else {
+        let srgb = offscreen::linear_to_srgb8(fx.beam_color);
+        let px_count = (offscreen::color_fraction(&px, srgb, 2) * total).round() as u64;
+        println!("IMAGE beam (style none) {srgb:?}: {px_count} px");
+        if px_count > 0 {
+            return Err(format!("beam style none still drew {px_count} beam pixels"));
+        }
+    }
+    if fx.sparks && fx.spark_size > 0.0 {
+        fx_checks.push(("sparks", fx.spark_color, 10));
+    } else {
+        let srgb = offscreen::linear_to_srgb8(fx.spark_color);
+        let px_count = (offscreen::color_fraction(&px, srgb, 2) * total).round() as u64;
+        println!("IMAGE sparks (off) {srgb:?}: {px_count} px");
+        if px_count > 0 {
+            return Err(format!("sparks off still drew {px_count} spark pixels"));
+        }
+    }
+    for (name, c, min_px) in fx_checks {
+        let srgb = offscreen::linear_to_srgb8(c);
+        let px_count = (offscreen::color_fraction(&px, srgb, 2) * total).round() as u64;
+        println!("IMAGE {name} {srgb:?}: {px_count} px");
+        if px_count < min_px {
+            return Err(format!("{name} not visible ({px_count} px)"));
         }
     }
     if floor_frac < 0.05 {
@@ -433,13 +541,20 @@ impl ApplicationHandler for App {
                     self.simulate(now - last);
                 }
                 self.last_frame = Some(now);
-                let dynamic = scene_mesh(&self.session, &self.colors);
                 let cam = Camera {
                     eye: self.session.eye(),
                     pitch: self.look.pitch,
                     yaw: self.look.yaw,
                     fov: self.opts.fov,
                 };
+                let dynamic = scene_mesh(
+                    &self.session,
+                    &cam,
+                    self.keys.fire,
+                    &self.colors,
+                    &self.opts.effects,
+                    self.frames as u32,
+                );
                 if let (Some(g), Some(r), Some(depth)) =
                     (&mut self.gfx, &mut self.renderer, &self.depth)
                 {
