@@ -66,6 +66,10 @@ pub struct NetClient<T: Transport> {
     response_sent_us: Option<u64>,
     /// RTT measured by the handshake, used until packet acks provide one.
     handshake_rtt_us: f64,
+    /// Recent (receive time − tick × tick length) offsets of newest snapshots.
+    arrival_offsets: VecDeque<(u64, f64)>,
+    /// Smoothed snapshot clock (ticks) and the time it was last advanced.
+    snap_clock: Option<(f64, u64)>,
 }
 
 impl<T: Transport> NetClient<T> {
@@ -92,6 +96,8 @@ impl<T: Transport> NetClient<T> {
             snaps_received: 0,
             response_sent_us: None,
             handshake_rtt_us: 0.0,
+            arrival_offsets: VecDeque::new(),
+            snap_clock: None,
         }
     }
 
@@ -199,6 +205,15 @@ impl<T: Transport> NetClient<T> {
                 self.arrival_jitter_us += (dev - self.arrival_jitter_us) * 0.1;
             }
             self.newest = Some((snap.tick, now_us));
+            let offset = now_us as f64 - snap.tick.0 as f64 * self.tick_us;
+            self.arrival_offsets.push_back((now_us, offset));
+            while self
+                .arrival_offsets
+                .front()
+                .is_some_and(|(t, _)| now_us.saturating_sub(*t) > 2_000_000)
+            {
+                self.arrival_offsets.pop_front();
+            }
         }
         self.snapshots.push(snap.clone());
         self.fresh.push(snap);
@@ -223,6 +238,59 @@ impl<T: Transport> NetClient<T> {
         let (t, recv) = self.newest?;
         let one_way = self.rtt_us() / 2.0;
         Some(t.0 as f64 + (now_us.saturating_sub(recv) as f64 + one_way) / self.tick_us)
+    }
+
+    /// Snapshot clock (fractional ticks): the newest snapshot tick that could
+    /// have arrived by `now` on the fastest path seen in the last ~2 s. Late
+    /// packets don't drag it back, so it advances smoothly at the tick rate.
+    /// Remote players are interpolated at `snapshot_clock - delay`.
+    ///
+    /// The raw estimate jumps whenever the fastest sample enters or leaves the
+    /// window, so the returned clock advances with real time and drifts toward
+    /// the raw value at ≤ 5% (like the input clock); it snaps only if off by > 10 ticks.
+    pub fn snapshot_clock(&mut self, now_us: u64) -> Option<f64> {
+        let best = self
+            .arrival_offsets
+            .iter()
+            .map(|(_, o)| *o)
+            .fold(f64::INFINITY, f64::min);
+        if !best.is_finite() {
+            return None;
+        }
+        let raw = (now_us as f64 - best) / self.tick_us;
+        let clock = match self.snap_clock {
+            Some((c, at)) if (raw - c).abs() <= 10.0 => {
+                let elapsed = now_us.saturating_sub(at) as f64 / self.tick_us;
+                let c = c + elapsed;
+                c + (raw - c).clamp(-0.05 * elapsed, 0.05 * elapsed)
+            }
+            _ => raw,
+        };
+        self.snap_clock = Some((clock, now_us));
+        Some(clock)
+    }
+
+    /// Spread (ticks) between the fastest and slowest recent snapshot arrivals
+    /// relative to the snapshot clock: how much interpolation buffer jitter needs.
+    pub fn arrival_spread_ticks(&self) -> f64 {
+        let (lo, hi) = self
+            .arrival_offsets
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), (_, o)| {
+                (lo.min(*o), hi.max(*o))
+            });
+        if lo.is_finite() {
+            (hi - lo) / self.tick_us
+        } else {
+            0.0
+        }
+    }
+
+    /// Recommended interpolation delay: the arrival spread plus 1.5 ticks (one
+    /// snapshot interval to bridge a lost snapshot, and headroom because the
+    /// spread only sees snapshots that arrived as the newest).
+    pub fn recommended_interp_delay(&self) -> f64 {
+        1.5 + self.arrival_spread_ticks()
     }
 
     /// How many ticks ahead of the server the client aims to be.

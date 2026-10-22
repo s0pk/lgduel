@@ -45,7 +45,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] 4.4 Server binary: fixed tick, config TOML, accepts clients, runs sim
 - [x] 4.5 Clock sync + client tick alignment
 - [x] 4.6 Client prediction + reconciliation (own movement + own LG beam)
-- [ ] 4.7 Entity interpolation with configurable buffer; extrapolation off by default
+- [x] 4.7 Entity interpolation with configurable buffer; extrapolation off by default
 - [ ] 4.8 Lag compensation: rewind buffer, anti-lag mode (≤200 ms) and no-anti-lag mode
 - [ ] 4.9 Bot as network client
 - [ ] 4.10 Headless match test in check.sh: server + 2 bots, 60 s vamp duel, assertions (connect, no panic/desync, damage, exact lifesteal, stats file)

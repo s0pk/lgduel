@@ -260,3 +260,16 @@ Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update th
   100±20 ms and 50±10 ms with 5% loss.
 - NetClient seeds RTT from the handshake (ConnectResponse → Accept) until acks exist; without it the first
   commands were stamped with ~1-tick lead, arrived late, and caused a one-off 271u misprediction at 50 ms.
+
+## D26 — Remote-player interpolation (2026-10-22)
+- Render remote players at `snapshot_clock − delay`. The snapshot clock = newest snapshot tick that could
+  have arrived by now on the fastest path seen in the last 2 s (min of receive−tick offsets), advanced with
+  real time and nudged ≤ 5% toward that estimate (snaps if > 10 ticks off). Using the estimated *server
+  current* tick instead was wrong (it's RTT/2 ahead of any snapshot we can have → 100% starved).
+- Delay: adaptive by default → target 1.5 + arrival spread (ticks); grows ≤ 25% of elapsed time, shrinks
+  ≤ 5%; starving sets a floor (delay + shortfall + 0.5) that decays 1 tick/s. Fixed delay available
+  (`adaptive = false`). Extrapolation off by default (`max_extrapolation_ticks = 0` → hold position).
+- Blend origin linearly, angles the short way round; no blending across teleports (> 128u) or alive flips.
+- Smoothness thresholds (seed for PLAN 5.x), per 1 ms render frame while the target walks at 320 u/s:
+  clean links (50 ms, 50±10 ms): max step < 0.7u and < 0.1% starved — measured 0.336u, 0.00%.
+  100±20 ms + 2% loss: max step < 1.6u (≤ 5 ms catch-up), < 0.1% starved — measured 1.04u, 0.03% (one 3 ms hold).

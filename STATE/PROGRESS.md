@@ -146,3 +146,10 @@
 - Measured: max prediction error 0.0000u (0 mispredicted ticks) at 0 ms (2498 checked), 50 ms (2461), 100±20 ms (1376), 50±10 ms + 5% loss (1814); 0 missing commands in all runs. Clock sync still: lead 9.6 ticks @50±10, 21.3 @150±10.
 - Test bound changed: "checked > 1500" → "> 1000" (with ±20 ms jitter, out-of-order snapshots aren't reconciled/checked; error itself is 0).
 - Verified: check.sh GREEN.
+
+## 2026-10-22 — iteration 28: PLAN 4.7 entity interpolation
+- `crates/net/src/interp.rs`: Interpolator (bracketing blend, short-way angle lerp, teleport guard, starvation stats, optional capped extrapolation, adaptive delay with asymmetric rate + decaying starvation floor). NetClient: `snapshot_clock` (fastest-path arrival clock, smoothed), `arrival_spread_ticks`, `recommended_interp_delay`.
+- `crates/server/tests/interpolation.rs`: client A renders client B walking (12 s, 1 ms frames).
+- Iterations driven by measurement: (1) render clock = estimated server time → 100% starved (design error); (2) fixed 3-tick delay at 50±10 ms → 0.76% starved; (3) adaptive delay; (4) delay creeping up too slowly → asymmetric growth; (5) per-frame target overwrote the starvation bump → separate decaying floor. Snapshot-clock smoothing kept (sound, though not the cause).
+- Measured: 50 ms → delay 1.5, 0.00% starved, max step 0.336u (= 320 u/s + 5% dilation); 50±10 → delay 3.88, 0.00%, 0.336u; 100±20 ms + 2% loss → delay 6.25, 0.03% starved (one 3 ms hold), max step 1.04u. Thresholds per condition recorded in DECISIONS D26.
+- Verified: check.sh GREEN.
