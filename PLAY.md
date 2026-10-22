@@ -72,6 +72,10 @@ Changes apply immediately and are saved to `%APPDATA%\LGDuel\settings.toml`.
 Command-line options still work and override the file for that run, e.g.
 `lgduel.exe --sens-cm 55 --dpi 800`, `--fov 110`, `--map arena_tiers --practice`, `--connect 1.2.3.4:27960`.
 
+## Sharing your look
+
+Settings → **Share** makes a one-line code for your look (crosshair, beam, enemy colours/model, theme) and applies codes from friends, plus built-in presets. Whole themes travel as `.lgtheme` files you can drag onto the window. See [SHARING.md](SHARING.md).
+
 ## Console and profiles
 
 **`** opens the console. Every setting is a console variable named like in `settings.toml`:

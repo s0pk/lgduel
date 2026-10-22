@@ -26,6 +26,7 @@ egui-wgpu = "0.37"
 egui-winit = "0.37"
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.1.8"
+flate2 = "1"
 
 [[bin]]
 name = "lgduel"

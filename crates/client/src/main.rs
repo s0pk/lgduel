@@ -20,6 +20,7 @@ mod font;
 mod frame_stats;
 mod gfx;
 mod hud;
+mod icon;
 mod input;
 mod local;
 mod menu;
@@ -27,11 +28,13 @@ mod models;
 mod net_session;
 mod offscreen;
 mod players;
+mod profile;
 mod render;
 mod scene;
 mod settings;
 mod textures;
 mod theme;
+mod themepack;
 mod ttf;
 mod ui;
 
@@ -60,6 +63,176 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::CursorGrabMode;
 use winit::window::{Window, WindowId};
+
+/// `lgduel --doctor`: what the game sees on this machine (for bug reports). Returns the exit code.
+fn doctor(opts: &Options) -> i32 {
+    let env = |k: &str| std::env::var(k).unwrap_or_else(|_| "-".into());
+    println!(
+        "lgduel {} on {}-{}",
+        env!("CARGO_PKG_VERSION"),
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    );
+    println!(
+        "session: XDG_SESSION_TYPE={} WAYLAND_DISPLAY={} DISPLAY={}",
+        env("XDG_SESSION_TYPE"),
+        env("WAYLAND_DISPLAY"),
+        env("DISPLAY")
+    );
+    let code = match offscreen::Offscreen::new(64, 64) {
+        Ok(off) => {
+            println!(
+                "adapter: {} ({:?}, {:?})",
+                off.adapter_info.name, off.adapter_info.backend, off.adapter_info.device_type
+            );
+            0
+        }
+        Err(e) => {
+            println!("adapter: none ({e}); try WGPU_BACKEND=gl or install a Vulkan driver");
+            1
+        }
+    };
+    let audio = audio::Audio::open(0.5);
+    println!(
+        "audio: {}",
+        if audio.is_live() {
+            "output device opened"
+        } else {
+            "no output device (the game runs muted)"
+        }
+    );
+    match opts.settings_path.as_ref() {
+        Some(p) => println!("settings: {}", p.display()),
+        None => println!("settings: none (--no-settings)"),
+    }
+    for d in theme_dirs(opts) {
+        println!(
+            "themes: {}{}",
+            d.display(),
+            if d.is_dir() { "" } else { " (missing)" }
+        );
+    }
+    code
+}
+
+/// Write theme `name` as `<settings>/themepacks/<name>.lgtheme`. Returns a message.
+fn export_theme(opts: &Options, name: &str) -> String {
+    let Some(folder) = theme::find_theme_dir(name, &theme_dirs(opts)) else {
+        return format!("no theme folder called {name} (built-in themes can't be exported)");
+    };
+    let Some(dir) = opts
+        .settings_path
+        .as_ref()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("themepacks"))
+    else {
+        return "no settings folder to write to (started with --no-settings)".into();
+    };
+    match themepack::pack(&folder) {
+        Ok(bytes) => {
+            let file = dir.join(format!("{name}.lgtheme"));
+            match std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&file, &bytes)) {
+                Ok(()) => format!("wrote {} ({} KB)", file.display(), bytes.len() / 1024 + 1),
+                Err(e) => format!("{}: {e}", file.display()),
+            }
+        }
+        Err(e) => format!("can't pack {name}: {e}"),
+    }
+}
+
+/// Install the theme pack `file` (as `name`, default from the file name) and select it.
+fn import_theme(opts: &mut Options, file: &std::path::Path, name: Option<&str>) -> String {
+    let Some(dir) = user_themes_dir(opts) else {
+        return "no settings folder to install into (started with --no-settings)".into();
+    };
+    let Some(name) = name
+        .map(String::from)
+        .or_else(|| themepack::name_from_file(file))
+    else {
+        return format!("can't make a theme name from {}", file.display());
+    };
+    let size = std::fs::metadata(file).map(|m| m.len());
+    match size {
+        Ok(n) if n > themepack::MAX_PACK_FILE => {
+            return format!("{}: file is too large", file.display());
+        }
+        Err(e) => return format!("{}: {e}", file.display()),
+        _ => {}
+    }
+    let bytes = match std::fs::read(file) {
+        Ok(b) => b,
+        Err(e) => return format!("{}: {e}", file.display()),
+    };
+    match themepack::unpack_to(&bytes, &dir, &name, false) {
+        Ok(_) => {
+            opts.s.video.theme = name.clone();
+            format!("installed theme {name} and selected it")
+        }
+        Err(e) => format!("can't import {}: {e}", file.display()),
+    }
+}
+
+/// Apply the built-in preset `name` to `opts.s`. Returns the lines to show.
+fn apply_preset(opts: &mut Options, name: &str) -> Vec<String> {
+    let Some(p) = profile::preset_profile(name) else {
+        return vec![format!("no preset called {name} (try: presets)")];
+    };
+    let report = profile::evaluate(&p, &opts.s, &theme_dirs(opts), false);
+    let mut lines = profile::describe(&report);
+    match report.result {
+        Some(s) => {
+            opts.s = s;
+            lines.insert(0, format!("applied preset {name}:"));
+        }
+        None => lines.insert(0, format!("preset {name}: already set")),
+    }
+    lines
+}
+
+/// `<settings folder>/themes`, where imported themes go.
+fn user_themes_dir(opts: &Options) -> Option<std::path::PathBuf> {
+    opts.settings_path
+        .as_ref()?
+        .parent()
+        .map(|p| p.join("themes"))
+}
+
+/// Apply a share code to `opts.s` (CLI and menu). Returns the lines to show.
+fn import_profile(opts: &mut Options, code: &str, controls: bool, apply: bool) -> Vec<String> {
+    let profile = match profile::decode(code) {
+        Ok(p) => p,
+        Err(e) => return vec![format!("problem: {e}")],
+    };
+    let report = profile::evaluate(&profile, &opts.s, &theme_dirs(opts), controls);
+    let mut lines = profile::describe(&report);
+    if apply {
+        match (&report.result, user_themes_dir(opts)) {
+            (Some(_), dir) => {
+                if report.theme_install.is_some() {
+                    match dir {
+                        Some(d) => {
+                            if let Err(e) = profile::install_theme(&report, &d) {
+                                lines.push(format!("problem: {e}"));
+                                return lines;
+                            }
+                        }
+                        None => {
+                            lines
+                                .push("problem: no settings folder to install the theme in".into());
+                            return lines;
+                        }
+                    }
+                }
+                opts.s = report.result.clone().unwrap();
+                lines.insert(0, "applied:".into());
+            }
+            (None, _) => lines.insert(0, "nothing applied".into()),
+        }
+    } else {
+        lines.insert(0, "preview (nothing changed yet):".into());
+    }
+    lines
+}
 
 /// Folders themes are searched in.
 fn theme_dirs(opts: &Options) -> Vec<std::path::PathBuf> {
@@ -100,6 +273,10 @@ struct Options {
     force_relay: bool,
     /// Headless picture: how far in front of you the opponent stands (default 400).
     enemy_distance: f32,
+    /// Install this .lgtheme file at start.
+    import_theme: Option<String>,
+    /// Apply this share code to the settings at start.
+    import_profile: Option<String>,
     /// Extra folder to look for themes in.
     theme_dir: Option<std::path::PathBuf>,
     /// Record a demo to this file.
@@ -118,6 +295,8 @@ struct Options {
     summary_demo: bool,
     /// Headless `--menu console`: the console with a few commands run.
     menu_console: bool,
+    /// Headless `--menu share`: the Share tab with a sample code and preview.
+    menu_share: bool,
     /// Headless online run length.
     secs: f64,
 }
@@ -154,12 +333,15 @@ impl Options {
             join: None,
             force_relay: false,
             enemy_distance: 400.0,
+            import_theme: None,
+            import_profile: None,
             theme_dir: None,
             record: None,
             play_demo: None,
             menu_online: false,
             summary_demo: false,
             menu_console: false,
+            menu_share: false,
             secs: 5.0,
         }
     }
@@ -197,6 +379,8 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
                     .filter(|d| (60.0..=1500.0).contains(d))
                     .ok_or("--enemy-distance needs a number from 60 to 1500")?;
             }
+            "--import-theme" => o.import_theme = Some(val("--import-theme")?),
+            "--import-profile" => o.import_profile = Some(val("--import-profile")?),
             "--theme-dir" => o.theme_dir = Some(val("--theme-dir")?.into()),
             "--make-example-theme" => {
                 let dir = std::path::PathBuf::from(val("--make-example-theme")?);
@@ -337,6 +521,10 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
                         o.menu_console = true;
                         menu::Screen::Closed
                     }
+                    "share" => {
+                        o.menu_share = true;
+                        menu::Screen::Settings
+                    }
                     "settings" => menu::Screen::Settings,
                     "main" => menu::Screen::Main,
                     "practice" => menu::Screen::Practice,
@@ -353,13 +541,26 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
             }
             "--version" => {
                 println!(
-                    "lgduel {} (sim tick {} Hz, protocol v{})",
+                    "lgduel {} (sim tick {} Hz, protocol v{}) {}-{}",
                     env!("CARGO_PKG_VERSION"),
                     lgduel_sim::DEFAULT_TICK_RATE_HZ,
-                    lgduel_net::PROTOCOL_VERSION
+                    lgduel_net::PROTOCOL_VERSION,
+                    std::env::consts::OS,
+                    std::env::consts::ARCH
                 );
                 std::process::exit(0);
             }
+            "--make-icons" => {
+                let dir = std::path::PathBuf::from(val("--make-icons")?);
+                std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+                for (name, bytes) in icon::icon_files() {
+                    std::fs::write(dir.join(&name), bytes)
+                        .map_err(|e| format!("{}: {e}", dir.join(&name).display()))?;
+                }
+                println!("icons written to {}", dir.display());
+                std::process::exit(0);
+            }
+            "--doctor" => std::process::exit(doctor(&o)),
             other => return Err(format!("unknown argument: {other}")),
         }
     }
@@ -658,6 +859,17 @@ fn run_headless(opts: &Options) -> Result<(), String> {
         }
         let rows = b.rows(&entries);
         menu.has_rendezvous = rendezvous_of(&s).is_some();
+        if opts.menu_share {
+            menu.tab = menu::Tab::Share;
+            let mut sample = s.clone();
+            sample.hud.crosshair.size = 12.0;
+            sample.models.enemy = models::ModelKind::Humanoid;
+            menu.share.code = profile::export(&sample, &[], false);
+            menu.share.input = menu.share.code.clone();
+            let p = profile::decode(&menu.share.code).unwrap_or_default();
+            let r = profile::evaluate(&p, &s, &[], false);
+            menu.share.report = profile::describe(&r);
+        }
         if opts.menu_console {
             menu.console.open = true;
             for line in ["help", "sensitivity 41.5", "fov 500", "cvars crosshair"] {
@@ -1270,6 +1482,40 @@ impl App {
         }
     }
 
+    fn import_theme_file(&mut self, file: &std::path::Path, name: Option<&str>) {
+        let msg = import_theme(&mut self.opts, file, name);
+        println!("THEMEPACK {msg}");
+        self.menu.console.print(&msg);
+        self.menu.share.report = vec![msg];
+        self.menu.dirty = true;
+        self.load_style();
+    }
+
+    fn share_preset(&mut self, name: &str) {
+        let lines = apply_preset(&mut self.opts, name);
+        for l in &lines {
+            self.menu.console.print(l);
+        }
+        self.menu.share.report = lines;
+        self.menu.dirty = true;
+        self.apply_settings();
+        self.load_style();
+    }
+
+    /// Import a share code (preview or apply) and report in the Share tab and console.
+    fn share_import(&mut self, code: &str, controls: bool, apply: bool) {
+        let lines = import_profile(&mut self.opts, code, controls, apply);
+        for l in &lines {
+            self.menu.console.print(l);
+        }
+        self.menu.share.report = lines;
+        if apply {
+            self.menu.dirty = true;
+            self.apply_settings();
+            self.load_style();
+        }
+    }
+
     /// (Re)load the theme named in the settings and tell the player about problems.
     fn load_style(&mut self) {
         self.style = theme_style(&self.opts);
@@ -1411,6 +1657,21 @@ impl App {
                 }
             }
             Some(console::ConsoleAction::ReloadTheme) => self.load_style(),
+            Some(console::ConsoleAction::Preset(name)) => self.share_preset(&name),
+            Some(console::ConsoleAction::ExportTheme(name)) => {
+                let msg = export_theme(&self.opts, &name);
+                self.menu.console.print(&msg);
+            }
+            Some(console::ConsoleAction::ImportTheme { file, name }) => {
+                self.import_theme_file(std::path::Path::new(&file), name.as_deref());
+            }
+            Some(console::ConsoleAction::ExportProfile { controls }) => {
+                let code = profile::export(&self.opts.s, &theme_dirs(&self.opts), controls);
+                self.menu.console.print(&code);
+            }
+            Some(console::ConsoleAction::ImportProfile(code)) => {
+                self.share_import(&code, false, true);
+            }
             Some(console::ConsoleAction::StopRecord) => {
                 if self.recording.is_some() {
                     self.save_recording();
@@ -1772,8 +2033,21 @@ impl ApplicationHandler for App {
         if self.window.is_some() {
             return;
         }
-        let attrs = Window::default_attributes()
-            .with_title("LGDuel")
+        let attrs = Window::default_attributes().with_title("LGDuel");
+        // Application id: desktop files and icons match windows by it (`lgduel.desktop`).
+        #[cfg(target_os = "linux")]
+        let attrs = {
+            use winit::platform::wayland::WindowAttributesExtWayland;
+            use winit::platform::x11::WindowAttributesExtX11;
+            WindowAttributesExtX11::with_name(attrs, "lgduel", "LGDuel")
+        };
+        #[cfg(target_os = "linux")]
+        let attrs = {
+            use winit::platform::wayland::WindowAttributesExtWayland;
+            WindowAttributesExtWayland::with_name(attrs, "lgduel", "lgduel")
+        };
+        let attrs = attrs
+            .with_window_icon(winit::window::Icon::from_rgba(icon::icon_rgba(64), 64, 64).ok())
             .with_inner_size(winit::dpi::PhysicalSize::new(
                 self.opts.s.video.size.0,
                 self.opts.s.video.size.1,
@@ -1856,6 +2130,18 @@ impl ApplicationHandler for App {
         }
         match event {
             WindowEvent::CloseRequested => self.finish(el),
+            WindowEvent::DroppedFile(path) => {
+                if path
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("lgtheme"))
+                {
+                    self.import_theme_file(&path, None);
+                } else {
+                    self.menu
+                        .console
+                        .print("only .lgtheme files can be dropped here");
+                }
+            }
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key {
                     self.key(code, event.state == ElementState::Pressed);
@@ -2085,6 +2371,17 @@ impl ApplicationHandler for App {
                         Some(menu::Action::StartPractice) => self.start_practice(),
                         Some(menu::Action::Connect(addr)) => self.start_online(&addr),
                         Some(menu::Action::JoinCode(code)) => self.start_code(&code),
+                        Some(menu::Action::ShareExport { controls }) => {
+                            self.menu.share.code =
+                                profile::export(&self.opts.s, &theme_dirs(&self.opts), controls);
+                        }
+                        Some(menu::Action::Preset(name)) => self.share_preset(&name),
+                        Some(menu::Action::SharePreview { code, controls }) => {
+                            self.share_import(&code, controls, false)
+                        }
+                        Some(menu::Action::ShareApply { code, controls }) => {
+                            self.share_import(&code, controls, true)
+                        }
                         Some(menu::Action::ConsoleLine(line)) => {
                             self.console_line(&line);
                             if self.quit_requested {
@@ -2179,7 +2476,7 @@ fn main() {
         }
         None => Options::default(),
     };
-    let opts = match parse_args(argv, base) {
+    let mut opts = match parse_args(argv, base) {
         Ok(o) => o,
         Err(e) => {
             eprintln!("lgduel: {e}");
@@ -2255,6 +2552,15 @@ fn main() {
         opts.s.mouse.dpi,
         opts.s.mouse.degrees_per_count()
     );
+    if let Some(f) = opts.import_theme.clone() {
+        let msg = import_theme(&mut opts, std::path::Path::new(&f), None);
+        println!("THEMEPACK {msg}");
+    }
+    if let Some(code) = opts.import_profile.clone() {
+        for l in import_profile(&mut opts, &code, false, true) {
+            println!("PROFILE {l}");
+        }
+    }
     let opts_record = opts.record.clone();
     let style = theme_style(&opts);
     let mut app = App {

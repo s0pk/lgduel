@@ -14,6 +14,11 @@ const HELP: &str = "console commands:
   writeconfig NAME      save all settings to NAME.cfg (a profile)
   exec NAME             run NAME.cfg
   reloadtheme           re-read the current theme folder (after editing it)
+  exporttheme NAME      write the theme folder NAME as one .lgtheme file (themepacks/ next to settings)
+  importtheme FILE [as NAME]   install a .lgtheme file (or drag it onto the window)
+  presets | preset NAME  built-in looks (classic, high-visibility, colour-blind-safe, minimal, showcase)
+  exportprofile [controls]   print a share code for your look (controls = also mouse/FOV/volume)
+  importprofile CODE    apply a share code (see what it changes first with Settings -> Share)
   record NAME | stoprecord | playdemo NAME   demos (practice: exact replay)
   connect ADDRESS | join CODE | practice | disconnect | quit
   clear | help";
@@ -21,6 +26,11 @@ const HELP: &str = "console commands:
 /// Things the console asks the app to do.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConsoleAction {
+    ExportTheme(String),
+    ImportTheme { file: String, name: Option<String> },
+    Preset(String),
+    ExportProfile { controls: bool },
+    ImportProfile(String),
     ReloadTheme,
     Record(String),
     StopRecord,
@@ -257,6 +267,41 @@ fn run_depth(
         "record" if !rest.is_empty() => (vec![], Some(ConsoleAction::Record(rest.into())), false),
         "stoprecord" => (vec![], Some(ConsoleAction::StopRecord), false),
         "reloadtheme" => (vec![], Some(ConsoleAction::ReloadTheme), false),
+        "exporttheme" if !rest.is_empty() => {
+            (vec![], Some(ConsoleAction::ExportTheme(rest.into())), false)
+        }
+        "importtheme" if !rest.is_empty() => {
+            let (file, name) = match rest.rsplit_once(" as ") {
+                Some((f, n)) => (f.trim().to_string(), Some(n.trim().to_string())),
+                None => (rest.to_string(), None),
+            };
+            (
+                vec![],
+                Some(ConsoleAction::ImportTheme { file, name }),
+                false,
+            )
+        }
+        "presets" => (
+            crate::profile::presets()
+                .iter()
+                .map(|p| format!("{:<18} {}", p.name, p.description))
+                .collect(),
+            None,
+            false,
+        ),
+        "preset" if !rest.is_empty() => (vec![], Some(ConsoleAction::Preset(rest.into())), false),
+        "exportprofile" => (
+            vec![],
+            Some(ConsoleAction::ExportProfile {
+                controls: rest == "controls",
+            }),
+            false,
+        ),
+        "importprofile" if !rest.is_empty() => (
+            vec![],
+            Some(ConsoleAction::ImportProfile(rest.into())),
+            false,
+        ),
         "playdemo" if !rest.is_empty() => {
             (vec![], Some(ConsoleAction::PlayDemo(rest.into())), false)
         }

@@ -417,13 +417,13 @@ pub fn procedural(name: &str) -> Option<Image> {
 pub const MAX_THEME_TEXTURES: usize = 32;
 
 /// A theme folder name is a plain name (no separators or dot tricks).
-fn safe_theme_name(name: &str) -> bool {
+pub fn is_valid_theme_name(name: &str) -> bool {
     !name.is_empty() && name != "." && !name.contains("..") && !name.contains(['/', '\\', ':'])
 }
 
 /// `<dir>/<name>` for the first dir that has a theme.toml there.
 pub fn find_theme_dir(name: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
-    if !safe_theme_name(name) {
+    if !is_valid_theme_name(name) {
         return None;
     }
     dirs.iter()
@@ -441,7 +441,7 @@ pub fn available(dirs: &[PathBuf]) -> Vec<String> {
         };
         for e in rd.flatten() {
             let n = e.file_name().to_string_lossy().to_string();
-            if e.path().join("theme.toml").is_file() && safe_theme_name(&n) && !v.contains(&n) {
+            if e.path().join("theme.toml").is_file() && is_valid_theme_name(&n) && !v.contains(&n) {
                 found.push(n);
             }
         }
@@ -468,6 +468,44 @@ pub fn search_dirs(extra: Option<&Path>, settings_dir: Option<&Path>) -> Vec<Pat
     {
         v.push(exe);
     }
+    #[cfg(target_os = "linux")]
+    {
+        let var = |k: &str| {
+            std::env::var_os(k)
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from)
+        };
+        let exe = std::env::current_exe().ok();
+        v.extend(linux_theme_dirs(
+            var("HOME").as_deref(),
+            var("XDG_DATA_HOME").as_deref(),
+            exe.as_deref(),
+        ));
+    }
+    v
+}
+
+/// Where Linux installs look for themes: the user's data folder, then the
+/// package's shared folder (relative to the binary, so `/usr/bin/lgduel`
+/// finds `/usr/share/lgduel/themes`), then the system folders.
+// Only called on Linux; kept compiled everywhere so the test runs on every OS.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn linux_theme_dirs(
+    home: Option<&Path>,
+    data_home: Option<&Path>,
+    exe: Option<&Path>,
+) -> Vec<PathBuf> {
+    let mut v = Vec::new();
+    match (data_home, home) {
+        (Some(d), _) => v.push(d.join("lgduel/themes")),
+        (None, Some(h)) => v.push(h.join(".local/share/lgduel/themes")),
+        _ => {}
+    }
+    if let Some(dir) = exe.and_then(|e| e.parent()) {
+        v.push(dir.join("../share/lgduel/themes"));
+    }
+    v.push(PathBuf::from("/usr/local/share/lgduel/themes"));
+    v.push(PathBuf::from("/usr/share/lgduel/themes"));
     v
 }
 
@@ -702,6 +740,20 @@ color = [0.0, 0.9, 0.0]
         // Pinned fingerprint of the three textures (change deliberately).
         assert_eq!(sum, PINNED_MEANS);
         assert!(procedural("nope").is_none());
+    }
+
+    #[test]
+    fn linux_theme_dirs_follow_xdg_and_the_install_prefix() {
+        let h = Path::new("/home/u");
+        let exe = Path::new("/usr/bin/lgduel");
+        let d = linux_theme_dirs(Some(h), None, Some(exe));
+        assert_eq!(d[0], Path::new("/home/u/.local/share/lgduel/themes"));
+        assert_eq!(d[1], Path::new("/usr/bin/../share/lgduel/themes"));
+        assert_eq!(d.last().unwrap(), Path::new("/usr/share/lgduel/themes"));
+        let d = linux_theme_dirs(Some(h), Some(Path::new("/data")), None);
+        assert_eq!(d[0], Path::new("/data/lgduel/themes"));
+        assert_eq!(d.len(), 3, "no exe: data dir + two system dirs");
+        assert!(linux_theme_dirs(None, None, None).len() == 2);
     }
 
     #[test]

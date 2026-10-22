@@ -54,8 +54,33 @@ jobs:
           name: linux-server
           path: dist/lgduel-server-linux-x64.tar.gz
 
+  linux-client:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: System packages (ALSA headers)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Build and pack the Linux client
+        run: |
+          cargo build --profile dist -p lgduel-client -p lgduel-bot -p lgduel-server
+          OUT=dist/lgduel-linux-x64
+          mkdir -p "$OUT/themes" "$OUT/icons"
+          cp target/dist/lgduel target/dist/lgduel-bot target/dist/lgduel-server "$OUT/"
+          cp README.md PLAY.md INSTALL.md HOSTING.md DEPLOY.md CONFIG.md MAPS.md THEMES.md LICENSE config/server.example.toml packaging/lgduel.desktop "$OUT/"
+          cp assets/icons/*.png "$OUT/icons/" && cp -r assets/themes/example "$OUT/themes/"
+          echo "${GITHUB_REF_NAME} ($(git rev-parse --short HEAD))" > "$OUT/VERSION.txt"
+          tar -C dist -czf dist/lgduel-linux-x64.tar.gz lgduel-linux-x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-client
+          path: dist/lgduel-linux-x64.tar.gz
+
   publish:
-    needs: [windows, linux-server]
+    needs: [windows, linux-server, linux-client]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4

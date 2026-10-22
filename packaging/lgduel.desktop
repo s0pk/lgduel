@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=LGDuel
+GenericName=Lightning Gun duel trainer
+Comment=Lightning Gun duels with vamp mode, practice bots and online play
+Exec=lgduel
+Icon=lgduel
+Terminal=false
+Categories=Game;ActionGame;
+Keywords=lightning;duel;fps;arena;quake;
+StartupWMClass=lgduel

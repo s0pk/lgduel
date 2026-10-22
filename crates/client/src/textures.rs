@@ -171,6 +171,18 @@ pub fn decode_png(bytes: &[u8]) -> Result<Image, String> {
     Ok(resize_to_tex(&rgba, w, h))
 }
 
+/// 8-bit RGBA PNG bytes (the app icons).
+pub fn encode_png_rgba(w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut enc = png::Encoder::new(&mut out, w, h);
+    enc.set_color(png::ColorType::Rgba);
+    enc.set_depth(png::BitDepth::Eight);
+    enc.write_header()
+        .and_then(|mut w| w.write_image_data(rgba))
+        .expect("PNG encoding to memory");
+    out
+}
+
 /// 8-bit RGB PNG bytes (used to write the example theme).
 pub fn encode_png_rgb(w: u32, h: u32, rgb: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
@@ -219,7 +231,9 @@ pub struct GpuTextures {
 
 /// Upload every layer with its mips.
 pub fn upload(set: &TextureSet, device: &wgpu::Device, queue: &wgpu::Queue) -> GpuTextures {
-    let layers = set.layers.len() as u32;
+    // At least two layers: with one, OpenGL makes a plain 2D texture and an array
+    // view of it samples black. The spare layer is never used.
+    let layers = set.layers.len().max(2) as u32;
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("world textures"),
         size: wgpu::Extent3d {

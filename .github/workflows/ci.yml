@@ -88,3 +88,34 @@ jobs:
           target/release/lgduel-bot --server 127.0.0.1:27961 --name docker-bot --duration-secs 4
           docker logs lgduel | tee docker.txt
           grep -q "docker-bot connected" docker.txt
+
+  arch:
+    name: Arch Linux package (makepkg)
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    timeout-minutes: 60
+    steps:
+      - name: Tools
+        run: pacman -Syu --noconfirm git rust
+      - uses: actions/checkout@v4
+      - name: Check the PKGBUILD
+        run: bash scripts/check-pkgbuild.sh
+      - name: Build the packages as a normal user
+        run: |
+          useradd -m builder
+          chown -R builder .
+          su builder -c '
+            set -e
+            git config --global --add safe.directory "*"
+            ver=$(sed -n "s/^pkgver=//p" packaging/arch/PKGBUILD)
+            git archive --prefix=lgduel-$ver/ -o /tmp/lgduel-$ver.tar.gz HEAD
+            mkdir /tmp/pkg && cp packaging/arch/PKGBUILD /tmp/pkg/ && cd /tmp/pkg
+            sed -i "s|^source=.*|source=(\"lgduel-$ver.tar.gz::file:///tmp/lgduel-$ver.tar.gz\")|" PKGBUILD
+            makepkg -s --noconfirm --skippgpcheck
+          '
+      - name: Install them and run
+        run: |
+          pacman -U --noconfirm /tmp/pkg/*.pkg.tar.zst
+          lgduel --version && lgduel-server --version && lgduel --doctor || true
+          test -f /usr/share/applications/lgduel.desktop
+          test -f /usr/lib/sysusers.d/lgduel.conf

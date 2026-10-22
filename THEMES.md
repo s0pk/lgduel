@@ -71,6 +71,10 @@ Enemies keep their solid forced colours whatever the theme (Settings → Visuals
 easy to see. If you pick colours for the arena, avoid the bright yellow, green and cyan of the default enemy
 colours or change those.
 
+## Sharing
+
+Send a theme as one file with `exporttheme NAME` / drag-and-drop import: see [SHARING.md](SHARING.md).
+
 ## Licence
 
 Everything in `themes/example` is original and CC0 (public domain). Only use textures you made or may share.

@@ -36,15 +36,17 @@ pub enum Tab {
     Visuals,
     Audio,
     Player,
+    Share,
 }
 
 impl Tab {
-    const ALL: [Tab; 5] = [
+    const ALL: [Tab; 6] = [
         Tab::Mouse,
         Tab::Video,
         Tab::Visuals,
         Tab::Audio,
         Tab::Player,
+        Tab::Share,
     ];
 
     fn label(self) -> &'static str {
@@ -54,6 +56,7 @@ impl Tab {
             Tab::Visuals => "Visuals",
             Tab::Audio => "Audio",
             Tab::Player => "Player",
+            Tab::Share => "Share",
         }
     }
 }
@@ -92,6 +95,35 @@ pub enum Action {
     },
     /// A line typed into the console.
     ConsoleLine(String),
+    /// Settings -> Share: make a code for my look.
+    ShareExport {
+        controls: bool,
+    },
+    /// Settings -> Share: show what a pasted code would change.
+    SharePreview {
+        code: String,
+        controls: bool,
+    },
+    /// Settings -> Share: apply a built-in preset.
+    Preset(String),
+    /// Settings -> Share: apply a pasted code.
+    ShareApply {
+        code: String,
+        controls: bool,
+    },
+}
+
+/// State of the Share tab.
+#[derive(Debug, Clone, Default)]
+pub struct ShareState {
+    /// Include / accept controls (mouse, FOV, volume), not just the look.
+    pub controls: bool,
+    /// My code (after "Make code").
+    pub code: String,
+    /// The pasted code.
+    pub input: String,
+    /// Preview / result lines.
+    pub report: Vec<String>,
 }
 
 /// One row of the in-game player list.
@@ -137,6 +169,7 @@ pub struct Menu {
     pub console: crate::console::Console,
     /// Theme names to offer (built-ins and folders); empty = built-ins only.
     pub themes: Vec<String>,
+    pub share: ShareState,
 }
 
 pub const TITLE: &str = "LGDuel";
@@ -279,7 +312,7 @@ impl Menu {
                     .collapsible(false)
                     .resizable(false)
                     .anchor(egui::Align2::LEFT_CENTER, egui::vec2(24.0, 0.0))
-                    .fixed_size(egui::vec2(470.0, 470.0))
+                    .fixed_size(egui::vec2(540.0, 470.0))
                     .show(ctx, |ui| {
                         ui.horizontal(|ui| {
                             for t in Tab::ALL {
@@ -300,6 +333,9 @@ impl Menu {
                                     }
                                 }
                                 Tab::Player => player_tab(ui, s),
+                                Tab::Share => {
+                                    action = share_tab(ui, &mut self.share).or(action.take())
+                                }
                             });
                         if *s != before {
                             s.sanitize();
@@ -913,6 +949,72 @@ fn audio_tab(ui: &mut egui::Ui, s: &mut Settings) -> bool {
         test = true;
     }
     test
+}
+
+fn share_tab(ui: &mut egui::Ui, st: &mut ShareState) -> Option<Action> {
+    let mut action = None;
+    ui.heading("Share my look");
+    ui.checkbox(&mut st.controls, "Include controls (mouse, FOV, volume)");
+    if ui.button("Make code").clicked() {
+        action = Some(Action::ShareExport {
+            controls: st.controls,
+        });
+    }
+    if !st.code.is_empty() {
+        egui::ScrollArea::vertical()
+            .id_salt("share_code")
+            .max_height(70.0)
+            .show(ui, |ui| {
+                ui.add(
+                    egui::TextEdit::multiline(&mut st.code.as_str())
+                        .desired_rows(3)
+                        .desired_width(480.0),
+                );
+            });
+        if ui.button("Copy").clicked() {
+            ui.ctx().copy_text(st.code.clone());
+        }
+    }
+    ui.separator();
+    ui.heading("Presets");
+    for p in crate::profile::presets() {
+        if ui.button(p.name).clicked() {
+            action = Some(Action::Preset(p.name.to_string()));
+        }
+        ui.add(egui::Label::new(p.description).wrap());
+    }
+    ui.separator();
+    ui.heading("Use someone else's code");
+    egui::ScrollArea::vertical()
+        .id_salt("share_input")
+        .max_height(70.0)
+        .show(ui, |ui| {
+            ui.add(
+                egui::TextEdit::multiline(&mut st.input)
+                    .hint_text("paste a code starting with LGP1-")
+                    .desired_rows(3)
+                    .desired_width(480.0),
+            );
+        });
+    ui.horizontal(|ui| {
+        let ok = !st.input.trim().is_empty();
+        if ui.add_enabled(ok, egui::Button::new("Preview")).clicked() {
+            action = Some(Action::SharePreview {
+                code: st.input.clone(),
+                controls: st.controls,
+            });
+        }
+        if ui.add_enabled(ok, egui::Button::new("Apply")).clicked() {
+            action = Some(Action::ShareApply {
+                code: st.input.clone(),
+                controls: st.controls,
+            });
+        }
+    });
+    for line in &st.report {
+        ui.label(line);
+    }
+    action
 }
 
 fn player_tab(ui: &mut egui::Ui, s: &mut Settings) {

@@ -67,6 +67,8 @@ stage "client offscreen render (1920x1080, screenshot + pixel checks)"
 # Humanoid enemy model (forced colours), and the same model in its own skin colours.
 "$T/$PROFILE/lgduel" --headless --frames 3 --enemy-model humanoid --size 1280x720 --screenshot artifacts/model_humanoid.png | grep -E "CHECK"
 "$T/$PROFILE/lgduel" --headless --frames 3 --enemy-model humanoid --skins --enemy-distance 110 --size 1280x720 --screenshot artifacts/model_skin.png | grep -E "CHECK"
+# Environment report (also what a bug report should include).
+"$T/$PROFILE/lgduel" --doctor | grep -E "^(adapter|audio|session):"
 # Every built-in map renders with the duel checks passing.
 for m in arena_pillars arena_tiers; do
   "$T/$PROFILE/lgduel" --headless --frames 3 --map "$m" --size 1280x720 --screenshot "artifacts/map_$m.png" | grep -E "^MAP|CHECK"
@@ -74,6 +76,7 @@ done
 # egui pause menu (pixel font) over the scene.
 "$T/$PROFILE/lgduel" --headless --frames 3 --menu pause --size 1280x720 --screenshot artifacts/menu.png | grep -E "IMAGE menu|MENU CHECK"
 "$T/$PROFILE/lgduel" --headless --frames 3 --menu pause-online --size 1280x720 --screenshot artifacts/menu_online.png | grep -E "IMAGE menu|MENU CHECK"
+"$T/$PROFILE/lgduel" --headless --frames 3 --menu share --size 1280x720 --screenshot artifacts/menu_share.png | grep -E "IMAGE menu|MENU CHECK"
 "$T/$PROFILE/lgduel" --headless --frames 3 --menu console --size 1280x720 --screenshot artifacts/console.png | grep -E "IMAGE menu|MENU CHECK"
 "$T/$PROFILE/lgduel" --headless --frames 3 --menu settings --size 1280x720 --screenshot artifacts/settings.png | grep -E "IMAGE menu|MENU CHECK"
 "$T/$PROFILE/lgduel" --headless --frames 3 --menu main --size 1280x720 --screenshot artifacts/mainmenu.png | grep -E "IMAGE menu|MENU CHECK"

@@ -1,0 +1,19 @@
+# systemd unit for the LGDuel dedicated server (package lgduel-server).
+[Unit]
+Description=LGDuel dedicated server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=lgduel
+ExecStart=/usr/bin/lgduel-server --config /etc/lgduel/server.toml
+Restart=always
+RestartSec=2
+# Hardening: the server only needs its UDP port.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

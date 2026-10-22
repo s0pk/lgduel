@@ -1230,7 +1230,7 @@ dependencies = [
 
 [[package]]
 name = "lgduel-bot"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "lgduel-net",
  "lgduel-sim",
@@ -1238,13 +1238,14 @@ dependencies = [
 
 [[package]]
 name = "lgduel-client"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bytemuck",
  "cpal",
  "egui",
  "egui-wgpu",
  "egui-winit",
+ "flate2",
  "glam",
  "lgduel-bot",
  "lgduel-net",
@@ -1261,14 +1262,14 @@ dependencies = [
 
 [[package]]
 name = "lgduel-net"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "lgduel-sim",
 ]
 
 [[package]]
 name = "lgduel-server"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "lgduel-bot",
  "lgduel-net",
@@ -1279,7 +1280,7 @@ dependencies = [
 
 [[package]]
 name = "lgduel-sim"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "toml",
@@ -1287,7 +1288,7 @@ dependencies = [
 
 [[package]]
 name = "lgduel-tools"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "lgduel-net",
  "lgduel-sim",
