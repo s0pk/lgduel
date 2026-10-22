@@ -76,7 +76,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] M3.1 Convex brushes in sim (planes + bounds), Quake-style brush trace with hull offsets + bevels; box path bit-identical (golden hash)
 - [x] M3.2 Map format: [[ramp]], [[stairs]], [[convex]]; renderer builds convex faces
 - [x] M3.3 Maps arena_pillars + arena_tiers; map name + content hash in Accept; map selection (server config, practice)
-- [ ] M3.4 Ramp/slope movement golden tests; headless matches + screenshots on every map
+- [x] M3.4 Ramp/slope movement golden tests; headless matches + screenshots on every map
 - [ ] M4.1 Multi-arena server: N `Game`s, lobby + auto-queue, per-arena snapshots, isolation test
 - [ ] M4.2 Lone player gets a practice bot; spectate; lobby/queue Control messages + HUD/menu status
 - [ ] M4.3 (= PLAN 5.6) events resent until a snapshot carrying them is acked

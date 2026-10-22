@@ -459,3 +459,10 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
 - Built-in maps: `world::builtin::ALL` (arena_flat, arena_pillars, arena_tiers). Server `[server] map` /
   `--map` takes a built-in name or a file path; client practice/host map in settings + menu, `--map`.
 - Renderer re-uploads the world mesh only when the content hash changes (called every frame).
+
+## D46 — Ramp-top hop kept (2026-10-22)
+- Running up a ramp onto a flat top leaves the ground briefly (~14.6u hop on arena_pillars' 27° ramps at run
+  speed): pmove's Q3-style "kickoff" check (upward velocity into the new flat ground plane → airborne). This is
+  authentic Q3 behaviour and stays; tests/map_movement.rs pins it as a small hop (5–20u).
+- Walking up a slope keeps 3D speed (Q3 rescale after clipping), so horizontal speed is 320·cos θ (300 u/s on
+  arena_tiers' 20.6° ramp). Golden: tiers ground→mid deck 224 ticks, →high deck 677; stairs top at tick 128.

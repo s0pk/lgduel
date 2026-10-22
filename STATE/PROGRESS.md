@@ -277,3 +277,10 @@
 - net: protocol v3, `Accept{.., map, map_hash}`, `NetClient.map`. server: sends name + hash; `--map`; example config gains `[server]` (still = defaults). client: NetSession/NetBot switch to the announced built-in map or disconnect with `map_error` (menu shows "Can't join: …"); renderer re-uploads world on hash change; Practice + Host screens get a Map combo (settings `practice.map`, `host.map`, sanitised); `--map`.
 - tools: `match --maps a,b,c` (per profile); check.sh runs clean@arena_flat, lossy@arena_pillars, highping@arena_tiers and renders both new maps.
 - Verified: tests — builtin maps load (names match, distinct hashes), hash ignores colour/CRLF but tracks geometry/spawns, server tests/maps.rs (bots holding arena_flat switch to pillars/tiers and fight, prediction exact; edited same-name map → "differs" + disconnected; unknown name → "doesn't have"), settings sanitise unknown map; headless screenshots of both maps inspected (ramps, stairs, decks visible; RENDER CHECK OK); check.sh GREEN 101 s (matches on all three maps OK).
+
+
+## 2026-10-22 — iteration 51: M3.4 map movement goldens
+- sim/tests/map_movement.rs: every spawn on every built-in map settles without sliding; arena_tiers ground → ramp → mid deck → south → ramp → high deck (golden ticks 224 / 677, ramp speed 300 = 320·cos 20.6°); six 16u stairs keep 320 u/s (golden top tick 128); run off the high deck lands on the mid deck and keeps running; arena_pillars over the centre platform (walks on top >100 ticks, ramp-top hop 14.6u — Q3 kickoff, D46).
+- Fix: sim `example_config_matches_defaults` broke in iteration 50 (example file gained `[server]`, which GameConfig rejects); the test now drops `[server]` before parsing. Iteration 50's check run predated that edit — I only ran the server lib tests after it.
+- Headless matches + screenshots on every map were added in iteration 50 (check.sh).
+- Verified: map_movement 5 passed; check.sh GREEN 102 s (matches clean@arena_flat, lossy@arena_pillars, highping@arena_tiers OK).

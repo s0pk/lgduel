@@ -303,9 +303,13 @@ mod tests {
 
     #[test]
     fn example_config_matches_defaults() {
-        let text = include_str!("../../../config/server.example.toml");
+        // The gameplay part of the server example (its `[server]` table belongs to the server crate).
+        let mut table: toml::Table =
+            toml::from_str(include_str!("../../../config/server.example.toml")).unwrap();
+        assert!(table.remove("server").is_some());
+        let text = toml::to_string(&table).unwrap();
         assert_eq!(
-            GameConfig::from_toml_str(text).unwrap(),
+            GameConfig::from_toml_str(&text).unwrap(),
             GameConfig::default()
         );
     }
