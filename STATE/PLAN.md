@@ -50,7 +50,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] 4.9 Bot as network client
 - [x] 4.10 Headless match test in check.sh: server + 2 bots, 60 s vamp duel, assertions (connect, no panic/desync, damage, exact lifesteal, stats file)
 - [x] 4.11 Prediction error test (<0.5u at 0% loss) in check.sh
-- [ ] 4.12 Real client connects to 127.0.0.1
+- [x] 4.12 Real client connects to 127.0.0.1
 
 ## Phase 5 — Netcode hardening (deps: 4.x)
 - [ ] 5.1 Netem layer in tools (latency, loss, jitter, reorder) usable in-process

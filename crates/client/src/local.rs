@@ -102,6 +102,44 @@ impl LocalSession {
             .unwrap_or_else(|| self.game.player(id).map_or(Vec3::ZERO, |p| p.pm.origin))
     }
 
+    /// What to draw this frame (same shape as the online session's view).
+    pub fn frame_view(&self) -> crate::scene::FrameView {
+        let g = &self.game;
+        let me = g.player(self.me).unwrap();
+        crate::scene::FrameView {
+            me: self.me,
+            me_alive: me.alive,
+            eye: self.eye(),
+            others: g
+                .players
+                .iter()
+                .filter(|p| p.id != self.me)
+                .map(|p| crate::scene::OtherView {
+                    id: p.id,
+                    origin: self.origin(p.id),
+                    pitch: p.pitch,
+                    yaw: p.yaw,
+                    ducked: p.pm.ducked,
+                    alive: p.alive,
+                    buttons: p.buttons,
+                })
+                .collect(),
+            hud: crate::hud::HudInfo {
+                health: me.health,
+                accuracy_pct: me.stats.accuracy_pct(),
+                damage_dealt: me.stats.damage_dealt,
+                damage_taken: me.stats.damage_taken,
+                wins: me.stats.fights_won,
+                losses: me.stats.fights_lost,
+                fight_secs: g
+                    .fight_start
+                    .map(|s| (g.tick.0 - s.0) as f32 / g.cfg.tick_rate_hz as f32),
+                opponent_health: g.players.iter().find(|p| p.id != self.me).map(|p| p.health),
+            },
+            events: self.events.clone(),
+        }
+    }
+
     /// Interpolation fraction between the last two ticks.
     pub fn alpha(&self) -> f32 {
         self.stepper.alpha()

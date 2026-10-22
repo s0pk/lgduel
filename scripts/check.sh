@@ -37,6 +37,9 @@ done
 stage "headless match: server + 2 bots, 60 s vamp duel × {clean, lossy 2% 30±10 ms, highping 100 ms} in parallel"
 "target/$PROFILE/lgduel-tools" match --secs "${MATCH_SECS:-60}" --out artifacts
 
+stage "online client smoke: real lgduel --headless --connect vs server + bot"
+"target/$PROFILE/lgduel-tools" client-smoke --secs 5 --out artifacts
+
 stage "netem matrix"
 echo "SKIP: not implemented yet (PLAN Phase 5)"
 

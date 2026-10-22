@@ -173,3 +173,10 @@
 - Measured (60 s each, parallel, check.sh run): clean — hard 58.7% 21 kills vs medium 18.1%, earned==dealt (3045/945); lossy — 38.1% vs 38.6%, netem dropped ~2%, earned==dealt (2991/3030), prediction mean 0.0038 / max 6.69u (hard) and 0.0000 (medium); highping (RTT ~205 ms) — 9.2% vs 11.8%, earned==dealt, prediction 0.0000. check.sh total 71 s (was ~11 s).
 - First non-zero misprediction seen (lossy, one bot, max 6.7u): consistent with an occasional command arriving after its tick under jitter (server repeats last command). Within threshold; to be characterised in PLAN 5.2.
 - Verified: check.sh GREEN.
+
+## 2026-10-22 — iteration 32: PLAN 4.12 real client connects
+- Refactor: `client::scene` (FrameView, scene_mesh, track_hits, hud_mesh) shared by offline (`LocalSession::frame_view`) and online (`client::net_session::NetSession`). Offline headless output identical before/after (same pixel counts).
+- `lgduel --connect`, `--name`, `--secs`; `run_headless_online`; `lgduel-tools client-smoke`; check.sh stage.
+- Bug caught by running it: `--headless --connect` hit the offline headless branch first (only the bot connected); branch order fixed.
+- Measured: headless online — connected, opponent visible 2102/2105 frames, RTT 3.9 ms, adaptive interp delay 1.85 ticks, prediction 575 checks mean 0.0000, remote opponent pixels head/upper/lower 224/526/…; screenshot inspected (bot rendered, camera tracking). Windowed online (`--synthetic-input --frames 8000`): connected, took damage from the bot, 4079 fps avg, p99 1.513 ms, clean disconnect.
+- Phase 4 (networking) complete. check.sh GREEN (80 s).

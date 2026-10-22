@@ -1,6 +1,7 @@
 //! `lgduel-tools` — developer tools.
 //!
 //!   lgduel-tools netem --listen ADDR --upstream ADDR [--profile clean|lossy|highping] [--secs N]
+//!   lgduel-tools client-smoke [--secs 5] [--out artifacts]   (real client online, headless)
 //!   lgduel-tools match [--secs 60] [--profiles clean,lossy,highping] [--out artifacts]
 //!       Runs the headless match test (profiles in parallel); exit 1 on any failure.
 
@@ -46,6 +47,30 @@ fn run() -> Result<(), String> {
             std::thread::sleep(std::time::Duration::from_secs_f64(secs));
             println!("{:?}", n.stop());
             Ok(())
+        }
+        Some("client-smoke") => {
+            let secs: f64 = arg(&args, "--secs")
+                .map_or(Ok(5.0), |s| s.parse())
+                .map_err(|_| "bad --secs")?;
+            let out = PathBuf::from(arg(&args, "--out").unwrap_or("artifacts".into()));
+            let bin_dir = std::env::current_exe()
+                .map_err(|e| e.to_string())?
+                .parent()
+                .unwrap()
+                .to_path_buf();
+            let r = matchrun::run_client_smoke(&bin_dir, &out, secs);
+            for l in &r.lines {
+                println!("{l}");
+            }
+            if r.failures.is_empty() {
+                println!("CLIENT SMOKE OK");
+                Ok(())
+            } else {
+                for f in &r.failures {
+                    println!("CLIENT SMOKE FAIL: {f}");
+                }
+                Err("client smoke failed".into())
+            }
         }
         Some("match") => {
             let secs: f64 = arg(&args, "--secs")

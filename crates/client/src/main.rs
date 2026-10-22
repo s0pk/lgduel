@@ -1,7 +1,9 @@
 //! LGDuel client.
 //!
-//! `lgduel [--frames N] [--vsync] [--fps-cap N] [--size WxH]`
+//! `lgduel [--frames N] [--vsync] [--fps-cap N] [--size WxH]`        offline vs bot
+//! `lgduel --connect HOST:PORT [--name NAME]`                       online
 //! `lgduel --headless --screenshot out.png [--frames N] [--size WxH]`
+//! `lgduel --headless --connect HOST:PORT [--secs N] [--screenshot out.png]`
 //!
 //! `--frames N` renders N frames, prints frame-time stats and exits (perf runs).
 //! `--headless` renders offscreen (no window), saves a screenshot and checks
@@ -15,24 +17,28 @@ mod gfx;
 mod hud;
 mod input;
 mod local;
+mod net_session;
 mod offscreen;
 mod players;
 mod render;
+mod scene;
 
 use effects::{BeamStyle, EffectSettings};
 use frame_stats::FrameStats;
 use gfx::Gfx;
-use hud::{DamageNumbers, HudInfo, HudSettings};
+use hud::{DamageNumbers, HudSettings};
 use input::{Keys, MouseLook, MouseSettings};
 use lgduel_bot::{AimSkill, Bot, BotConfig, StrafePattern};
 use lgduel_sim::config::GameConfig;
-use lgduel_sim::game::{GameEvent, PlayerId, hitscan};
-use lgduel_sim::math::{Angle, Vec3, angle_vectors, look_angles};
+use lgduel_sim::game::PlayerId;
+use lgduel_sim::math::{Vec3, look_angles};
 use lgduel_sim::usercmd::{UserCmd, buttons};
 use lgduel_sim::world::{World, builtin};
 use local::LocalSession;
+use net_session::NetSession;
 use players::EnemyColors;
 use render::{Camera, Renderer};
+use scene::FrameView;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
@@ -67,6 +73,11 @@ struct Options {
     sound_test: bool,
     /// Offline opponent: None = idle target dummy.
     bot: Option<(StrafePattern, AimSkill)>,
+    /// Play online against this server instead of offline.
+    connect: Option<String>,
+    name: String,
+    /// Headless online run length.
+    secs: f64,
 }
 
 impl Default for Options {
@@ -91,6 +102,9 @@ impl Default for Options {
                 },
                 AimSkill::MEDIUM,
             )),
+            connect: None,
+            name: "player".into(),
+            secs: 5.0,
         }
     }
 }
@@ -182,6 +196,15 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Options, String>
                     .ok_or("--spark-size needs a number in 0..=32")?
             }
             "--synthetic-input" => o.synthetic_input = true,
+            "--connect" => o.connect = Some(val("--connect")?),
+            "--name" => o.name = val("--name")?,
+            "--secs" => {
+                o.secs = val("--secs")?
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|v| *v > 0.0)
+                    .ok_or("--secs needs a positive number")?
+            }
             "--vsync" => o.vsync = true,
             "--headless" => o.headless = true,
             "--screenshot" => o.screenshot = Some(val("--screenshot")?),
@@ -207,132 +230,6 @@ fn load_world() -> World {
         Vec3::from_array(p.player_maxs),
     );
     World::from_toml_str(builtin::ARENA_FLAT, hull).expect("builtin map")
-}
-
-/// Beam from `eye` along (pitch, yaw), drawn from a muzzle offset; sparks where it hits.
-#[allow(clippy::too_many_arguments)]
-fn push_lg(
-    v: &mut Vec<render::Vertex>,
-    session: &LocalSession,
-    shooter: PlayerId,
-    eye: Vec3,
-    pitch: Angle,
-    yaw: Angle,
-    view_eye: Vec3,
-    fx: &EffectSettings,
-    seed: u32,
-) {
-    let g = &session.game;
-    let targets: Vec<_> = g
-        .players
-        .iter()
-        .filter(|p| p.alive && p.id != shooter)
-        .map(|p| {
-            let (mins, maxs) = p.pm.hull(&g.cfg.physics);
-            (
-                p.id,
-                lgduel_sim::world::Aabb::at(session.origin(p.id), mins, maxs),
-            )
-        })
-        .collect();
-    let (f, r, u) = angle_vectors(pitch, yaw);
-    let hs = hitscan(&g.world, eye, f, g.cfg.lg.range, &targets);
-    let (mf, mr, md) = effects::MUZZLE;
-    let muzzle = eye + f * mf + r * mr - u * md;
-    effects::push_beam(v, muzzle, hs.end, view_eye, fx, seed);
-    if (hs.end - eye).length() < g.cfg.lg.range - 0.5 {
-        effects::push_sparks(v, hs.end, f, view_eye, fx, seed);
-    }
-}
-
-/// Dynamic geometry: opponents, their beams, and (if firing) the own beam from `cam`.
-fn scene_mesh(
-    session: &LocalSession,
-    cam: &Camera,
-    firing: bool,
-    colors: &EnemyColors,
-    fx: &EffectSettings,
-    seed: u32,
-) -> Vec<render::Vertex> {
-    let mut v = Vec::new();
-    let phys = &session.game.cfg.physics;
-    for p in &session.game.players {
-        if p.id == session.me || !p.alive {
-            continue;
-        }
-        let origin = session.origin(p.id);
-        players::push_player(&mut v, origin, p.yaw, p.pm.ducked, phys, colors);
-        if p.buttons & buttons::FIRE != 0 {
-            let eye = origin + (p.pm.eye(phys) - p.pm.origin);
-            push_lg(
-                &mut v, session, p.id, eye, p.pitch, p.yaw, cam.eye, fx, seed,
-            );
-        }
-    }
-    let me_alive = session.game.player(session.me).is_some_and(|p| p.alive);
-    if firing && me_alive {
-        push_lg(
-            &mut v, session, session.me, cam.eye, cam.pitch, cam.yaw, cam.eye, fx, seed,
-        );
-    }
-    v
-}
-
-/// HUD numbers for the local player.
-fn hud_info(session: &LocalSession) -> HudInfo {
-    let g = &session.game;
-    let me = g.player(session.me).unwrap();
-    HudInfo {
-        health: me.health,
-        accuracy_pct: me.stats.accuracy_pct(),
-        damage_dealt: me.stats.damage_dealt,
-        damage_taken: me.stats.damage_taken,
-        wins: me.stats.fights_won,
-        losses: me.stats.fights_lost,
-        fight_secs: g
-            .fight_start
-            .map(|s| (g.tick.0 - s.0) as f32 / g.cfg.tick_rate_hz as f32),
-        opponent_health: g
-            .players
-            .iter()
-            .find(|p| p.id != session.me)
-            .map(|p| p.health),
-    }
-}
-
-/// Turn the last advance's own hits into floating damage numbers; returns hit count.
-fn track_hits(session: &LocalSession, numbers: &mut DamageNumbers) -> usize {
-    let mut last_end = None;
-    let mut hits = 0;
-    for e in &session.events {
-        match e {
-            GameEvent::Fire { shooter, end, .. } if *shooter == session.me => last_end = Some(*end),
-            GameEvent::Damage {
-                attacker, amount, ..
-            } if *attacker == session.me => {
-                if let Some(p) = last_end {
-                    numbers.add(p, *amount);
-                }
-                hits += 1;
-            }
-            _ => {}
-        }
-    }
-    hits
-}
-
-fn hud_mesh(
-    session: &LocalSession,
-    cam: &Camera,
-    size: (u32, u32),
-    numbers: &DamageNumbers,
-    s: &HudSettings,
-) -> Vec<render::Vertex> {
-    let mut v = Vec::new();
-    let screen = (size.0 as f32, size.1 as f32);
-    let vp = cam.view_proj(screen.0 / screen.1.max(1.0));
-    hud::build(&mut v, screen, &vp, &hud_info(session), numbers, s);
-    v
 }
 
 fn run_headless(opts: &Options) -> Result<(), String> {
@@ -386,15 +283,18 @@ fn run_headless(opts: &Options) -> Result<(), String> {
                 |t| UserCmd { tick: t, ..fire },
                 |_, _| vec![],
             );
-            total_hits += track_hits(&session, &mut numbers);
+            let fv = session.frame_view();
+            total_hits += scene::track_hits(&fv, &mut numbers);
             numbers.update(VIRTUAL_FRAME_US as f32 / 1e6);
-            let scene = scene_mesh(&session, &cam, true, &colors, &opts.effects, i);
-            let hud = hud_mesh(&session, &cam, (w, h), &numbers, &hud_settings);
+            let g = &session.game;
+            let scene =
+                scene::scene_mesh(&fv, &g.world, &g.cfg, &cam, true, &colors, &opts.effects, i);
+            let hud = scene::hud_mesh(&fv, &cam, (w, h), &numbers, &hud_settings);
             (cam, scene, hud)
         },
         CLEAR,
     );
-    println!("SIM hits {total_hits}, HUD {:?}", hud_info(&session));
+    println!("SIM hits {total_hits}, HUD {:?}", session.frame_view().hud);
     if let Some(s) = stats.summary() {
         println!("FRAMESTATS {s} | offscreen (GPU wait per frame)");
     }
@@ -486,10 +386,144 @@ fn run_headless(opts: &Options) -> Result<(), String> {
     Ok(())
 }
 
+/// Where the game runs: offline (local sim, optional bot) or online.
+/// One instance per process, so the variant size difference is irrelevant.
+#[allow(clippy::large_enum_variant)]
+enum Session {
+    Local {
+        s: LocalSession,
+        bot: Option<(Bot, PlayerId)>,
+    },
+    Net(NetSession),
+}
+
+impl Session {
+    fn frame_view(&self) -> Option<FrameView> {
+        match self {
+            Session::Local { s, .. } => Some(s.frame_view()),
+            Session::Net(n) => n.frame_view().cloned(),
+        }
+    }
+
+    fn world_cfg(&self) -> (&World, Option<&GameConfig>) {
+        match self {
+            Session::Local { s, .. } => (&s.game.world, Some(&s.game.cfg)),
+            Session::Net(n) => (n.world(), n.config()),
+        }
+    }
+}
+
+fn resolve(addr: &str) -> Result<std::net::SocketAddr, String> {
+    use std::net::ToSocketAddrs;
+    addr.to_socket_addrs()
+        .map_err(|e| format!("{addr}: {e}"))?
+        .next()
+        .ok_or(format!("{addr}: no address"))
+}
+
+/// Headless online smoke run: connect, play for `secs` (camera tracks the
+/// first opponent), render offscreen, check the opponent is drawn in the forced
+/// colours. Proves network + snapshots + interpolation + prediction + render.
+fn run_headless_online(opts: &Options) -> Result<(), String> {
+    let server = resolve(opts.connect.as_deref().unwrap())?;
+    let world = load_world();
+    let mut n =
+        NetSession::connect(server, &opts.name, world.clone()).map_err(|e| e.to_string())?;
+    let (w, h) = opts.size;
+    let off = offscreen::Offscreen::new(w, h)?;
+    let mut r = Renderer::new(&off.device, offscreen::FORMAT);
+    r.set_world(&off.device, &world);
+    let colors = EnemyColors::default();
+    let start = Instant::now();
+    let mut aim = (lgduel_sim::math::Angle::ZERO, lgduel_sim::math::Angle::ZERO);
+    let mut frames = 0u64;
+    let mut seen_opponent_frames = 0u64;
+    while start.elapsed().as_secs_f64() < opts.secs {
+        let a = aim;
+        n.update(|t| UserCmd {
+            tick: t,
+            pitch: a.0,
+            yaw: a.1,
+            ..UserCmd::default()
+        });
+        if let Some(fv) = n.frame_view()
+            && let Some(o) = fv.others.iter().find(|o| o.alive)
+        {
+            aim = look_angles(o.origin + Vec3::new(0.0, 0.0, 8.0) - fv.eye);
+            seen_opponent_frames += 1;
+        }
+        frames += 1;
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let fv = n
+        .frame_view()
+        .cloned()
+        .ok_or(format!("never got a frame from {server}: {:?}", n.state()))?;
+    let cfg = n.config().cloned().ok_or("no config from server")?;
+    let cam = Camera {
+        eye: fv.eye,
+        pitch: aim.0,
+        yaw: aim.1,
+        fov: opts.fov,
+    };
+    let mut seed = 0;
+    let stats = off.render(
+        &mut r,
+        10,
+        |_| {
+            seed += 1;
+            let scene =
+                scene::scene_mesh(&fv, &world, &cfg, &cam, false, &colors, &opts.effects, seed);
+            (cam, scene, vec![])
+        },
+        CLEAR,
+    );
+    let px = off.read_pixels();
+    if let Some(path) = &opts.screenshot {
+        offscreen::save_png(std::path::Path::new(path), w, h, &px)?;
+        println!("SCREENSHOT {path}");
+    }
+    let pred = n
+        .predictor
+        .as_ref()
+        .map(|p| p.stats.clone())
+        .unwrap_or_default();
+    println!(
+        "ONLINE {:?} | frames {frames}, opponent visible in {seen_opponent_frames} | rtt {:.1} ms | interp delay {:.2} ticks | prediction checked {} mean {:.4} | HUD {:?}",
+        n.state(),
+        n.client.conn.stats.rtt_us / 1000.0,
+        n.interp.settings.delay_ticks,
+        pred.checked,
+        pred.mean_error(),
+        fv.hud
+    );
+    if let Some(s) = stats.summary() {
+        println!("FRAMESTATS {s} | offscreen online");
+    }
+    let total = (w * h) as f64;
+    for (name, c) in [
+        ("head", colors.head),
+        ("upper", colors.upper),
+        ("lower", colors.lower),
+    ] {
+        let srgb = offscreen::linear_to_srgb8(c);
+        let count = (offscreen::color_fraction(&px, srgb, 2) * total).round() as u64;
+        println!("IMAGE remote opponent {name} {srgb:?}: {count} px");
+        if count < 30 {
+            return Err(format!(
+                "remote opponent {name} colour not visible ({count} px)"
+            ));
+        }
+    }
+    n.disconnect();
+    println!("ONLINE CHECK OK");
+    Ok(())
+}
+
 struct App {
     opts: Options,
     world: World,
-    session: LocalSession,
+    session: Session,
     look: MouseLook,
     keys: Keys,
     grabbed: bool,
@@ -497,8 +531,6 @@ struct App {
     audio: audio::Audio,
     hud: HudSettings,
     numbers: DamageNumbers,
-    /// Offline opponent and its player id.
-    bot: Option<(Bot, PlayerId)>,
     window: Option<Arc<Window>>,
     gfx: Option<Gfx>,
     renderer: Option<Renderer>,
@@ -548,45 +580,61 @@ impl App {
         }
         let keys = self.keys;
         let look = self.look;
-        let bot = &mut self.bot;
-        self.session.advance(
-            elapsed.as_micros() as u64,
-            |t| keys.cmd(t, &look),
-            |g, _| match bot {
-                Some((b, id)) => vec![(*id, b.think(g, *id))],
-                None => vec![],
-            },
-        );
-        for _ in 0..track_hits(&self.session, &mut self.numbers) {
-            self.audio.play_hit();
+        match &mut self.session {
+            Session::Local { s, bot } => {
+                s.advance(
+                    elapsed.as_micros() as u64,
+                    |t| keys.cmd(t, &look),
+                    |g, _| match bot {
+                        Some((b, id)) => vec![(*id, b.think(g, *id))],
+                        None => vec![],
+                    },
+                );
+            }
+            Session::Net(n) => n.update(|t| keys.cmd(t, &look)),
+        }
+        if let Some(fv) = self.session.frame_view() {
+            for _ in 0..scene::track_hits(&fv, &mut self.numbers) {
+                self.audio.play_hit();
+            }
         }
         self.numbers.update(elapsed.as_secs_f32());
     }
 
     fn finish(&mut self, el: &ActiveEventLoop) {
-        if let Some((_, id)) = &self.bot {
-            let b = self.session.game.player(*id).unwrap();
-            println!(
-                "BOT acc {:.1}% dmg {} kills {} | you: dmg dealt {} taken {} W-L {}-{}",
-                b.stats.accuracy_pct(),
-                b.stats.damage_dealt,
-                b.stats.kills,
-                b.stats.damage_taken,
-                b.stats.damage_dealt,
-                b.stats.fights_lost,
-                b.stats.fights_won
-            );
+        match &mut self.session {
+            Session::Local { s, bot } => {
+                if let Some((_, id)) = bot {
+                    let b = s.game.player(*id).unwrap();
+                    println!(
+                        "BOT acc {:.1}% dmg {} kills {} | you: dmg dealt {} taken {} W-L {}-{}",
+                        b.stats.accuracy_pct(),
+                        b.stats.damage_dealt,
+                        b.stats.kills,
+                        b.stats.damage_taken,
+                        b.stats.damage_dealt,
+                        b.stats.fights_lost,
+                        b.stats.fights_won
+                    );
+                }
+                let p = s.game.player(s.me).unwrap();
+                println!(
+                    "LOCAL tick {} origin ({:.1}, {:.1}, {:.1}) speed {:.1} yaw {:.2}",
+                    s.game.tick.0,
+                    p.pm.origin.x,
+                    p.pm.origin.y,
+                    p.pm.origin.z,
+                    p.pm.velocity.length_xy(),
+                    self.look.yaw.degrees()
+                );
+            }
+            Session::Net(n) => {
+                if let Some(fv) = n.frame_view() {
+                    println!("ONLINE {:?} | HUD {:?}", n.state(), fv.hud);
+                }
+                n.disconnect();
+            }
         }
-        let p = self.session.game.player(self.session.me).unwrap();
-        println!(
-            "LOCAL tick {} origin ({:.1}, {:.1}, {:.1}) speed {:.1} yaw {:.2}",
-            self.session.game.tick.0,
-            p.pm.origin.x,
-            p.pm.origin.y,
-            p.pm.origin.z,
-            p.pm.velocity.length_xy(),
-            self.look.yaw.degrees()
-        );
         if let Some(s) = self.stats.summary() {
             let (present, size) = self
                 .gfx
@@ -714,26 +762,36 @@ impl ApplicationHandler for App {
                     self.simulate(now - last);
                 }
                 self.last_frame = Some(now);
+                let fv = self.session.frame_view();
+                let (world, cfg) = self.session.world_cfg();
                 let cam = Camera {
-                    eye: self.session.eye(),
+                    eye: fv.as_ref().map_or(Vec3::new(0.0, 0.0, 64.0), |f| f.eye),
                     pitch: self.look.pitch,
                     yaw: self.look.yaw,
                     fov: self.opts.fov,
                 };
-                let dynamic = scene_mesh(
-                    &self.session,
-                    &cam,
-                    self.keys.fire,
-                    &self.colors,
-                    &self.opts.effects,
-                    self.frames as u32,
-                );
+                let dynamic = match (&fv, cfg) {
+                    (Some(fv), Some(cfg)) => scene::scene_mesh(
+                        fv,
+                        world,
+                        cfg,
+                        &cam,
+                        self.keys.fire,
+                        &self.colors,
+                        &self.opts.effects,
+                        self.frames as u32,
+                    ),
+                    _ => vec![],
+                };
                 if let (Some(g), Some(r), Some(depth)) =
                     (&mut self.gfx, &mut self.renderer, &self.depth)
                 {
                     let size = (g.config.width, g.config.height);
                     r.set_dynamic(&g.device, &g.queue, &dynamic);
-                    let hud = hud_mesh(&self.session, &cam, size, &self.numbers, &self.hud);
+                    let hud = fv
+                        .as_ref()
+                        .map(|fv| scene::hud_mesh(fv, &cam, size, &self.numbers, &self.hud))
+                        .unwrap_or_default();
                     r.set_hud(&g.device, &g.queue, &hud);
                     g.frame(|d, q, v| r.draw(d, q, v, depth, size, &cam, CLEAR));
                 }
@@ -759,6 +817,13 @@ fn main() {
             std::process::exit(2);
         }
     };
+    if opts.headless && opts.connect.is_some() {
+        if let Err(e) = run_headless_online(&opts) {
+            eprintln!("lgduel: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
     if opts.headless {
         if let Err(e) = run_headless(&opts) {
             eprintln!("lgduel: {e}");
@@ -788,27 +853,38 @@ fn main() {
         return;
     }
     let world = load_world();
-    let session = LocalSession::new(GameConfig::default(), world.clone(), 1);
-    let bot = opts.bot.map(|(pattern, aim)| {
-        let id = session
-            .game
-            .players
-            .iter()
-            .find(|p| p.id != session.me)
-            .unwrap()
-            .id;
-        println!("PRACTICE vs bot: pattern {pattern:?}, aim {aim:?}");
-        (
-            Bot::new(BotConfig {
-                pattern,
-                aim,
-                ..BotConfig::default()
-            }),
-            id,
-        )
-    });
-    let me = session.game.player(session.me).unwrap();
-    let look = MouseLook::new(opts.mouse, me.yaw);
+    let (session, start_yaw) = match &opts.connect {
+        Some(addr) => {
+            let server = resolve(addr).unwrap_or_else(|e| {
+                eprintln!("lgduel: {e}");
+                std::process::exit(2);
+            });
+            let n = NetSession::connect(server, &opts.name, world.clone()).unwrap_or_else(|e| {
+                eprintln!("lgduel: {e}");
+                std::process::exit(1);
+            });
+            println!("ONLINE connecting to {server} as {}", opts.name);
+            (Session::Net(n), lgduel_sim::math::Angle::ZERO)
+        }
+        None => {
+            let s = LocalSession::new(GameConfig::default(), world.clone(), 1);
+            let bot = opts.bot.map(|(pattern, aim)| {
+                let id = s.game.players.iter().find(|p| p.id != s.me).unwrap().id;
+                println!("PRACTICE vs bot: pattern {pattern:?}, aim {aim:?}");
+                (
+                    Bot::new(BotConfig {
+                        pattern,
+                        aim,
+                        ..BotConfig::default()
+                    }),
+                    id,
+                )
+            });
+            let yaw = s.game.player(s.me).unwrap().yaw;
+            (Session::Local { s, bot }, yaw)
+        }
+    };
+    let look = MouseLook::new(opts.mouse, start_yaw);
     println!(
         "MOUSE {} cm/360 @ {} dpi = {:.5} deg/count (raw input, sub-count accumulation)",
         opts.mouse.cm_per_360,
@@ -825,7 +901,6 @@ fn main() {
         audio,
         hud: HudSettings::default(),
         numbers: DamageNumbers::default(),
-        bot,
         opts,
         window: None,
         gfx: None,

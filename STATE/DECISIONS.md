@@ -305,3 +305,13 @@ Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update th
 - check.sh runs 60 s (env MATCH_SECS overrides for quick local runs); the three profiles run in parallel,
   so the whole check takes ~70 s.
 - `lgduel-tools netem` exposes the same proxy for manual testing.
+
+## D30 — Client online mode (2026-10-22)
+- `scene::FrameView` (own eye, remote players, HUD, events) is what the renderer/HUD/audio consume; offline
+  `LocalSession::frame_view` and online `NetSession` both produce it, so offline and online share all
+  drawing code. `Session` enum in the app (Local + optional bot | Net).
+- `NetSession`: NetClient + Predictor (own eye, smoothed) + Interpolator (others, adaptive delay); commands
+  carry view time = snapshot clock − interp delay; HUD from the newest snapshot.
+- `lgduel --connect HOST:PORT [--name N]` (windowed); `lgduel --headless --connect … --secs N` = online
+  smoke check (renders the remote opponent offscreen, asserts forced colours). check.sh stage via
+  `lgduel-tools client-smoke`.

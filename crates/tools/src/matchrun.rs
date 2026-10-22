@@ -231,3 +231,105 @@ pub fn run_match(bin_dir: &Path, profile_name: &str, secs: f64, out_dir: &Path) 
     }
     r
 }
+
+/// Online smoke test of the real game client: server + one bot + `lgduel
+/// --headless --connect`; the client must connect, see and render the bot.
+pub fn run_client_smoke(bin_dir: &Path, out_dir: &Path, secs: f64) -> MatchResult {
+    let mut r = MatchResult {
+        profile: "client-smoke".into(),
+        lines: vec![],
+        failures: vec![],
+    };
+    let _ = std::fs::create_dir_all(out_dir);
+    let port = match free_udp_port() {
+        Ok(p) => p,
+        Err(e) => {
+            r.failures.push(format!("no free port: {e}"));
+            return r;
+        }
+    };
+    let addr = format!("127.0.0.1:{port}");
+    let server = Command::new(exe(bin_dir, "lgduel-server"))
+        .args([
+            "--bind",
+            "127.0.0.1",
+            "--port",
+            &port.to_string(),
+            "--duration-secs",
+            &format!("{}", secs + 4.0),
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+    let Ok(server) = server else {
+        r.failures.push("start server failed".into());
+        return r;
+    };
+    std::thread::sleep(Duration::from_millis(300));
+    let bot = Command::new(exe(bin_dir, "lgduel-bot"))
+        .args([
+            "--server",
+            &addr,
+            "--pattern",
+            "ad",
+            "--skill",
+            "medium",
+            "--name",
+            "smokebot",
+        ])
+        .args(["--duration-secs", &format!("{}", secs + 2.0)])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+    let shot = out_dir.join("online.png");
+    let client = Command::new(exe(bin_dir, "lgduel"))
+        .args([
+            "--headless",
+            "--connect",
+            &addr,
+            "--name",
+            "smokeclient",
+            "--secs",
+            &format!("{secs}"),
+        ])
+        .args(["--size", "1280x720", "--screenshot"])
+        .arg(&shot)
+        .output();
+    match client {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            for l in stdout.lines().filter(|l| {
+                l.starts_with("ONLINE") || l.starts_with("IMAGE") || l.starts_with("SCREENSHOT")
+            }) {
+                r.lines.push(l.to_string());
+            }
+            if !out.status.success() || !stdout.contains("ONLINE CHECK OK") {
+                r.failures.push(format!(
+                    "client failed ({}): {}",
+                    out.status,
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ));
+            }
+        }
+        Err(e) => r.failures.push(format!("run client: {e}")),
+    }
+    if let Ok(b) = bot.and_then(|b| b.wait_with_output())
+        && !b.status.success()
+    {
+        r.failures.push(format!("bot exited with {}", b.status));
+    }
+    match server.wait_with_output() {
+        Ok(out) => {
+            let s = String::from_utf8_lossy(&out.stdout);
+            if !s.contains("smokeclient connected from") {
+                r.failures
+                    .push("server never saw the client connect".into());
+            }
+            if !out.status.success() || String::from_utf8_lossy(&out.stderr).contains("panicked") {
+                r.failures.push("server failed".into());
+            }
+        }
+        Err(e) => r.failures.push(format!("server: {e}")),
+    }
+    r
+}
