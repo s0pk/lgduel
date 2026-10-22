@@ -238,3 +238,7 @@
 - `menu.rs` rewritten: `Menu {screen, tab, dirty}`; Settings window (left side so the live crosshair/HUD/beam act as the preview) with tabs Mouse (cm/360, DPI, invert, deg/count), Video (FOV, fullscreen toggle, window size, vsync, FPS cap), Visuals (beam style/colour, sparks + size, enemy head/body/legs colours, crosshair length/gap/thickness/dot/colour, damage numbers, net-graph), Audio (volume, test sound), Player (name, practice bot on/pattern/skill).
 - App: duplicate hud/colour copies removed (reads `opts.s`), `apply_settings` (mouse, audio incl. reopening when unmuted, vsync via new `Gfx::set_vsync`, window size), `save_settings` on Back / Esc-close when dirty. `--menu pause|settings` for headless; check.sh renders both.
 - Verified: settings screenshot inspected (Visuals tab); headless menu checks OK (pause 10k px, settings 202k px panel); check.sh GREEN. Interactive clicking not automated — needs a human pass (noted for the release smoke).
+
+## 2026-10-22 — iteration 43: M1.4 fullscreen
+- Window created borderless-fullscreen when `video.fullscreen`; F11 and Alt+Enter toggle (saved immediately); Video-tab checkbox applies live; `--fullscreen` / `--windowed`.
+- Verified: `lgduel --no-settings --fullscreen --synthetic-input --frames 1500` → surface 1920×1080 (native, window size setting 1280×720), 4377 fps avg, p99 0.595 ms; check.sh GREEN. M1 (UI + settings + fullscreen) complete.

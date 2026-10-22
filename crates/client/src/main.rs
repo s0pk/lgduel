@@ -220,6 +220,8 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
                     .ok_or("--secs needs a positive number")?
             }
             "--vsync" => o.s.video.vsync = true,
+            "--fullscreen" => o.s.video.fullscreen = true,
+            "--windowed" => o.s.video.fullscreen = false,
             "--headless" => o.headless = true,
             "--menu" => {
                 o.menu = Some(match val("--menu")?.as_str() {
@@ -638,6 +640,8 @@ struct App {
     session: Session,
     look: MouseLook,
     keys: Keys,
+    /// Alt held (for Alt+Enter).
+    alt: bool,
     grabbed: bool,
 
     audio: audio::Audio,
@@ -686,6 +690,8 @@ impl App {
         if let Some(g) = &mut self.gfx {
             g.set_vsync(s.video.vsync);
         }
+        self.apply_fullscreen();
+        let s = &self.opts.s;
         if let Some(w) = &self.window
             && !s.video.fullscreen
             && w.fullscreen().is_none()
@@ -707,6 +713,23 @@ impl App {
             && let Err(e) = settings::save(path, &self.opts.s)
         {
             eprintln!("lgduel: could not save settings to {}: {e}", path.display());
+        }
+    }
+
+    /// Switch borderless fullscreen on/off and remember it.
+    fn toggle_fullscreen(&mut self) {
+        self.opts.s.video.fullscreen = !self.opts.s.video.fullscreen;
+        self.apply_fullscreen();
+        self.menu.dirty = true;
+        self.save_settings();
+    }
+
+    fn apply_fullscreen(&self) {
+        if let Some(w) = &self.window {
+            let want = self.opts.s.video.fullscreen;
+            if want != w.fullscreen().is_some() {
+                w.set_fullscreen(want.then_some(winit::window::Fullscreen::Borderless(None)));
+            }
         }
     }
 
@@ -732,6 +755,8 @@ impl App {
             KeyCode::ControlLeft | KeyCode::KeyC => self.keys.crouch = down,
             KeyCode::Escape if down => self.toggle_menu(),
             KeyCode::F3 if down => self.opts.s.hud.net_graph = !self.opts.s.hud.net_graph,
+            KeyCode::F11 if down => self.toggle_fullscreen(),
+            KeyCode::Enter | KeyCode::NumpadEnter if down && self.alt => self.toggle_fullscreen(),
             _ => {}
         }
     }
@@ -827,7 +852,14 @@ impl ApplicationHandler for App {
             .with_inner_size(winit::dpi::PhysicalSize::new(
                 self.opts.s.video.size.0,
                 self.opts.s.video.size.1,
-            ));
+            ))
+            .with_fullscreen(
+                self.opts
+                    .s
+                    .video
+                    .fullscreen
+                    .then_some(winit::window::Fullscreen::Borderless(None)),
+            );
         let window = match el.create_window(attrs) {
             Ok(w) => Arc::new(w),
             Err(e) => {
@@ -914,6 +946,9 @@ impl ApplicationHandler for App {
                 } else {
                     self.keys.fire = state == ElementState::Pressed;
                 }
+            }
+            WindowEvent::ModifiersChanged(mods) => {
+                self.alt = mods.state().alt_key();
             }
             WindowEvent::Focused(false) => {
                 self.keys = Keys::default();
@@ -1145,6 +1180,7 @@ fn main() {
         session,
         look,
         keys: Keys::default(),
+        alt: false,
         grabbed: false,
 
         audio,
