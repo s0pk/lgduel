@@ -392,3 +392,9 @@
 ## 2026-10-23 — iteration 71: visuals T6 docs and wrap-up
 - PLAY.md (theme, enemy model, forced colours), CONFIG.md (`video.theme`, `[models]`), docs/PERF.md (grid + humanoid: 6675 fps), console test for the new cvars (incl. an invalid enum value is refused). Visual customisation plan T1–T6 complete (STATE/HANDOFF_VISUALS.md).
 - Verified: check.sh GREEN (see log); determinism golden hash unchanged since T1.
+
+## 2026-10-23 — iterations 72-80: Linux, share codes, look & feel (STATE/HANDOFF_LINUX_LOOK_SHARE.md)
+- Part A: native Linux build verified in WSL2 Arch (full check.sh green there), XDG theme dirs, window app id, `--doctor`, generated icons + .desktop, split PKGBUILD (lgduel, lgduel-server; sysusers + systemd units), `check-pkgbuild.sh`, INSTALL.md, release/CI workflows (YAML parses; cannot run, billing lock).
+- Part B: `LGP1-` profile codes (zlib + CRC32 + base64url, whitelist, caps), presets, `.lgtheme` packs, Share tab, SHARING.md.
+- Part C: MSAA (`video.msaa`, `--msaa`), window title (map + ping), HUD auto-scale + menu scale, crosshair shapes/outline/hit colour, sound set, menu accent style, sky gradient + edge outlines + midnight/paper/ember themes, TAB scoreboard.
+- Verified: `makepkg` in WSL Arch built lgduel + lgduel-server; installed, `lgduel --version`/`--doctor` ran; every milestone check.sh GREEN on Windows (last 127 s); MSAA 4x render has 58 distinct colours vs 12 and 4146 fps at 1080p windowed; scoreboard screenshot inspected (panel high on screen, enemy/crosshair/beam still pass).

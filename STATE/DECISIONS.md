@@ -641,3 +641,11 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
 - Legs animate from position only (no velocity in `OtherView`), so a standing player holds a frozen stride.
 - Headless: `--enemy-model`, `--skins`, `--enemy-distance` (60–1500) for close-up pictures; the per-band pixel
   minimum is 20 for non-classic models.
+
+## D64 — Linux, share codes, look & feel (2026-10-23)
+- GL backend (wgpu) rejects a texture array with one layer: the world texture set always allocates at least 2 layers.
+- Profile codes `LGP1-` = zlib + CRC32 + base64url over a whitelisted subset of settings (`profile::is_look_key`) plus an optional embedded theme; hard size caps on decode. Local only: no server, no accounts.
+- Theme packs `.lgtheme` unpack with the same path-safety and size limits as theme folders.
+- MSAA is a start-up setting (renderer pipelines and targets are made once); default 1 keeps the classic look pixel-identical. `render::Targets` bundles the depth buffer and the multisampled colour buffer that resolves into the real target.
+- The scoreboard sits high on the screen (not centred) so the crosshair and enemy stay visible while TAB is held; the existing end-of-session report on leaving covers the "session summary".
+- Arch: AUR source package only (split lgduel / lgduel-server); submission to the AUR needs the user's account.

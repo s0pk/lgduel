@@ -1,6 +1,6 @@
 # KNOWN ISSUES
 
-- KI-1 (2026-10-22): Dev machine is Windows; DoD requires check.sh green on Linux. No Linux run yet.
+- KI-1 (2026-10-22, RESOLVED 2026-10-23: check.sh green in WSL2 Arch): Dev machine is Windows; DoD requires check.sh green on Linux. No Linux run yet.
   Add a Linux verification path (WSL / Docker / CI) by PLAN 7.8 at the latest.
 - KI-2 (2026-10-22, RESOLVED iteration 60: real p2p-smoke stage): check.sh stage p2p prints `SKIP`
   until Phase 7 lands. Absent, not passing. (Offscreen render live since it. 14, headless match since it. 31, netem matrix since it. 34.)
