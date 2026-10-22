@@ -59,6 +59,7 @@ for m in arena_pillars arena_tiers; do
 done
 # egui pause menu (pixel font) over the scene.
 "$T/$PROFILE/lgduel" --headless --frames 3 --menu pause --size 1280x720 --screenshot artifacts/menu.png | grep -E "IMAGE menu|MENU CHECK"
+"$T/$PROFILE/lgduel" --headless --frames 3 --menu pause-online --size 1280x720 --screenshot artifacts/menu_online.png | grep -E "IMAGE menu|MENU CHECK"
 "$T/$PROFILE/lgduel" --headless --frames 3 --menu settings --size 1280x720 --screenshot artifacts/settings.png | grep -E "IMAGE menu|MENU CHECK"
 "$T/$PROFILE/lgduel" --headless --frames 3 --menu main --size 1280x720 --screenshot artifacts/mainmenu.png | grep -E "IMAGE menu|MENU CHECK"
 "$T/$PROFILE/lgduel" --headless --frames 3 --menu online --size 1280x720 --screenshot artifacts/online_menu.png | grep -E "IMAGE menu|MENU CHECK"

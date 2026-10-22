@@ -309,3 +309,10 @@
 - Pushed branch v0.2-dev (main untouched). CI run 39765708214: all jobs refused — GitHub account billing lock (KI-14). Docker Desktop crashes at start on this PC (KI-14); I closed the instance I started, changed nothing in its data.
 - Verified locally: check.sh GREEN 100 s after the CARGO_TARGET_DIR change; package.sh → dist/LGDuel-windows-x64.zip (packaged host + bot + headless client ONLINE CHECK OK).
 - PLAN reconciled: 6.1, 6.3, 7.2, 8.3, 11.1 ticked (done by v0.2 work; references in PLAN). 8.2 not ticked (gun-model option and input display missing = 8.4/8.5).
+
+
+## 2026-10-22 — iteration 56: PLAN 6.2 challenges
+- net: protocol v6, `RosterEntry`, `Control::{Roster, Challenge, Respond}`, status challenge fields (round-trip tests); NetClient `roster`, `messages`, `challenge`, `respond`.
+- server: `Client.{challenge, roster_sent}`, `challenge`/`respond`/`tell`, expiry each tick, roster sent on change in 16-entry chunks.
+- client: NetSession toast (4 s), challenge-aware `status_text`, `roster`/`incoming_challenge`/`challenge`/`respond`; menu `PlayerRow`, players grid + Accept/Decline in the online pause menu (window 380 wide when listed); `--menu pause-online` sample render (in check.sh).
+- Verified: arenas test `challenge_accept_decline_and_expiry` (roster of 4 with arenas; challenge visible to both; accept → both in the empty arena 3rd, left-behind pair re-paired; decline → challenger told "BOT1 DECLINED"; unanswered → cleared after 15 s with "CHALLENGE EXPIRED", nobody moved); pause-online screenshot inspected; check.sh GREEN 101 s.

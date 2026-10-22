@@ -6,7 +6,9 @@ use lgduel_net::PROTOCOL_VERSION;
 pub mod host;
 
 use lgduel_net::conn::Connection;
-use lgduel_net::protocol::{ArenaStatus, Connectionless, Control, InputBuffer, Inputs, cookie};
+use lgduel_net::protocol::{
+    ArenaStatus, Connectionless, Control, InputBuffer, Inputs, ROSTER_CHUNK, RosterEntry, cookie,
+};
 use lgduel_net::snapshot::{Snapshot, SnapshotHistory};
 use lgduel_net::transport::Transport;
 use lgduel_sim::config::{ConfigError, GameConfig, HitMode};
@@ -119,7 +121,14 @@ struct Client {
     event_marks: VecDeque<(u32, u32)>,
     /// Reliable events given up on because the queue overflowed.
     pub events_dropped: u64,
+    /// Outgoing challenge: (target, tick it expires).
+    challenge: Option<(PlayerId, u32)>,
+    /// Last roster sent.
+    roster_sent: Vec<RosterEntry>,
 }
+
+/// How long a challenge waits for an answer.
+pub const CHALLENGE_SECS: u32 = 15;
 
 /// Most reliable events kept per client (beyond that the oldest are dropped).
 pub const MAX_RELIABLE_EVENTS: usize = 256;
@@ -389,6 +398,15 @@ impl<T: Transport> Server<T> {
             },
             None => (String::new(), false),
         };
+        let challenge_from = self
+            .clients
+            .iter()
+            .find(|o| o.challenge.is_some_and(|(t, _)| t == c.player))
+            .map(|o| (o.player.0, o.name.clone()));
+        let challenge_to = c
+            .challenge
+            .and_then(|(t, _)| self.clients.iter().find(|o| o.player == t))
+            .map_or(String::new(), |o| o.name.clone());
         ArenaStatus {
             arena: c.arena.map(|a| a as u8),
             queue_pos,
@@ -396,6 +414,8 @@ impl<T: Transport> Server<T> {
             opponent_bot,
             spectating: c.spectate,
             watching: c.arena.unwrap_or(watched) as u8,
+            challenge_from,
+            challenge_to,
         }
     }
 
@@ -509,6 +529,10 @@ missing_cmds = {missing}
                 match Control::decode(&m) {
                     Some(Control::Disconnect { reason }) => leave = Some(reason),
                     Some(Control::Spectate { on }) => self.set_spectate(i, on),
+                    Some(Control::Challenge { target }) => self.challenge(i, PlayerId(target)),
+                    Some(Control::Respond { from, accept }) => {
+                        self.respond(i, PlayerId(from), accept)
+                    }
                     _ => {}
                 }
             }
@@ -526,6 +550,69 @@ missing_cmds = {missing}
                 i += 1;
             }
         }
+    }
+
+    /// Send a one-line message to client `ci` (shown briefly on screen).
+    fn tell(&mut self, ci: usize, text: String) {
+        self.clients[ci]
+            .conn
+            .send_reliable(Control::ServerEvent { text }.encode());
+    }
+
+    /// Client `ci` challenges player `target`.
+    fn challenge(&mut self, ci: usize, target: PlayerId) {
+        let Some(ti) = self.clients.iter().position(|c| c.player == target) else {
+            return;
+        };
+        if ti == ci {
+            return;
+        }
+        let expires = self.game().tick.0 + CHALLENGE_SECS * self.game().cfg.tick_rate_hz;
+        self.clients[ci].challenge = Some((target, expires));
+        let (from, to) = (self.clients[ci].name.clone(), self.clients[ti].name.clone());
+        self.log.push(format!("{from} challenges {to}"));
+    }
+
+    /// Client `ci` answers the challenge from player `from`.
+    fn respond(&mut self, ci: usize, from: PlayerId, accept: bool) {
+        let me = self.clients[ci].player;
+        let Some(fi) = self
+            .clients
+            .iter()
+            .position(|c| c.player == from && c.challenge.is_some_and(|(t, _)| t == me))
+        else {
+            return;
+        };
+        self.clients[fi].challenge = None;
+        let (from_name, my_name) = (self.clients[fi].name.clone(), self.clients[ci].name.clone());
+        if !accept {
+            self.log.push(format!("{my_name} declined {from_name}"));
+            self.tell(fi, format!("{} DECLINED", my_name.to_uppercase()));
+            return;
+        }
+        // An empty arena, else the arena of whichever of the two is alone in theirs.
+        let n = self.arena_counts();
+        let alone = |c: &Client| c.arena.filter(|&a| n[a] == 1);
+        let Some(a) = n
+            .iter()
+            .position(|&k| k == 0)
+            .or_else(|| alone(&self.clients[fi]))
+            .or_else(|| alone(&self.clients[ci]))
+        else {
+            for i in [ci, fi] {
+                self.tell(i, "NO FREE ARENA FOR THE CHALLENGE".into());
+            }
+            return;
+        };
+        for i in [fi, ci] {
+            self.clients[i].spectate = false;
+            if self.clients[i].arena != Some(a) {
+                self.move_client(i, a);
+            }
+        }
+        self.log
+            .push(format!("{from_name} vs {my_name} (challenge) in arena {a}"));
+        self.place();
     }
 
     /// Client `ci` starts watching (leaves its arena / the queue) or asks to play again.
@@ -636,6 +723,8 @@ missing_cmds = {missing}
                     event_base: 0,
                     event_marks: VecDeque::new(),
                     events_dropped: 0,
+                    challenge: None,
+                    roster_sent: Vec::new(),
                 });
                 self.place();
                 self.accept(from, player.0);
@@ -711,6 +800,46 @@ missing_cmds = {missing}
                 cmds[a].push((*id, cmd));
             }
             arena.step(&cmds[a], &views[a], &mut self.rewind_stats);
+        }
+        // Challenges expire (or lapse when their target left).
+        let now_tick = self.game().tick.0;
+        for ci in 0..self.clients.len() {
+            if let Some((t, exp)) = self.clients[ci].challenge {
+                let gone = !self.clients.iter().any(|o| o.player == t);
+                if gone || now_tick >= exp {
+                    self.clients[ci].challenge = None;
+                    self.tell(ci, "CHALLENGE EXPIRED".into());
+                }
+            }
+        }
+        let roster: Vec<RosterEntry> = self
+            .clients
+            .iter()
+            .map(|c| RosterEntry {
+                id: c.player.0,
+                name: c.name.clone(),
+                arena: c.arena.map(|a| a as u8),
+                spectating: c.spectate,
+            })
+            .collect();
+        for c in &mut self.clients {
+            if c.roster_sent != roster {
+                for (k, chunk) in roster.chunks(ROSTER_CHUNK).enumerate() {
+                    let m = Control::Roster {
+                        replace: k == 0,
+                        players: chunk.to_vec(),
+                    };
+                    c.conn.send_reliable(m.encode());
+                }
+                if roster.is_empty() {
+                    let m = Control::Roster {
+                        replace: true,
+                        players: vec![],
+                    };
+                    c.conn.send_reliable(m.encode());
+                }
+                c.roster_sent = roster.clone();
+            }
         }
         let watched = self.watched_arena();
         for ci in 0..self.clients.len() {

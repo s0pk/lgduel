@@ -86,6 +86,8 @@ struct Options {
     host_game: bool,
     /// Online: ask the server to let us watch instead of play.
     spectate: bool,
+    /// Headless `--menu pause-online`: draw the online pause menu with sample players.
+    menu_online: bool,
     /// Headless online run length.
     secs: f64,
 }
@@ -119,6 +121,7 @@ impl Options {
             practice: false,
             host_game: false,
             spectate: false,
+            menu_online: false,
             secs: 5.0,
         }
     }
@@ -248,6 +251,10 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
             "--menu" => {
                 o.menu = Some(match val("--menu")?.as_str() {
                     "pause" => menu::Screen::Pause,
+                    "pause-online" => {
+                        o.menu_online = true;
+                        menu::Screen::Pause
+                    }
                     "settings" => menu::Screen::Settings,
                     "main" => menu::Screen::Main,
                     "practice" => menu::Screen::Practice,
@@ -270,6 +277,24 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
         }
     }
     Ok(o)
+}
+
+/// The online player list for the Esc menu.
+fn player_rows(n: &NetSession) -> Vec<menu::PlayerRow> {
+    let me = n.client.player().map(|p| p.0);
+    n.roster()
+        .iter()
+        .map(|e| menu::PlayerRow {
+            id: e.id,
+            name: e.name.clone(),
+            place: match (e.arena, e.spectating) {
+                (Some(a), _) => format!("arena {}", a as u32 + 1),
+                (None, true) => "spectating".into(),
+                (None, false) => "queued".into(),
+            },
+            me: Some(e.id) == me,
+        })
+        .collect()
 }
 
 /// A built-in map by name (arena_flat if unknown).
@@ -380,15 +405,34 @@ fn run_headless(opts: &Options) -> Result<(), String> {
             }
         }
         let rows = b.rows(&entries);
+        if opts.menu_online {
+            menu.spectating = Some(false);
+            menu.invite = Some((3, "dave".into()));
+            menu.players = [
+                ("alice", "arena 1", true),
+                ("bob", "arena 1", false),
+                ("dave", "arena 2", false),
+                ("erin", "queued", false),
+            ]
+            .iter()
+            .enumerate()
+            .map(|(i, (name, place, me))| menu::PlayerRow {
+                id: i as u8,
+                name: name.to_string(),
+                place: place.to_string(),
+                me: *me,
+            })
+            .collect();
+        }
         // A few frames: egui sizes windows on the first and fades them in.
         for _ in 0..5 {
             let out = ui.run_headless((w, h), |ctx| {
-                menu.draw(ctx, &mut s, false, &rows);
+                menu.draw(ctx, &mut s, opts.menu_online, &rows);
             });
             ui.skip(out);
         }
         let out = ui.run_headless((w, h), |ctx| {
-            menu.draw(ctx, &mut s, false, &rows);
+            menu.draw(ctx, &mut s, opts.menu_online, &rows);
         });
         ui.paint(&off.device, &off.queue, off.color_view(), (w, h), out);
     }
@@ -1342,6 +1386,10 @@ impl ApplicationHandler for App {
                                 Some(Session::Net(n)) => Some(n.spectating()),
                                 _ => None,
                             };
+                            (self.menu.players, self.menu.invite) = match &self.session {
+                                Some(Session::Net(n)) => (player_rows(n), n.incoming_challenge()),
+                                _ => (Vec::new(), None),
+                            };
                             let (menu, s) = (&mut self.menu, &mut self.opts.s);
                             Some(
                                 ui.run_windowed(w, |ctx| action = menu.draw(ctx, s, online, &rows)),
@@ -1362,6 +1410,20 @@ impl ApplicationHandler for App {
                     match action {
                         Some(menu::Action::Resume) => self.set_grab(true),
                         Some(menu::Action::TestSound) => self.audio.play_hit(),
+                        Some(menu::Action::Challenge(id)) => {
+                            if let Some(Session::Net(n)) = &mut self.session {
+                                n.challenge(id);
+                            }
+                        }
+                        Some(menu::Action::Respond { from, accept }) => {
+                            if let Some(Session::Net(n)) = &mut self.session {
+                                n.respond(from, accept);
+                            }
+                            if accept {
+                                self.menu.screen = menu::Screen::Closed;
+                                self.set_grab(true);
+                            }
+                        }
                         Some(menu::Action::Spectate(on)) => {
                             if let Some(Session::Net(n)) = &mut self.session {
                                 n.set_spectate(on);

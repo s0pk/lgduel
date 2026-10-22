@@ -39,7 +39,12 @@ pub struct NetSession {
     pub map_error: Option<String>,
     /// Player we watch while queued / spectating.
     follow: Option<lgduel_sim::game::PlayerId>,
+    /// Latest server message and when it arrived (shown for a few seconds).
+    toast: Option<(String, u64)>,
 }
+
+/// How long a server message stays on screen.
+const TOAST_US: u64 = 4_000_000;
 
 impl NetSession {
     pub fn connect(server: SocketAddr, name: &str, world: World) -> std::io::Result<Self> {
@@ -62,6 +67,7 @@ impl NetSession {
             bw_mark: (0, 0, 0),
             map_error: None,
             follow: None,
+            toast: None,
         })
     }
 
@@ -87,6 +93,10 @@ impl NetSession {
         let frame_dt = now.saturating_sub(self.last_us) as f32 / 1e6;
         self.last_us = now;
         self.client.update(now);
+        while let Some(m) = self.client.messages.pop_front() {
+            println!("SERVER {m}");
+            self.toast = Some((m, now));
+        }
         let (Some(me), Some(cfg)) = (self.client.player(), self.client.config.clone()) else {
             return;
         };
@@ -298,9 +308,30 @@ impl NetSession {
         })
     }
 
-    /// The server's arena/queue status as one HUD line.
+    /// The server's arena/queue status as one HUD line (a fresh server
+    /// message or an incoming challenge take its place).
     pub fn status_text(&self) -> Option<String> {
+        if let Some((m, t)) = &self.toast
+            && self.last_us.saturating_sub(*t) < TOAST_US
+        {
+            return Some(m.clone());
+        }
         let s = self.client.status.as_ref()?;
+        if let Some((_, name)) = &s.challenge_from {
+            return Some(format!(
+                "{} CHALLENGES YOU - ESC TO ANSWER",
+                name.to_uppercase()
+            ));
+        }
+        let base = self.place_text(s)?;
+        Some(if s.challenge_to.is_empty() {
+            base
+        } else {
+            format!("{base} - CHALLENGED {}", s.challenge_to.to_uppercase())
+        })
+    }
+
+    fn place_text(&self, s: &lgduel_net::protocol::ArenaStatus) -> Option<String> {
         let watch = s.watching as u32 + 1;
         Some(if s.spectating {
             format!("SPECTATING ARENA {watch} - ESC > PLAY TO JOIN")
@@ -316,6 +347,24 @@ impl NetSession {
                 format!("ARENA {a} - VS {}", s.opponent.to_uppercase())
             }
         })
+    }
+
+    /// Everyone on the server.
+    pub fn roster(&self) -> &[lgduel_net::protocol::RosterEntry] {
+        &self.client.roster
+    }
+
+    /// Pending challenge to us: (player id, name).
+    pub fn incoming_challenge(&self) -> Option<(u8, String)> {
+        self.client.status.as_ref()?.challenge_from.clone()
+    }
+
+    pub fn challenge(&mut self, target: u8) {
+        self.client.challenge(target);
+    }
+
+    pub fn respond(&mut self, from: u8, accept: bool) {
+        self.client.respond(from, accept);
     }
 
     /// Watching instead of playing (as last reported by the server).

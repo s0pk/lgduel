@@ -86,7 +86,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 
 ## Phase 6 — Multi-duel server (deps: 4.x)
 - [x] 6.1 Arena instances / pair isolation (no cross-pair damage or collision) — done as M4.1 (tests/arenas.rs)
-- [ ] 6.2 Queue + challenge/accept flow
+- [x] 6.2 Queue + challenge/accept flow (queue: M4.1)
 - [x] 6.3 Spectate (follow a pair) — done as M4.2 (choosing the arena/player: KI-13)
 - [ ] 6.4 Per-player stats: LG acc %, dmg dealt/taken, W/L, fight length; end-of-fight summary; stats file
 - [ ] 6.5 Admin console + RCON; hot-reload of gameplay config values

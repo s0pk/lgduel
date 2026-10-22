@@ -500,3 +500,14 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
   Protocol v5. Queue cap 256 per client (oldest dropped and counted; never hit in tests).
 - Effect: hit sounds, damage numbers, kill/fight notices survive loss; they may arrive one RTT late when
   the first copy is lost. Resolves KI-10.
+
+## D50 — Challenges and the roster (2026-10-22)
+- Protocol v6: `Control::Roster{replace, players ≤ 16}` (server → client on change; chunks keep each reliable
+  message small, since one larger than the packet budget would block the reliable queue), `Challenge{target}`,
+  `Respond{from, accept}` (client → server); `ArenaStatus.{challenge_from, challenge_to}`. `ServerEvent{text}`
+  is now shown on the client for 4 s in the status line ("BOB DECLINED", "CHALLENGE EXPIRED", …).
+- One outgoing challenge per client, expiring after 15 s or when the target leaves. Accept → both go to an
+  empty arena, else into the arena of whichever of them is alone; their old opponents are re-paired by the
+  normal pairing step (or get the practice bot). No arena available → both are told, nobody moves.
+- UI: Esc menu (online) lists players with arena/queued/spectating and a Challenge button; an incoming
+  challenge shows Accept / Decline there and replaces the HUD status line ("X CHALLENGES YOU - ESC TO ANSWER").

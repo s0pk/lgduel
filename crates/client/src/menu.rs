@@ -81,6 +81,23 @@ pub enum Action {
     RemoveServer(String),
     /// Online: watch (`true`) or play (`false`).
     Spectate(bool),
+    /// Online: challenge this player id.
+    Challenge(u8),
+    /// Online: answer the challenge from this player id.
+    Respond {
+        from: u8,
+        accept: bool,
+    },
+}
+
+/// One row of the in-game player list.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlayerRow {
+    pub id: u8,
+    pub name: String,
+    /// "arena 2", "queued", "spectating".
+    pub place: String,
+    pub me: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -104,6 +121,9 @@ pub struct Menu {
     pub add_address: String,
     /// Online: whether we are spectating (None offline); set by the app each frame.
     pub spectating: Option<bool>,
+    /// Online: players on the server and a pending challenge to us (set each frame).
+    pub players: Vec<PlayerRow>,
+    pub invite: Option<(u8, String)>,
 }
 
 pub const TITLE: &str = "LGDuel";
@@ -165,7 +185,10 @@ impl Menu {
                     .collapsible(false)
                     .resizable(false)
                     .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-                    .fixed_size(egui::vec2(260.0, 0.0))
+                    .fixed_size(egui::vec2(
+                        if self.players.len() > 1 { 380.0 } else { 260.0 },
+                        0.0,
+                    ))
                     .show(ctx, |ui| {
                         ui.vertical_centered_justified(|ui| {
                             if ui.button("Resume").clicked() {
@@ -195,6 +218,44 @@ impl Menu {
                         if let Some(h) = &self.hosting_info {
                             ui.add_space(6.0);
                             ui.label(h);
+                        }
+                        if let Some((from, name)) = &self.invite {
+                            ui.add_space(6.0);
+                            ui.colored_label(
+                                egui::Color32::from_rgb(255, 210, 90),
+                                format!("{name} challenges you"),
+                            );
+                            ui.horizontal(|ui| {
+                                if ui.button("Accept").clicked() {
+                                    action = Some(Action::Respond {
+                                        from: *from,
+                                        accept: true,
+                                    });
+                                }
+                                if ui.button("Decline").clicked() {
+                                    action = Some(Action::Respond {
+                                        from: *from,
+                                        accept: false,
+                                    });
+                                }
+                            });
+                        }
+                        if self.players.len() > 1 {
+                            ui.add_space(6.0);
+                            ui.separator();
+                            ui.label("Players");
+                            egui::Grid::new("players").striped(true).show(ui, |ui| {
+                                for p in &self.players {
+                                    ui.label(&p.name);
+                                    ui.label(&p.place);
+                                    if p.me {
+                                        ui.label("(you)");
+                                    } else if ui.button("Challenge").clicked() {
+                                        action = Some(Action::Challenge(p.id));
+                                    }
+                                    ui.end_row();
+                                }
+                            });
                         }
                     });
             }

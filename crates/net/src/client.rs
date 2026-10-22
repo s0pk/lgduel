@@ -54,6 +54,10 @@ pub struct NetClient<T: Transport> {
     pub map: Option<(String, u64)>,
     /// Latest arena/queue status from the server.
     pub status: Option<crate::protocol::ArenaStatus>,
+    /// Everyone on the server (from `Control::Roster`).
+    pub roster: Vec<crate::protocol::RosterEntry>,
+    /// Server messages (`Control::ServerEvent`) not yet taken.
+    pub messages: VecDeque<String>,
     /// Next reliable event sequence number we expect.
     next_event_seq: u32,
     /// Reliable events handed out (each exactly once).
@@ -108,6 +112,8 @@ impl<T: Transport> NetClient<T> {
             config: None,
             map: None,
             status: None,
+            roster: Vec::new(),
+            messages: VecDeque::new(),
             next_event_seq: 0,
             reliable_events_delivered: 0,
             event_gaps: 0,
@@ -176,6 +182,18 @@ impl<T: Transport> NetClient<T> {
                         self.state = ClientState::Disconnected(reason);
                     }
                     Some(Control::Status(s)) => self.status = Some(s),
+                    Some(Control::Roster { replace, players }) => {
+                        if replace {
+                            self.roster.clear();
+                        }
+                        self.roster.extend(players);
+                    }
+                    Some(Control::ServerEvent { text }) => {
+                        self.messages.push_back(text);
+                        if self.messages.len() > 16 {
+                            self.messages.pop_front();
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -449,6 +467,18 @@ impl<T: Transport> NetClient<T> {
         };
         let pkt = self.conn.build_packet(now_us, &inp.encode());
         let _ = self.transport.send_to(self.server, &pkt);
+    }
+
+    /// Challenge player `target` to a duel.
+    pub fn challenge(&mut self, target: u8) {
+        self.conn
+            .send_reliable(Control::Challenge { target }.encode());
+    }
+
+    /// Accept or decline the challenge from player `from`.
+    pub fn respond(&mut self, from: u8, accept: bool) {
+        self.conn
+            .send_reliable(Control::Respond { from, accept }.encode());
     }
 
     /// Ask to watch (`true`) or play (`false`); goes out with the next packet.

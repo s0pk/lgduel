@@ -403,6 +403,34 @@ pub enum Control {
     Spectate {
         on: bool,
     },
+    /// Server → client: who is on the server. `replace` starts a new list;
+    /// later chunks (at most `ROSTER_CHUNK` entries each) append to it.
+    Roster {
+        replace: bool,
+        players: Vec<RosterEntry>,
+    },
+    /// Client → server: challenge player `target` to a duel.
+    Challenge {
+        target: u8,
+    },
+    /// Client → server: answer the challenge from player `from`.
+    Respond {
+        from: u8,
+        accept: bool,
+    },
+}
+
+/// Most roster entries per message (keeps each reliable message small).
+pub const ROSTER_CHUNK: usize = 16;
+
+/// One player in the server roster.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RosterEntry {
+    pub id: u8,
+    pub name: String,
+    /// Arena they play in; None = queued or spectating.
+    pub arena: Option<u8>,
+    pub spectating: bool,
 }
 
 /// A client's place on a multi-arena server.
@@ -419,6 +447,10 @@ pub struct ArenaStatus {
     pub spectating: bool,
     /// Arena whose snapshots a queued/spectating client receives.
     pub watching: u8,
+    /// Pending challenge to us: (player id, name).
+    pub challenge_from: Option<(u8, String)>,
+    /// Name of the player we challenged (empty = none pending).
+    pub challenge_to: String,
 }
 
 impl Control {
@@ -440,10 +472,40 @@ impl Control {
                 w.bytes(truncate(&s.opponent, MAX_NAME).as_bytes());
                 w.u8(s.opponent_bot as u8 | (s.spectating as u8) << 1);
                 w.u8(s.watching);
+                match &s.challenge_from {
+                    Some((id, name)) => {
+                        w.u8(1);
+                        w.u8(*id);
+                        w.bytes(truncate(name, MAX_NAME).as_bytes());
+                    }
+                    None => w.u8(0),
+                }
+                w.bytes(truncate(&s.challenge_to, MAX_NAME).as_bytes());
             }
             Self::Spectate { on } => {
                 w.u8(4);
                 w.u8(*on as u8);
+            }
+            Self::Roster { replace, players } => {
+                w.u8(5);
+                w.u8(*replace as u8);
+                let n = players.len().min(ROSTER_CHUNK);
+                w.u8(n as u8);
+                for e in &players[..n] {
+                    w.u8(e.id);
+                    w.u8(e.arena.map_or(0, |a| a.saturating_add(1)));
+                    w.u8(e.spectating as u8);
+                    w.bytes(truncate(&e.name, MAX_NAME).as_bytes());
+                }
+            }
+            Self::Challenge { target } => {
+                w.u8(6);
+                w.u8(*target);
+            }
+            Self::Respond { from, accept } => {
+                w.u8(7);
+                w.u8(*from);
+                w.u8(*accept as u8);
             }
         }
         w.finish()
@@ -465,16 +527,45 @@ impl Control {
                 let queue_pos = r.u16()?;
                 let opponent = text(&mut r)?;
                 let flags = r.u8()?;
+                let watching = r.u8()?;
+                let challenge_from = match r.u8()? {
+                    0 => None,
+                    _ => Some((r.u8()?, text(&mut r)?)),
+                };
                 Self::Status(ArenaStatus {
                     arena,
                     queue_pos,
                     opponent,
                     opponent_bot: flags & 1 != 0,
                     spectating: flags & 2 != 0,
-                    watching: r.u8()?,
+                    watching,
+                    challenge_from,
+                    challenge_to: text(&mut r)?,
                 })
             }
             4 => Self::Spectate { on: r.u8()? != 0 },
+            5 => {
+                let replace = r.u8()? != 0;
+                let n = r.u8()? as usize;
+                let mut players = Vec::with_capacity(n.min(ROSTER_CHUNK));
+                for _ in 0..n.min(ROSTER_CHUNK) {
+                    let id = r.u8()?;
+                    let arena = r.u8()?.checked_sub(1);
+                    let spectating = r.u8()? != 0;
+                    players.push(RosterEntry {
+                        id,
+                        name: text(&mut r)?,
+                        arena,
+                        spectating,
+                    });
+                }
+                Self::Roster { replace, players }
+            }
+            6 => Self::Challenge { target: r.u8()? },
+            7 => Self::Respond {
+                from: r.u8()?,
+                accept: r.u8()? != 0,
+            },
             _ => return None,
         })
     }
@@ -702,6 +793,8 @@ mod tests {
                 opponent_bot: true,
                 spectating: false,
                 watching: 7,
+                challenge_from: Some((4, "dave".into())),
+                challenge_to: String::new(),
             }),
             Control::Status(ArenaStatus {
                 arena: None,
@@ -710,7 +803,39 @@ mod tests {
                 opponent_bot: false,
                 spectating: true,
                 watching: 2,
+                challenge_from: None,
+                challenge_to: "erin".into(),
             }),
+            Control::Roster {
+                replace: true,
+                players: vec![
+                    RosterEntry {
+                        id: 0,
+                        name: "alice".into(),
+                        arena: Some(0),
+                        spectating: false,
+                    },
+                    RosterEntry {
+                        id: 9,
+                        name: "bob".into(),
+                        arena: None,
+                        spectating: true,
+                    },
+                ],
+            },
+            Control::Roster {
+                replace: false,
+                players: vec![],
+            },
+            Control::Challenge { target: 3 },
+            Control::Respond {
+                from: 3,
+                accept: true,
+            },
+            Control::Respond {
+                from: 4,
+                accept: false,
+            },
             Control::Spectate { on: true },
             Control::Spectate { on: false },
         ] {

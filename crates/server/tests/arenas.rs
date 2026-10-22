@@ -290,3 +290,83 @@ fn queue_position_and_spectating() {
         ClientState::Connected { .. }
     ));
 }
+
+fn id_of(rig: &Rig, i: usize) -> u8 {
+    rig.bots[i].as_ref().unwrap().client.player().unwrap().0
+}
+
+fn client(rig: &mut Rig, i: usize) -> &mut lgduel_net::client::NetClient<MemEndpoint> {
+    &mut rig.bots[i].as_mut().unwrap().client
+}
+
+#[test]
+fn challenge_accept_decline_and_expiry() {
+    let mut rig = Rig::new(3, 4);
+    rig.run_ms(3_000);
+    assert_eq!(
+        (0..4).map(|i| rig.arena_of(i)).collect::<Vec<_>>(),
+        vec![Some(0), Some(0), Some(1), Some(1)]
+    );
+    // Everyone knows who is where.
+    let roster = rig.bots[3].as_ref().unwrap().client.roster.clone();
+    assert_eq!(roster.len(), 4);
+    assert!(
+        roster
+            .iter()
+            .any(|e| e.name == "bot0" && e.arena == Some(0))
+    );
+    // bot2 challenges bot0: both see it.
+    let (a, c) = (id_of(&rig, 0), id_of(&rig, 2));
+    client(&mut rig, 2).challenge(a);
+    rig.run_ms(500);
+    assert_eq!(status(&rig, 0).challenge_from, Some((c, "bot2".into())));
+    assert_eq!(status(&rig, 2).challenge_to, "bot0");
+    // bot0 accepts: the two get the free arena, their old opponents are paired.
+    client(&mut rig, 0).respond(c, true);
+    rig.run_ms(1_000);
+    assert_eq!(rig.arena_of(0), Some(2));
+    assert_eq!(rig.arena_of(2), Some(2));
+    assert_eq!(
+        rig.arena_of(1),
+        rig.arena_of(3),
+        "left-behind players paired"
+    );
+    assert_eq!(status(&rig, 0).opponent, "bot2");
+    assert_eq!(status(&rig, 0).challenge_from, None);
+    assert_eq!(status(&rig, 2).challenge_to, "");
+    // bot3 challenges bot1, who declines: bot3 is told.
+    let (b, d) = (id_of(&rig, 1), id_of(&rig, 3));
+    client(&mut rig, 3).challenge(b);
+    rig.run_ms(500);
+    client(&mut rig, 1).respond(d, false);
+    rig.run_ms(500);
+    assert_eq!(status(&rig, 3).challenge_to, "");
+    assert!(
+        rig.bots[3]
+            .as_ref()
+            .unwrap()
+            .client
+            .messages
+            .iter()
+            .any(|m| m == "BOT1 DECLINED"),
+        "{:?}",
+        rig.bots[3].as_ref().unwrap().client.messages
+    );
+    // An unanswered challenge expires after 15 s.
+    client(&mut rig, 1).challenge(a);
+    rig.run_ms(1_000);
+    assert_eq!(status(&rig, 0).challenge_from.map(|f| f.0), Some(b));
+    rig.run_ms(15_000);
+    assert_eq!(status(&rig, 0).challenge_from, None);
+    assert!(
+        rig.bots[1]
+            .as_ref()
+            .unwrap()
+            .client
+            .messages
+            .iter()
+            .any(|m| m == "CHALLENGE EXPIRED")
+    );
+    // Nobody moved because of the expired challenge.
+    assert_eq!(rig.arena_of(0), Some(2));
+}
