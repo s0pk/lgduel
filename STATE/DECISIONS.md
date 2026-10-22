@@ -355,3 +355,26 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
   ping ± jitter (RTT and its mean deviation), loss %, server tick rate, measured snapshot rate (last 1 s),
   interpolation delay (ms), in/out KB/s (connection byte counters, 2 s window), own rubber-band count, hit-reg
   agreement %. Headless online smoke asserts plausible values and that the overlay is drawn.
+
+## D35 — Friend-test release (2026-10-22)
+- `lgduel host …` runs the dedicated server inside the game exe (shared `lgduel_server::host` module with
+  `lgduel-server`), printing ready-to-copy connect commands (127.0.0.1 and the LAN IP via a connected UDP
+  socket to TEST-NET-1, no packet sent). One exe is enough for both players.
+- `.cargo/config.toml`: `+crt-static` for x86_64-pc-windows-msvc → no VC++ redistributable needed (verified:
+  no vcruntime/msvcp/api-ms-win-crt/ucrtbase imports).
+- `scripts/package.sh` → `dist/LGDuel-<os>-x64.zip` after smoke-testing the packaged binaries.
+
+## D36 — Robustness under process stalls (2026-10-22)
+- Clock snaps (> 250 ms error) never re-issue a tick; after a forward jump the client still generates
+  commands for up to 64 skipped ticks. Predictor replays commands in strictly increasing tick order.
+  (Before: a backward snap re-issued ticks with different content → server kept the first → guaranteed
+  misprediction; seen as an 88u correction under CPU load.)
+- Late-command feedback: a newest snapshot of tick T whose last_cmd < T−1 while we sent a command for T−1
+  means ours was late/lost → +1 tick extra input lead (cap 8), decaying 0.25 tick/s.
+- Server stats file records `missing_cmds` per player; the match harness stops the netem proxy only after the
+  server exits (in-flight Disconnects were being dropped, inflating missing counts by ~333).
+- Bots measure prediction/rubber-bands/late commands after a 5 s warm-up. Root cause of intermittent
+  check failures: right after a rebuild, freshly started processes stall in their first seconds (consistent
+  with antivirus scanning new binaries) → bursts of late commands. After warm-up: 0 late / 0 rubber-bands in
+  two consecutive fresh-build checks; under 100% CPU load on all cores: ≤ 5 small (5–10u) corrections per
+  bot per 60 s, matching ≤ 8 late commands.

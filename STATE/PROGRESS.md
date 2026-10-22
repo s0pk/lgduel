@@ -210,3 +210,10 @@
 - Tooling: bash heredocs with long embedded Python failed to parse again; edit scripts now written with the Write tool.
 - Priority change (user, 2026-10-22): friend-test first — next a release package + "play with a friend" guide, then continue the plan.
 - Verified: check.sh GREEN.
+
+## 2026-10-22 — iteration 38: friend-test release (F.1, PLAN 7.1) + stall robustness
+- `crates/server/src/host.rs` shared by `lgduel-server` and new `lgduel host`; `.cargo/config.toml` static CRT; `PLAY.md`; `scripts/package.sh`; `/dist` ignored. PLAN gained F.2 (GitHub publish, user request).
+- Packaged: `dist/LGDuel-windows-x64.zip` 4.26 MB, packaged smoke OK (ping 4.2 ms, 125 snapshots/s, hitreg 100%), exes import no VC runtime DLLs.
+- A full check after the rebuild failed (lossy 15 / highping 8 rubber-bands). Investigation: (1) CPU-saturation repro found a real bug — clock snap re-issued ticks → fixed + regression tests; (2) late-command feedback loop added (+test); (3) harness stopped netem before in-flight Disconnects → fixed; (4) remaining failures were startup stalls of freshly built processes → bots measure after 5 s warm-up (threshold scaled accordingly).
+- Verified: two consecutive full checks from a fresh build GREEN (84 s, 77 s), all bots 0 rubber-bands / 0 late commands after warm-up; 60 s match under 100% CPU load passes.
+- Not verified: a run on a second PC / by a second human.

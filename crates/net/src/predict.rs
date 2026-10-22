@@ -141,6 +141,10 @@ impl Predictor {
         let from = snap.last_cmd;
         self.state_tick = Some(from.unwrap_or(Tick(snap.tick.0.saturating_sub(1))));
         for c in sent.iter().filter(|c| from.is_none_or(|f| c.tick > f)) {
+            // Strictly increasing ticks only: a tick is never applied twice.
+            if self.state_tick.is_some_and(|s| c.tick <= s) {
+                continue;
+            }
             let c = c.sanitized();
             if self.alive {
                 pmove(&mut self.state, &c, &self.world, &self.cfg.physics, dt);

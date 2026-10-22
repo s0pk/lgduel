@@ -1,5 +1,6 @@
 //! LGDuel client.
 //!
+//! `lgduel host [--port N] [--config server.toml]`                   run a server (same as lgduel-server)
 //! `lgduel [--frames N] [--vsync] [--fps-cap N] [--size WxH]`        offline vs bot
 //! `lgduel --connect HOST:PORT [--name NAME]`                       online
 //! `lgduel --headless --screenshot out.png [--frames N] [--size WxH]`
@@ -852,7 +853,17 @@ impl ApplicationHandler for App {
 }
 
 fn main() {
-    let opts = match parse_args(std::env::args().skip(1)) {
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    if argv.first().map(String::as_str) == Some("host") {
+        let result = lgduel_server::host::parse_args(argv.into_iter().skip(1))
+            .and_then(|a| lgduel_server::host::run(&a));
+        if let Err(e) = result {
+            eprintln!("lgduel host: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    let opts = match parse_args(argv) {
         Ok(o) => o,
         Err(e) => {
             eprintln!("lgduel: {e}");

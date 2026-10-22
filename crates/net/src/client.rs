@@ -24,6 +24,13 @@ use std::net::SocketAddr;
 const CONNECT_RETRY_US: u64 = 250_000;
 const SNAP_THRESHOLD_US: f64 = 250_000.0;
 const MAX_DILATION: f64 = 0.05;
+/// Ticks of commands generated at once after a stall (beyond that, skipped).
+const MAX_CATCH_UP: u32 = 64;
+/// Extra lead added per command the server reports as late, and its cap.
+const LATE_BUMP_TICKS: f64 = 1.0;
+const MAX_EXTRA_LEAD_TICKS: f64 = 8.0;
+/// Extra lead removed per second while no command is late.
+const EXTRA_LEAD_DECAY_PER_SEC: f64 = 0.25;
 /// Extra safety ticks on top of half-RTT + jitter margin.
 const BASE_SAFETY_TICKS: f64 = 1.0;
 
@@ -72,6 +79,12 @@ pub struct NetClient<T: Transport> {
     arrival_offsets: VecDeque<(u64, f64)>,
     /// Smoothed snapshot clock (ticks) and the time it was last advanced.
     snap_clock: Option<(f64, u64)>,
+    /// Lead added because the server reported our commands as late (ticks).
+    pub extra_lead_ticks: f64,
+    /// Commands the server had to replace because ours arrived late or never.
+    pub late_cmds: u64,
+    /// Newest snapshot tick already checked for a late command.
+    late_checked: u32,
 }
 
 impl<T: Transport> NetClient<T> {
@@ -101,6 +114,9 @@ impl<T: Transport> NetClient<T> {
             handshake_rtt_us: 0.0,
             arrival_offsets: VecDeque::new(),
             snap_clock: None,
+            extra_lead_ticks: 0.0,
+            late_cmds: 0,
+            late_checked: 0,
         }
     }
 
@@ -199,6 +215,19 @@ impl<T: Transport> NetClient<T> {
 
     fn on_snapshot(&mut self, now_us: u64, snap: Snapshot) {
         let is_newest = self.newest.is_none_or(|(t, _)| snap.tick > t);
+        // Feedback: the snapshot of tick T reports the newest command the server
+        // consumed. If we sent a command for T−1 but the server's last consumed
+        // one is older, ours was late (or lost): lead more.
+        if is_newest && snap.tick.0 > self.late_checked {
+            self.late_checked = snap.tick.0;
+            let simulated = snap.tick.0.wrapping_sub(1);
+            let we_sent = self.sent_cmds.iter().any(|c| c.tick.0 == simulated);
+            if we_sent && snap.last_cmd.is_none_or(|l| l.0 < simulated) {
+                self.late_cmds += 1;
+                self.extra_lead_ticks =
+                    (self.extra_lead_ticks + LATE_BUMP_TICKS).min(MAX_EXTRA_LEAD_TICKS);
+            }
+        }
         if is_newest {
             if let Some((t0, r0)) = self.newest {
                 // Arrival jitter: deviation of the receive interval from the tick interval.
@@ -304,22 +333,33 @@ impl<T: Transport> NetClient<T> {
     pub fn target_lead_ticks(&self) -> f64 {
         let one_way = self.rtt_us() / 2.0;
         let margin = 2.0 * self.conn.stats.rtt_var_us.max(self.arrival_jitter_us);
-        (one_way + margin) / self.tick_us + BASE_SAFETY_TICKS
+        (one_way + margin) / self.tick_us + BASE_SAFETY_TICKS + self.extra_lead_ticks
     }
 
     /// Advance the client clock by real `elapsed_us`; returns the ticks to
     /// generate commands for now (possibly none, possibly several).
     pub fn advance(&mut self, now_us: u64) -> Vec<Tick> {
         let elapsed = self.last_update_us.map_or(0, |t| now_us.saturating_sub(t)) as f64;
+        self.extra_lead_ticks =
+            (self.extra_lead_ticks - EXTRA_LEAD_DECAY_PER_SEC * elapsed / 1e6).max(0.0);
         self.last_update_us = Some(now_us);
         let Some(server_tick) = self.estimated_server_tick(now_us) else {
             return vec![]; // no snapshot yet: nothing to align to
         };
         let target_us = (server_tick + self.target_lead_ticks()) * self.tick_us;
-        if !self.clock_started || (target_us - self.clock_us).abs() > SNAP_THRESHOLD_US {
+        if !self.clock_started {
             self.clock_us = target_us;
             self.next_tick = (target_us / self.tick_us).floor() as u32;
             self.clock_started = true;
+        } else if (target_us - self.clock_us).abs() > SNAP_THRESHOLD_US {
+            // Big error (e.g. the process stalled). Snap the clock, but never
+            // re-issue a tick (the server keeps the first command it got for a
+            // tick, so a second, different one would mispredict) and, after a
+            // forward jump, still send commands for up to MAX_CATCH_UP skipped
+            // ticks so the server isn't left repeating stale input.
+            self.clock_us = target_us;
+            let target_tick = (target_us / self.tick_us).floor() as u32;
+            self.next_tick = self.next_tick.max(target_tick.saturating_sub(MAX_CATCH_UP));
         } else {
             // Close the gap gently: up to ±5% speed change.
             let err = target_us - self.clock_us;
@@ -377,5 +417,122 @@ impl<T: Transport> NetClient<T> {
         let pkt = self.conn.build_packet(now_us, &[]);
         let _ = self.transport.send_to(self.server, &pkt);
         self.state = ClientState::Disconnected("quit".into());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::snapshot::Snapshot;
+    use crate::transport::MemNet;
+
+    fn client_with_snapshot() -> NetClient<crate::transport::MemEndpoint> {
+        let net = MemNet::new(1);
+        let mut c = NetClient::new(net.endpoint(1), "10.0.0.1:2".parse().unwrap(), "t", 1);
+        c.state = ClientState::Connected {
+            player: lgduel_sim::game::PlayerId(0),
+        };
+        c.handshake_rtt_us = 20_000.0;
+        let snap = Snapshot {
+            tick: Tick(1000),
+            fight_start: None,
+            players: vec![],
+            events: vec![],
+            last_cmd: None,
+        };
+        c.on_snapshot(1_000_000, snap);
+        c
+    }
+
+    #[test]
+    fn ticks_never_repeat_across_clock_snaps() {
+        let mut c = client_with_snapshot();
+        let mut seen = std::collections::BTreeSet::new();
+        let mut now = 1_000_000u64;
+        for _ in 0..200 {
+            now += 1_000;
+            for t in c.advance(now) {
+                assert!(seen.insert(t.0), "tick {} issued twice", t.0);
+            }
+        }
+        // Server time appears to jump back 400 ms (e.g. a stale estimate): the clock
+        // snaps back, but no tick may be issued again.
+        c.newest = Some((Tick(c.newest.unwrap().0.0 - 50), now));
+        for _ in 0..200 {
+            now += 1_000;
+            for t in c.advance(now) {
+                assert!(
+                    seen.insert(t.0),
+                    "tick {} re-issued after backward snap",
+                    t.0
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn late_command_feedback_raises_lead_then_decays() {
+        let mut c = client_with_snapshot();
+        let base = c.target_lead_ticks();
+        // We sent a command for tick 1000, but the snapshot of tick 1001 says the
+        // server's newest consumed command is 999: ours was late.
+        c.sent_cmds.push_back(lgduel_sim::usercmd::UserCmd {
+            tick: Tick(1000),
+            ..Default::default()
+        });
+        let snap = Snapshot {
+            tick: Tick(1001),
+            fight_start: None,
+            players: vec![],
+            events: vec![],
+            last_cmd: Some(Tick(999)),
+        };
+        c.on_snapshot(1_008_000, snap);
+        assert_eq!(c.late_cmds, 1);
+        assert!((c.target_lead_ticks() - base - 1.0).abs() < 1e-9);
+        // On time: no bump.
+        c.sent_cmds.push_back(lgduel_sim::usercmd::UserCmd {
+            tick: Tick(1001),
+            ..Default::default()
+        });
+        let snap = Snapshot {
+            tick: Tick(1002),
+            fight_start: None,
+            players: vec![],
+            events: vec![],
+            last_cmd: Some(Tick(1001)),
+        };
+        c.on_snapshot(1_016_000, snap);
+        assert_eq!(c.late_cmds, 1);
+        // Decays at 0.25 tick/s.
+        c.advance(1_016_000);
+        c.advance(3_016_000);
+        assert!(
+            (c.extra_lead_ticks - 0.5).abs() < 1e-6,
+            "{}",
+            c.extra_lead_ticks
+        );
+    }
+
+    #[test]
+    fn forward_stall_catches_up_skipped_ticks() {
+        let mut c = client_with_snapshot();
+        let mut now = 1_000_000u64;
+        let mut last = None;
+        for _ in 0..100 {
+            now += 1_000;
+            if let Some(t) = c.advance(now).last() {
+                last = Some(t.0);
+            }
+        }
+        // 300 ms stall: the next advance must deliver every skipped tick (≤ 64).
+        now += 300_000;
+        let due = c.advance(now);
+        assert_eq!(
+            due.first().map(|t| t.0),
+            last.map(|l| l + 1),
+            "no gap after the stall"
+        );
+        assert!(due.len() >= 30, "{} ticks caught up", due.len());
     }
 }

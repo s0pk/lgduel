@@ -60,6 +60,10 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] 5.5 Net-graph: ping, loss, jitter, tick rate, snapshot rate
 - [ ] 5.6 Game events survive snapshot loss: resend events until a snapshot carrying them is acked (dedupe client-side by tick)
 
+## Friend-test release (user priority, 2026-10-22)
+- [x] F.1 `lgduel host`, self-contained Windows release zip (static CRT), PLAY.md guide (LAN / Tailscale / port forward), packaged smoke test
+- [ ] F.2 Publish to GitHub: README (how to play/host), prebuilt Windows zip in Releases
+
 ## Phase 6 — Multi-duel server (deps: 4.x)
 - [ ] 6.1 Arena instances / pair isolation (no cross-pair damage or collision)
 - [ ] 6.2 Queue + challenge/accept flow
@@ -68,7 +72,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [ ] 6.5 Admin console + RCON; hot-reload of gameplay config values
 
 ## Phase 7 — Hosting (deps: 4.x, 6.x)
-- [ ] 7.1 `lgduel host [--config x.toml]` subcommand
+- [x] 7.1 `lgduel host [--config x.toml]` subcommand
 - [ ] 7.2 In-game Host (listen server)
 - [ ] 7.3 LAN discovery
 - [ ] 7.4 Rendezvous binary: join codes (LG-XXXX), UDP hole punching

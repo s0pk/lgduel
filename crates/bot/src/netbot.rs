@@ -74,6 +74,14 @@ impl<T: Transport> NetBot<T> {
         }
     }
 
+    /// Forget prediction/late-command statistics so far (end of warm-up).
+    pub fn reset_measurements(&mut self) {
+        if let Some(p) = self.predictor.as_mut() {
+            p.stats = PredictionStats::default();
+        }
+        self.client.late_cmds = 0;
+    }
+
     pub fn prediction(&self) -> PredictionStats {
         self.predictor
             .as_ref()

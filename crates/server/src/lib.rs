@@ -3,6 +3,8 @@
 //! the deterministic in-memory network used by tests.
 
 use lgduel_net::PROTOCOL_VERSION;
+pub mod host;
+
 use lgduel_net::conn::Connection;
 use lgduel_net::protocol::{Connectionless, Control, InputBuffer, Inputs, cookie};
 use lgduel_net::snapshot::{Snapshot, SnapshotHistory};
@@ -111,7 +113,7 @@ pub struct Server<T: Transport> {
     /// Rewind buffer: (snapshot tick, hitboxes of living players) per tick.
     rewind: VecDeque<(u32, Vec<(PlayerId, Aabb)>)>,
     /// (name, final stats) of clients that left.
-    departed: Vec<(String, lgduel_sim::game::PlayerStats)>,
+    departed: Vec<(String, lgduel_sim::game::PlayerStats, u64)>,
     /// Anti-lag diagnostics: how far back shots were rewound (ticks), and how
     /// many requests exceeded `max_rewind_ms` and were clamped.
     pub rewind_stats: RewindStats,
@@ -179,9 +181,9 @@ hit_mode = \"{:?}\"
         let current = self.clients.iter().filter_map(|c| {
             self.game
                 .player(c.player)
-                .map(|p| (c.name.clone(), p.stats))
+                .map(|p| (c.name.clone(), p.stats, c.missing))
         });
-        for (name, s) in self.departed.iter().cloned().chain(current) {
+        for (name, s, missing) in self.departed.iter().cloned().chain(current) {
             out.push_str(&format!(
                 "
 [[players]]
@@ -198,6 +200,7 @@ deaths = {}
 fights_won = {}
 fights_lost = {}
 fight_ticks = {}
+missing_cmds = {missing}
 ",
                 s.shots,
                 s.hits,
@@ -359,7 +362,7 @@ fight_ticks = {}
     fn drop_client(&mut self, i: usize, why: &str) {
         let c = self.clients.remove(i);
         if let Some(p) = self.game.player(c.player) {
-            self.departed.push((c.name.clone(), p.stats));
+            self.departed.push((c.name.clone(), p.stats, c.missing));
         }
         self.game.remove_player(c.player);
         self.log

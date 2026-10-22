@@ -13,6 +13,7 @@ workspace = true
 lgduel-sim = { path = "../sim" }
 lgduel-net = { path = "../net" }
 lgduel-bot = { path = "../bot" }
+lgduel-server = { path = "../server" }
 wgpu = "30.0.1"
 winit = "0.30.13"
 pollster = "1.0.1"

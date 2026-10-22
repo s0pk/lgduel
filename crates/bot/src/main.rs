@@ -67,6 +67,12 @@ fn run() -> Result<(), String> {
     let mut bot = NetBot::new(transport, addr, &name, cfg, world);
     let start = Instant::now();
     let mut announced = false;
+    // Measurements (prediction, rubber-bands, late commands) start after a
+    // warm-up: connection, clock convergence, and freshly started processes
+    // (e.g. antivirus scanning new binaries) are not steady-state netcode.
+    const WARMUP_SECS: f64 = 5.0;
+    let mut connected_at: Option<f64> = None;
+    let mut measuring = false;
     loop {
         let now = start.elapsed();
         let now_us = now.as_micros() as u64;
@@ -75,6 +81,7 @@ fn run() -> Result<(), String> {
             ClientState::Connected { player } if !announced => {
                 println!("{name}: connected to {addr} as player {}", player.0);
                 announced = true;
+                connected_at = Some(now.as_secs_f64());
             }
             ClientState::Rejected(r) => return Err(format!("rejected: {r}")),
             ClientState::Disconnected(r) => return Err(format!("disconnected: {r}")),
@@ -82,6 +89,10 @@ fn run() -> Result<(), String> {
                 return Err("could not connect within 5 s".into());
             }
             _ => {}
+        }
+        if !measuring && connected_at.is_some_and(|t| now.as_secs_f64() - t >= WARMUP_SECS) {
+            bot.reset_measurements();
+            measuring = true;
         }
         if now.as_secs_f64() >= duration {
             break;
@@ -92,7 +103,7 @@ fn run() -> Result<(), String> {
     let p = bot.prediction();
     println!(
         "BOTRESULT name={name} shots={} hits={} acc={:.1} dealt={} taken={} healed={} lifesteal_earned={} kills={} deaths={} \
-         wins={} losses={} snapshots={} pred_checked={} pred_mean={:.4} pred_max={:.4} max_correction={:.3} rubber_bands={} rtt_ms={:.1} loss={:.3}",
+         wins={} losses={} snapshots={} pred_checked={} pred_mean={:.4} pred_max={:.4} max_correction={:.3} rubber_bands={} late_cmds={} extra_lead={:.2} rtt_ms={:.1} loss={:.3}",
         s.shots,
         s.hits,
         s.accuracy_pct(),
@@ -110,6 +121,8 @@ fn run() -> Result<(), String> {
         p.max_error,
         p.max_correction,
         p.rubber_bands,
+        bot.client.late_cmds,
+        bot.client.extra_lead_ticks,
         bot.client.conn.stats.rtt_us / 1000.0,
         bot.client.conn.stats.loss()
     );

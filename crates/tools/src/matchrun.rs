@@ -133,7 +133,8 @@ pub fn run_match(bin_dir: &Path, profile_name: &str, secs: f64, out_dir: &Path) 
             Err(e) => fail(&mut r, format!("bot {i}: {e}")),
         }
     }
-    let counters = netem.stop();
+    // Keep the proxy running until the server exits: the bots' Disconnect
+    // messages are still in flight (delayed) when the bots quit.
     match server.wait_with_output() {
         Ok(out) => {
             let stderr = String::from_utf8_lossy(&out.stderr);
@@ -150,6 +151,7 @@ pub fn run_match(bin_dir: &Path, profile_name: &str, secs: f64, out_dir: &Path) 
         }
         Err(e) => fail(&mut r, format!("server: {e}")),
     }
+    let counters = netem.stop();
     r.lines.push(format!(
         "NETEM {profile_name}: {:?}, forwarded {}, dropped {}",
         profile, counters.forwarded, counters.dropped
@@ -185,11 +187,12 @@ pub fn run_match(bin_dir: &Path, profile_name: &str, secs: f64, out_dir: &Path) 
                 let (dealt, earned, healed) =
                     (g("damage_dealt"), g("lifesteal_earned"), g("healed"));
                 r.lines.push(format!(
-                    "STATS {profile_name} {name}: dealt {dealt} taken {} earned {earned} healed {healed} acc {:.1}% kills {} deaths {}",
+                    "STATS {profile_name} {name}: dealt {dealt} taken {} earned {earned} healed {healed} acc {:.1}% kills {} deaths {} missing_cmds {}",
                     g("damage_taken"),
                     p.get("accuracy_pct").and_then(|v| v.as_float()).unwrap_or(-1.0),
                     g("kills"),
-                    g("deaths")
+                    g("deaths"),
+                    g("missing_cmds")
                 ));
                 if dealt <= 0 {
                     fail(&mut r, format!("{name} dealt no damage"));
@@ -234,7 +237,7 @@ pub fn run_match(bin_dir: &Path, profile_name: &str, secs: f64, out_dir: &Path) 
             .get("rubber_bands")
             .and_then(|v| v.parse().ok())
             .unwrap_or(u64::MAX);
-        let allowed = (secs / 10.0).ceil() as u64;
+        let allowed = ((secs - 5.0).max(1.0) / 10.0).ceil() as u64; // bots measure after a 5 s warm-up
         if bands > allowed {
             fail(
                 &mut r,

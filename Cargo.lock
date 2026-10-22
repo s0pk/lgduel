@@ -803,6 +803,7 @@ dependencies = [
  "glam",
  "lgduel-bot",
  "lgduel-net",
+ "lgduel-server",
  "lgduel-sim",
  "png",
  "pollster",
