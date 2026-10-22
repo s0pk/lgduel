@@ -60,7 +60,20 @@ pub enum Connectionless {
         nonce: u64,
         info: ServerInfo,
     },
+    /// Remote console command (answered only if the password is right).
+    Rcon {
+        nonce: u64,
+        password: String,
+        command: String,
+    },
+    RconReply {
+        nonce: u64,
+        text: String,
+    },
 }
+
+/// Longest RCON reply text (fits one datagram).
+pub const MAX_RCON_REPLY: usize = 1100;
 
 /// Request size: at least as large as any `InfoResponse` (no amplification).
 pub const INFO_REQUEST_SIZE: usize = 128;
@@ -143,6 +156,21 @@ impl Connectionless {
                 let pad = INFO_REQUEST_SIZE.saturating_sub(w.buf.len());
                 w.raw(&vec![0; pad]);
             }
+            Self::Rcon {
+                nonce,
+                password,
+                command,
+            } => {
+                w.u8(8);
+                w.u64(*nonce);
+                w.bytes(truncate(password, 128).as_bytes());
+                w.bytes(truncate(command, 512).as_bytes());
+            }
+            Self::RconReply { nonce, text } => {
+                w.u8(9);
+                w.u64(*nonce);
+                w.bytes(truncate(text, MAX_RCON_REPLY).as_bytes());
+            }
             Self::InfoResponse { nonce, info } => {
                 w.u8(7);
                 w.u64(*nonce);
@@ -223,6 +251,15 @@ impl Connectionless {
                     },
                 }
             }
+            8 => Self::Rcon {
+                nonce: r.u64()?,
+                password: text(&mut r)?,
+                command: text(&mut r)?,
+            },
+            9 => Self::RconReply {
+                nonce: r.u64()?,
+                text: text(&mut r)?,
+            },
             _ => return None,
         })
     }
@@ -613,6 +650,15 @@ mod tests {
             },
             Connectionless::Reject {
                 reason: "server full".into(),
+            },
+            Connectionless::Rcon {
+                nonce: 5,
+                password: "pw".into(),
+                command: "status".into(),
+            },
+            Connectionless::RconReply {
+                nonce: 5,
+                text: "ok".into(),
             },
         ] {
             assert_eq!(Connectionless::decode(&m.encode()), Some(m));

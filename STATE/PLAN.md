@@ -89,7 +89,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] 6.2 Queue + challenge/accept flow (queue: M4.1)
 - [x] 6.3 Spectate (follow a pair) — done as M4.2 (choosing the arena/player: KI-13)
 - [x] 6.4 Per-player stats: LG acc %, dmg dealt/taken, W/L, fight length; end-of-fight summary; stats file
-- [ ] 6.5 Admin console + RCON; hot-reload of gameplay config values
+- [x] 6.5 Admin console + RCON; hot-reload of gameplay config values
 
 ## Phase 7 — Hosting (deps: 4.x, 6.x)
 - [x] 7.1 `lgduel host [--config x.toml]` subcommand

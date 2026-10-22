@@ -64,6 +64,31 @@ hit_mode = "anti_lag"       # "anti_lag" | "no_anti_lag"
 
 If you change `port`, open that UDP port in the provider firewall instead of 27960.
 
+## Admin commands (no restart needed)
+
+Run commands remotely with a password: set `rcon_password = "something long"` under `[server]` in
+`/etc/lgduel/server.toml`, restart once, then from any PC with LGDuel:
+
+```bash
+lgduel-server rcon --password "something long" YOUR.VPS.IP status
+```
+
+(or put the password in the `LGDUEL_RCON_PASSWORD` environment variable). When you run the server in
+a terminal yourself, type the same commands there.
+
+| Command | |
+|---|---|
+| `status` | players, their arena, ping and loss |
+| `kick <name or #id> [reason]` | disconnect a player (they see the reason) |
+| `say <text>` | message on everyone's screen |
+| `get rules.lifesteal_percent` | show a setting |
+| `set rules.lifesteal_percent 50` | change a setting for everyone right away (validated; not saved to the file) |
+| `reload` | re-read `server.toml` |
+
+Rules, LG and server-browser settings change live. Physics, tick rate, map, port and `max_arenas` need a
+restart (connected players' movement prediction depends on them). Wrong passwords get no answer, and
+an address that guesses wrong 5 times is ignored for a minute.
+
 ## Update
 
 Run the install command again: it replaces the binary, keeps your `server.toml` and restarts the service.

@@ -75,13 +75,41 @@ pub fn lan_ip() -> Option<IpAddr> {
 pub fn run(args: &HostArgs) -> Result<(), String> {
     let cfg = config_from_args(args)?;
     let never = std::sync::atomic::AtomicBool::new(false);
+    let admin = Admin {
+        config_path: args.config.clone(),
+        console: true,
+    };
     run_config(
         cfg,
         args.duration,
         args.stats_file.as_deref(),
         &never,
+        admin,
         |_| {},
     )
+}
+
+/// Administration options for `run_config`.
+#[derive(Debug, Clone, Default)]
+pub struct Admin {
+    /// File `reload` re-reads.
+    pub config_path: Option<String>,
+    /// Read console commands from stdin (`help` lists them).
+    pub console: bool,
+}
+
+/// Lines typed into the terminal, read on a background thread (EOF just ends it).
+fn stdin_lines() -> std::sync::mpsc::Receiver<String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in std::io::stdin().lines() {
+            let Ok(line) = line else { break };
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    rx
 }
 
 /// The server config described by command-line arguments.
@@ -113,6 +141,7 @@ pub fn run_config(
     duration: Option<f64>,
     stats_file: Option<&str>,
     stop: &std::sync::atomic::AtomicBool,
+    admin: Admin,
     on_bound: impl FnOnce(Result<std::net::SocketAddr, String>),
 ) -> Result<(), String> {
     let bound: Result<(World, UdpTransport), String> = (|| {
@@ -160,7 +189,15 @@ pub fn run_config(
             "  over the internet: forward UDP port {port} on your router and share your public IP (see PLAY.md)"
         );
     }
+    if !cfg.server.rcon_password.is_empty() {
+        println!("  remote console on (rcon_password set): lgduel-server rcon ADDRESS COMMAND");
+    }
     let mut server = Server::new(transport, cfg, world, secret);
+    server.config_path = admin.config_path;
+    let console = admin.console.then(stdin_lines);
+    if console.is_some() {
+        println!("  console: type help for commands");
+    }
     let start = Instant::now();
     let mut stepper = FixedStepper::new(rate);
     let mut last = start;
@@ -174,6 +211,14 @@ pub fn run_config(
         last = now;
         for _ in 0..n {
             server.tick(now_us);
+        }
+        if let Some(rx) = &console {
+            while let Ok(line) = rx.try_recv() {
+                let out = server.command(&line);
+                if !out.is_empty() {
+                    println!("{}", out.trim_end());
+                }
+            }
         }
         for line in &server.log[logged..] {
             println!("{line}");

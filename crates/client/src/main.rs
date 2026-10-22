@@ -609,7 +609,8 @@ impl HostHandle {
         let (tx, rx) = std::sync::mpsc::channel();
         let flag = stop.clone();
         let thread = std::thread::spawn(move || {
-            let _ = lgduel_server::host::run_config(cfg, None, None, &flag, |r| {
+            let admin = lgduel_server::host::Admin::default();
+            let _ = lgduel_server::host::run_config(cfg, None, None, &flag, admin, |r| {
                 let _ = tx.send(r);
             });
         });

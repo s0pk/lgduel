@@ -3,6 +3,7 @@
 //! the deterministic in-memory network used by tests.
 
 use lgduel_net::PROTOCOL_VERSION;
+pub mod admin;
 pub mod host;
 
 use lgduel_net::conn::Connection;
@@ -40,6 +41,8 @@ pub struct ServerSettings {
     pub practice_bot: bool,
     /// How long a player must be alone before the bot joins.
     pub practice_bot_after_ms: u32,
+    /// Remote console password; empty = remote console off.
+    pub rcon_password: String,
 }
 
 impl Default for ServerSettings {
@@ -55,6 +58,7 @@ impl Default for ServerSettings {
             max_arenas: 8,
             practice_bot: true,
             practice_bot_after_ms: 2000,
+            rcon_password: String::new(),
         }
     }
 }
@@ -202,6 +206,12 @@ pub struct Server<T: Transport> {
     pub rewind_stats: RewindStats,
     /// `World::content_hash` of the map (sent in the accept).
     map_hash: u64,
+    /// Config file `reload` reads (None = started without one).
+    pub config_path: Option<String>,
+    /// Wrong RCON passwords per source IP: (count, first failure µs).
+    rcon_failures: std::collections::HashMap<std::net::IpAddr, (u32, u64)>,
+    /// Server clock of the latest `poll` (µs).
+    now_us: u64,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -252,6 +262,9 @@ impl<T: Transport> Server<T> {
             log: Vec::new(),
             departed: Vec::new(),
             rewind_stats: RewindStats::default(),
+            config_path: None,
+            rcon_failures: std::collections::HashMap::new(),
+            now_us: 0,
         }
     }
 
@@ -497,6 +510,7 @@ missing_cmds = {missing}
 
     /// Read and handle every pending datagram.
     pub fn poll(&mut self, now_us: u64) {
+        self.now_us = now_us;
         while let Some((from, data)) = self.transport.recv() {
             if data.first() == Some(&lgduel_net::protocol::CONNECTIONLESS) {
                 if let Some(m) = Connectionless::decode(&data) {
@@ -660,6 +674,15 @@ missing_cmds = {missing}
             Connectionless::InfoRequest { nonce } => {
                 let info = self.info();
                 self.reply(from, Connectionless::InfoResponse { nonce, info });
+            }
+            Connectionless::Rcon {
+                nonce,
+                password,
+                command,
+            } => {
+                if let Some(text) = self.rcon(from, &password, &command) {
+                    self.reply(from, Connectionless::RconReply { nonce, text });
+                }
             }
             Connectionless::ConnectRequest { version, nonce } => {
                 if version != PROTOCOL_VERSION {

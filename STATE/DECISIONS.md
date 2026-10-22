@@ -511,3 +511,15 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
   normal pairing step (or get the practice bot). No arena available → both are told, nobody moves.
 - UI: Esc menu (online) lists players with arena/queued/spectating and a Challenge button; an incoming
   challenge shows Accept / Decline there and replaces the HUD status line ("X CHALLENGES YOU - ESC TO ANSWER").
+
+## D51 — Admin console, RCON, live config (2026-10-22)
+- `server::admin`: one command set for the terminal console (stdin thread, only for `lgduel-server` /
+  `lgduel host`, not the in-game host) and RCON: status, kick, say, get/set `section.key`, reload, help.
+- `set` edits the running config as a TOML table and re-parses it with `ServerConfig::from_toml_str`, so it is
+  validated exactly like the file; `apply_config` refuses physics / tick rate / map / bind / port /
+  max_arenas changes ("need a restart": clients predict with the physics from their accept). Rules, LG and
+  server settings apply to all arenas at once. Connected clients keep their copy of the gameplay config
+  (only used for visuals and the hit-reg metric) until they reconnect.
+- RCON (protocol v7: `Connectionless::{Rcon, RconReply}`), off unless `rcon_password` is set. Wrong password
+  → no reply (no amplification); 5 wrong tries per IP → ignored for 60 s. Replies capped at 1100 bytes.
+  Plain-text password over UDP, like the classic Quake rcon: use a long random one.
