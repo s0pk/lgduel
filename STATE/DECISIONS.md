@@ -143,3 +143,13 @@ Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update th
   its projection API). FOV: Quake-style horizontal FOV at 4:3, clamped 10–130, Hor+ for wider aspects.
 - Headless: `lgduel --headless --screenshot P` renders offscreen (hardware adapter, software fallback),
   reads back, saves PNG, asserts ≥4 distinct colours and floor colour ≥5% of pixels; exits 1 otherwise.
+
+## D14 — Input & local loop (2026-10-22)
+- Mouse: winit `DeviceEvent::MouseMotion` (raw counts, no OS accel) while the cursor is grabbed
+  (Locked, falling back to Confined). cm/360 + DPI → angle units per count; f64 remainders carried so
+  sub-count motion is never lost; pitch clamps to ±89° (remainder dropped at the clamp).
+- View angles used for rendering are the latest mouse state (not tick-quantized); each tick's UserCmd
+  carries the exact `Angle` at the time the tick is built.
+- Local sim runs through `FixedStepper` at the config tick rate; own eye is interpolated between the last
+  two ticks (teleports > 128u snap). Frame rate never changes sim results (tested: 1000 fps vs 37 fps
+  give identical state hash).

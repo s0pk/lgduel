@@ -9,20 +9,26 @@
 
 mod frame_stats;
 mod gfx;
+mod input;
+mod local;
 mod offscreen;
 mod render;
 
 use frame_stats::FrameStats;
 use gfx::Gfx;
+use input::{Keys, MouseLook, MouseSettings};
 use lgduel_sim::config::GameConfig;
 use lgduel_sim::math::{Vec3, look_angles};
 use lgduel_sim::world::{World, builtin};
+use local::LocalSession;
 use render::{Camera, Renderer};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
+use winit::event::{DeviceEvent, DeviceId, ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::window::CursorGrabMode;
 use winit::window::{Window, WindowId};
 
 const CLEAR: wgpu::Color = wgpu::Color {
@@ -41,6 +47,9 @@ struct Options {
     headless: bool,
     screenshot: Option<String>,
     fov: f32,
+    mouse: MouseSettings,
+    /// Feed scripted input (hold forward+right, turn right) for unattended runs.
+    synthetic_input: bool,
 }
 
 impl Default for Options {
@@ -53,6 +62,8 @@ impl Default for Options {
             headless: false,
             screenshot: None,
             fov: 110.0,
+            mouse: MouseSettings::default(),
+            synthetic_input: false,
         }
     }
 }
@@ -83,6 +94,22 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Options, String>
                     h.parse().map_err(|_| "--size needs WxH")?,
                 );
             }
+            "--sens-cm" => {
+                o.mouse.cm_per_360 = val("--sens-cm")?
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|v| *v > 0.0)
+                    .ok_or("--sens-cm needs a positive number")?
+            }
+            "--dpi" => {
+                o.mouse.dpi = val("--dpi")?
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|v| *v > 0.0)
+                    .ok_or("--dpi needs a positive number")?
+            }
+            "--invert" => o.mouse.invert_pitch = true,
+            "--synthetic-input" => o.synthetic_input = true,
             "--vsync" => o.vsync = true,
             "--headless" => o.headless = true,
             "--screenshot" => o.screenshot = Some(val("--screenshot")?),
@@ -167,6 +194,10 @@ fn run_headless(opts: &Options) -> Result<(), String> {
 struct App {
     opts: Options,
     world: World,
+    session: LocalSession,
+    look: MouseLook,
+    keys: Keys,
+    grabbed: bool,
     window: Option<Arc<Window>>,
     gfx: Option<Gfx>,
     renderer: Option<Renderer>,
@@ -178,7 +209,62 @@ struct App {
 }
 
 impl App {
+    fn set_grab(&mut self, grab: bool) {
+        let Some(w) = &self.window else { return };
+        if grab {
+            let ok = w
+                .set_cursor_grab(CursorGrabMode::Locked)
+                .or_else(|_| w.set_cursor_grab(CursorGrabMode::Confined))
+                .is_ok();
+            w.set_cursor_visible(!ok);
+            self.grabbed = ok;
+        } else {
+            let _ = w.set_cursor_grab(CursorGrabMode::None);
+            w.set_cursor_visible(true);
+            self.grabbed = false;
+        }
+    }
+
+    fn key(&mut self, code: KeyCode, down: bool) {
+        match code {
+            KeyCode::KeyW => self.keys.forward = down,
+            KeyCode::KeyS => self.keys.back = down,
+            KeyCode::KeyA => self.keys.left = down,
+            KeyCode::KeyD => self.keys.right = down,
+            KeyCode::Space => self.keys.jump = down,
+            KeyCode::ControlLeft | KeyCode::KeyC => self.keys.crouch = down,
+            KeyCode::Escape if down => self.set_grab(false),
+            _ => {}
+        }
+    }
+
+    /// Advance the local sim by the real time since the last frame.
+    fn simulate(&mut self, elapsed: Duration) {
+        if self.opts.synthetic_input {
+            self.keys.forward = true;
+            self.keys.right = true;
+            self.look.apply(2.0, 0.0);
+        }
+        let keys = self.keys;
+        let look = self.look;
+        self.session.advance(
+            elapsed.as_micros() as u64,
+            |t| keys.cmd(t, &look),
+            |_, _| vec![],
+        );
+    }
+
     fn finish(&mut self, el: &ActiveEventLoop) {
+        let p = self.session.game.player(self.session.me).unwrap();
+        println!(
+            "LOCAL tick {} origin ({:.1}, {:.1}, {:.1}) speed {:.1} yaw {:.2}",
+            self.session.game.tick.0,
+            p.pm.origin.x,
+            p.pm.origin.y,
+            p.pm.origin.z,
+            p.pm.velocity.length_xy(),
+            self.look.yaw.degrees()
+        );
         if let Some(s) = self.stats.summary() {
             let (present, size) = self
                 .gfx
@@ -243,11 +329,43 @@ impl ApplicationHandler for App {
         }
         window.request_redraw();
         self.window = Some(window);
+        if !self.opts.synthetic_input {
+            self.set_grab(true);
+        }
+    }
+
+    fn device_event(&mut self, _el: &ActiveEventLoop, _id: DeviceId, event: DeviceEvent) {
+        // Raw device counts: no OS acceleration or cursor clamping.
+        if let DeviceEvent::MouseMotion { delta } = event
+            && self.grabbed
+        {
+            self.look.apply(delta.0, delta.1);
+        }
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => self.finish(el),
+            WindowEvent::KeyboardInput { event, .. } => {
+                if let PhysicalKey::Code(code) = event.physical_key {
+                    self.key(code, event.state == ElementState::Pressed);
+                }
+            }
+            WindowEvent::MouseInput {
+                state,
+                button: MouseButton::Left,
+                ..
+            } => {
+                if !self.grabbed && state == ElementState::Pressed {
+                    self.set_grab(true);
+                } else {
+                    self.keys.fire = state == ElementState::Pressed;
+                }
+            }
+            WindowEvent::Focused(false) => {
+                self.keys = Keys::default();
+                self.set_grab(false);
+            }
             WindowEvent::Resized(size) => {
                 if let Some(g) = &mut self.gfx {
                     g.resize(size.width, size.height);
@@ -271,9 +389,15 @@ impl ApplicationHandler for App {
                 let now = Instant::now();
                 if let Some(last) = self.last_frame {
                     self.stats.record(now - last);
+                    self.simulate(now - last);
                 }
                 self.last_frame = Some(now);
-                let cam = spawn_camera(&self.world, self.opts.fov);
+                let cam = Camera {
+                    eye: self.session.eye(),
+                    pitch: self.look.pitch,
+                    yaw: self.look.yaw,
+                    fov: self.opts.fov,
+                };
                 if let (Some(g), Some(r), Some(depth)) =
                     (&mut self.gfx, &self.renderer, &self.depth)
                 {
@@ -311,8 +435,22 @@ fn main() {
     }
     let event_loop = EventLoop::new().expect("event loop");
     event_loop.set_control_flow(ControlFlow::Poll);
+    let world = load_world();
+    let session = LocalSession::new(GameConfig::default(), world.clone(), 1);
+    let me = session.game.player(session.me).unwrap();
+    let look = MouseLook::new(opts.mouse, me.yaw);
+    println!(
+        "MOUSE {} cm/360 @ {} dpi = {:.5} deg/count (raw input, sub-count accumulation)",
+        opts.mouse.cm_per_360,
+        opts.mouse.dpi,
+        opts.mouse.degrees_per_count()
+    );
     let mut app = App {
-        world: load_world(),
+        world,
+        session,
+        look,
+        keys: Keys::default(),
+        grabbed: false,
         opts,
         window: None,
         gfx: None,

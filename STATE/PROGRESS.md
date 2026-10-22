@@ -72,3 +72,8 @@
 - Measured (RTX 4060, Vulkan, 1920×1080 offscreen, GPU wait each frame): 300 frames p50 0.098 ms, p99 0.659 ms, avg 7506 fps. Image: 4 distinct colours, floor 49.1% of pixels. Screenshot inspected visually: floor/walls/ceiling in correct perspective.
 - Test bug caught and fixed: camera test had "right" as −x when facing +y; in Quake axes right is +x (left point now asserted negative too).
 - Verified: check.sh GREEN.
+
+## 2026-10-22 — iteration 15: PLAN 3.4 + 3.5 mouse look + local movement
+- `client::input`: `MouseSettings` (dpi, cm/360, invert), `MouseLook` (sub-count accumulation, pitch clamp), `Keys` → UserCmd. `client::local::LocalSession`: Game + FixedStepper, prev/cur origin interpolation, teleport snap. App: cursor grab (click to grab, Esc releases, focus loss clears keys), WASD/space/ctrl-C/mouse1, raw mouse motion, flags `--sens-cm --dpi --invert --synthetic-input`.
+- Done together: mouse look has nothing to look at until the sim loop drives the camera.
+- Verified: unit tests (full turn returns within 2 angle units after uneven fractional chunks; 10k×0.1 counts == 1000 counts; directions + clamp + invert; sens math; keys→cmd; 1000 fps vs 37 fps → same 250 ticks and same state hash; eye interpolation at half tick). Live run `lgduel --synthetic-input --frames 3000 --size 1920x1080`: 107 ticks in 0.86 s (125 Hz), yaw turned 228.6° = 3000×2 counts×0.0381°, ground speed 396 u/s; FRAMESTATS p50 0.204 ms, p99 2.096 ms, avg 3486 fps (RTX 4060, Immediate). check.sh GREEN.
