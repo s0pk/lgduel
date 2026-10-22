@@ -180,3 +180,8 @@
 - Bug caught by running it: `--headless --connect` hit the offline headless branch first (only the bot connected); branch order fixed.
 - Measured: headless online — connected, opponent visible 2102/2105 frames, RTT 3.9 ms, adaptive interp delay 1.85 ticks, prediction 575 checks mean 0.0000, remote opponent pixels head/upper/lower 224/526/…; screenshot inspected (bot rendered, camera tracking). Windowed online (`--synthetic-input --frames 8000`): connected, took damage from the bot, 4079 fps avg, p99 1.513 ms, clean disconnect.
 - Phase 4 (networking) complete. check.sh GREEN (80 s).
+
+## 2026-10-22 — iteration 33: PLAN 5.1 netem layer (already satisfied; bookkeeping)
+- In-process: `lgduel_net::transport::MemNet` — deterministic µs clock, latency, ±jitter (reorders), loss; tests memnet_latency_and_order, memnet_loss_rate_and_determinism (5% ±1%), memnet_jitter_reorders.
+- Real sockets: `lgduel-tools netem` UDP proxy (per-client upstream, both directions, profiles clean/lossy/highping); test proxies_with_delay; used by the headless match (lossy run dropped ~2% as configured).
+- No code change; verified by the existing tests in check.sh (GREEN at e5260b6).
