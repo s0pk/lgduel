@@ -9,6 +9,7 @@ pub struct Gfx {
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
     pub adapter_info: wgpu::AdapterInfo,
+    present_modes: Vec<wgpu::PresentMode>,
 }
 
 /// Lowest-latency present mode available. Vsync off: Immediate (tearing, lowest
@@ -70,7 +71,17 @@ impl Gfx {
             queue,
             config,
             adapter_info: adapter.get_info(),
+            present_modes: caps.present_modes,
         })
+    }
+
+    /// Switch vsync on/off (reconfigures the surface).
+    pub fn set_vsync(&mut self, vsync: bool) {
+        let mode = pick_present_mode(&self.present_modes, vsync);
+        if mode != self.config.present_mode {
+            self.config.present_mode = mode;
+            self.surface.configure(&self.device, &self.config);
+        }
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {

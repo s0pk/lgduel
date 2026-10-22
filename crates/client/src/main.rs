@@ -69,8 +69,8 @@ struct Options {
     settings_path: Option<std::path::PathBuf>,
     frames: Option<u64>,
     headless: bool,
-    /// Headless: draw the pause menu over the scene (UI render check).
-    menu: bool,
+    /// Headless: draw this menu screen over the scene (UI render check).
+    menu: Option<menu::Screen>,
     screenshot: Option<String>,
     /// Feed scripted input (hold forward+right, turn right) for unattended runs.
     synthetic_input: bool,
@@ -104,7 +104,7 @@ impl Options {
             settings_path,
             frames: None,
             headless: false,
-            menu: false,
+            menu: None,
             screenshot: None,
             synthetic_input: false,
             sound_test: false,
@@ -221,7 +221,13 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
             }
             "--vsync" => o.s.video.vsync = true,
             "--headless" => o.headless = true,
-            "--menu" => o.menu = true,
+            "--menu" => {
+                o.menu = Some(match val("--menu")?.as_str() {
+                    "pause" => menu::Screen::Pause,
+                    "settings" => menu::Screen::Settings,
+                    other => return Err(format!("--menu must be pause|settings, got {other}")),
+                })
+            }
             "--screenshot" => o.screenshot = Some(val("--screenshot")?),
             "--version" => {
                 println!(
@@ -321,18 +327,23 @@ fn run_headless(opts: &Options) -> Result<(), String> {
     if let Some(s) = stats.summary() {
         println!("FRAMESTATS {s} | offscreen (GPU wait per frame)");
     }
-    if opts.menu {
+    if let Some(screen) = opts.menu {
         let mut ui = ui::Ui::new(&off.device, offscreen::FORMAT, None);
-        let mut screen = menu::Screen::Pause;
+        let mut menu = menu::Menu {
+            screen,
+            tab: menu::Tab::Visuals,
+            dirty: false,
+        };
+        let mut s = opts.s.clone();
         // A few frames: egui sizes windows on the first and fades them in.
         for _ in 0..5 {
             let out = ui.run_headless((w, h), |ctx| {
-                menu::draw(ctx, &mut screen, false);
+                menu.draw(ctx, &mut s, false);
             });
             ui.skip(out);
         }
         let out = ui.run_headless((w, h), |ctx| {
-            menu::draw(ctx, &mut screen, false);
+            menu.draw(ctx, &mut s, false);
         });
         ui.paint(&off.device, &off.queue, off.color_view(), (w, h), out);
     }
@@ -354,7 +365,7 @@ fn run_headless(opts: &Options) -> Result<(), String> {
     }
     let total = (w * h) as f64;
     // The pause menu sits in front of the opponent in the --menu check.
-    for (name, c) in if opts.menu {
+    for (name, c) in if opts.menu.is_some() {
         vec![]
     } else {
         vec![
@@ -372,7 +383,7 @@ fn run_headless(opts: &Options) -> Result<(), String> {
             ));
         }
     }
-    if opts.menu {
+    if opts.menu.is_some() {
         let fill = egui::Visuals::dark().window_fill;
         let rgb = [fill.r(), fill.g(), fill.b()];
         let px_count = (offscreen::color_fraction(&px, rgb, 2) * total).round() as u64;
@@ -628,15 +639,15 @@ struct App {
     look: MouseLook,
     keys: Keys,
     grabbed: bool,
-    colors: EnemyColors,
+
     audio: audio::Audio,
-    hud: HudSettings,
+
     numbers: DamageNumbers,
     window: Option<Arc<Window>>,
     gfx: Option<Gfx>,
     renderer: Option<Renderer>,
     ui: Option<ui::Ui>,
-    screen: menu::Screen,
+    menu: menu::Menu,
     depth: Option<wgpu::TextureView>,
     stats: FrameStats,
     last_frame: Option<Instant>,
@@ -661,13 +672,52 @@ impl App {
         }
     }
 
+    /// Push edited settings into the running game (called while the settings screen is open).
+    fn apply_settings(&mut self) {
+        let s = &self.opts.s;
+        self.look.settings = s.mouse;
+        if (self.audio.volume > 0.0) != (s.audio.volume > 0.0)
+            && !self.audio.is_live()
+            && s.audio.volume > 0.0
+        {
+            self.audio = audio::Audio::open(s.audio.volume);
+        }
+        self.audio.volume = s.audio.volume;
+        if let Some(g) = &mut self.gfx {
+            g.set_vsync(s.video.vsync);
+        }
+        if let Some(w) = &self.window
+            && !s.video.fullscreen
+            && w.fullscreen().is_none()
+        {
+            let want = winit::dpi::PhysicalSize::new(s.video.size.0, s.video.size.1);
+            if w.inner_size() != want {
+                let _ = w.request_inner_size(want);
+            }
+        }
+    }
+
+    /// Write settings to disk if they changed.
+    fn save_settings(&mut self) {
+        if !self.menu.dirty {
+            return;
+        }
+        self.menu.dirty = false;
+        if let Some(path) = &self.opts.settings_path
+            && let Err(e) = settings::save(path, &self.opts.s)
+        {
+            eprintln!("lgduel: could not save settings to {}: {e}", path.display());
+        }
+    }
+
     fn toggle_menu(&mut self) {
-        if self.screen == menu::Screen::Closed {
-            self.screen = menu::Screen::Pause;
+        if !self.menu.is_open() {
+            self.menu.screen = menu::Screen::Pause;
             self.keys = Keys::default();
             self.set_grab(false);
         } else {
-            self.screen = menu::Screen::Closed;
+            self.save_settings();
+            self.menu.screen = menu::Screen::Closed;
             self.set_grab(true);
         }
     }
@@ -681,7 +731,7 @@ impl App {
             KeyCode::Space => self.keys.jump = down,
             KeyCode::ControlLeft | KeyCode::KeyC => self.keys.crouch = down,
             KeyCode::Escape if down => self.toggle_menu(),
-            KeyCode::F3 if down => self.hud.net_graph = !self.hud.net_graph,
+            KeyCode::F3 if down => self.opts.s.hud.net_graph = !self.opts.s.hud.net_graph,
             _ => {}
         }
     }
@@ -830,7 +880,7 @@ impl ApplicationHandler for App {
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
-        if self.screen != menu::Screen::Closed
+        if self.menu.is_open()
             && let (Some(ui), Some(w)) = (&mut self.ui, &self.window)
         {
             let consumed = ui.on_window_event(w, &event);
@@ -910,7 +960,7 @@ impl ApplicationHandler for App {
                         cfg,
                         &cam,
                         self.keys.fire,
-                        &self.colors,
+                        &self.opts.s.enemy_colors,
                         &self.opts.s.effects,
                         self.frames as u32,
                     ),
@@ -923,15 +973,15 @@ impl ApplicationHandler for App {
                     r.set_dynamic(&g.device, &g.queue, &dynamic);
                     let hud = fv
                         .as_ref()
-                        .map(|fv| scene::hud_mesh(fv, &cam, size, &self.numbers, &self.hud))
+                        .map(|fv| scene::hud_mesh(fv, &cam, size, &self.numbers, &self.opts.s.hud))
                         .unwrap_or_default();
                     r.set_hud(&g.device, &g.queue, &hud);
                     let mut action = None;
                     let ui_out = match (&mut self.ui, &self.window) {
-                        (Some(ui), Some(w)) if self.screen != menu::Screen::Closed => {
+                        (Some(ui), Some(w)) if self.menu.is_open() => {
                             let online = matches!(self.session, Session::Net(_));
-                            let screen = &mut self.screen;
-                            Some(ui.run_windowed(w, |ctx| action = menu::draw(ctx, screen, online)))
+                            let (menu, s) = (&mut self.menu, &mut self.opts.s);
+                            Some(ui.run_windowed(w, |ctx| action = menu.draw(ctx, s, online)))
                         }
                         _ => None,
                     };
@@ -942,8 +992,13 @@ impl ApplicationHandler for App {
                             ui.paint(d, q, v, size, out);
                         }
                     });
+                    if self.menu.dirty {
+                        self.apply_settings();
+                    }
                     match action {
                         Some(menu::Action::Resume) => self.set_grab(true),
+                        Some(menu::Action::TestSound) => self.audio.play_hit(),
+                        Some(menu::Action::SettingsClosed) => self.save_settings(),
                         Some(menu::Action::Disconnect) | Some(menu::Action::Quit) => {
                             self.finish(el);
                             return;
@@ -1091,16 +1146,16 @@ fn main() {
         look,
         keys: Keys::default(),
         grabbed: false,
-        colors: opts.s.enemy_colors,
+
         audio,
-        hud: opts.s.hud,
+
         numbers: DamageNumbers::default(),
         opts,
         window: None,
         gfx: None,
         renderer: None,
         ui: None,
-        screen: menu::Screen::Closed,
+        menu: menu::Menu::default(),
         depth: None,
         stats: FrameStats::default(),
         last_frame: None,

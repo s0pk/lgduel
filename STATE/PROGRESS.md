@@ -233,3 +233,8 @@
 ## 2026-10-22 — iteration 41: M1.2 settings file
 - `client/src/settings.rs`; serde on MouseSettings/EffectSettings/BeamStyle/HudSettings/CrosshairStyle/EnemyColors; Options = Settings + per-run fields (regex-migrated all opts.* accesses); `--settings`, `--no-settings`; practice bot from settings.
 - Verified: unit tests (round trip, partial/unknown keys, sanitize, save/load/broken file) — client 42 passed; live: first windowed run created the file; hand-edited cm_per_360 = 55 → "MOUSE 55 cm/360 … 0.02078 deg/count"; `--sens-cm 20` overrides for the run without changing the file; compact TOML output inspected; check.sh GREEN.
+
+## 2026-10-22 — iteration 42: M1.3 settings menu
+- `menu.rs` rewritten: `Menu {screen, tab, dirty}`; Settings window (left side so the live crosshair/HUD/beam act as the preview) with tabs Mouse (cm/360, DPI, invert, deg/count), Video (FOV, fullscreen toggle, window size, vsync, FPS cap), Visuals (beam style/colour, sparks + size, enemy head/body/legs colours, crosshair length/gap/thickness/dot/colour, damage numbers, net-graph), Audio (volume, test sound), Player (name, practice bot on/pattern/skill).
+- App: duplicate hud/colour copies removed (reads `opts.s`), `apply_settings` (mouse, audio incl. reopening when unmuted, vsync via new `Gfx::set_vsync`, window size), `save_settings` on Back / Esc-close when dirty. `--menu pause|settings` for headless; check.sh renders both.
+- Verified: settings screenshot inspected (Visuals tab); headless menu checks OK (pause 10k px, settings 202k px panel); check.sh GREEN. Interactive clicking not automated — needs a human pass (noted for the release smoke).

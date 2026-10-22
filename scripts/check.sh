@@ -52,6 +52,7 @@ stage "client offscreen render (1920x1080, screenshot + pixel checks)"
 "target/$PROFILE/lgduel" --headless --frames 3 --beam none --no-sparks | grep -E "IMAGE (beam|sparks)|CHECK"
 "target/$PROFILE/lgduel" --headless --frames 3 --beam zigzag --spark-size 6 | grep -E "IMAGE (beam|sparks)|CHECK"
 # egui pause menu (pixel font) over the scene.
-"target/$PROFILE/lgduel" --headless --frames 3 --menu --size 1280x720 --screenshot artifacts/menu.png | grep -E "IMAGE menu|MENU CHECK"
+"target/$PROFILE/lgduel" --headless --frames 3 --menu pause --size 1280x720 --screenshot artifacts/menu.png | grep -E "IMAGE menu|MENU CHECK"
+"target/$PROFILE/lgduel" --headless --frames 3 --menu settings --size 1280x720 --screenshot artifacts/settings.png | grep -E "IMAGE menu|MENU CHECK"
 
 printf '\nCHECK GREEN in %ss\n' "$(( $(date +%s) - start ))"
