@@ -64,3 +64,11 @@
 - `client`: winit 0.30 app + wgpu 30 `Gfx` (high-perf adapter, sRGB surface, present-mode picker, resize, robust acquire), `FrameStats` (nearest-rank p50/p99), arg parsing (`--frames`, `--vsync`, `--fps-cap`, `--version`). check.sh now runs `lgduel --version` (bare `lgduel` opens a window).
 - Measured (Windows 11, NVIDIA RTX 4060, Vulkan, 1280×720, Immediate, clear-only frames): 1999 frames, p50 0.118 ms, p99 1.623 ms, max 2.051 ms, avg 5709 fps.
 - Verified: `target/release-dbg/lgduel.exe --frames 2000` ran and exited cleanly; check.sh GREEN; unit tests: present-mode preference, percentiles, arg parsing.
+
+## 2026-10-22 — iteration 14: PLAN 3.2 + 3.3 offscreen render + arena rendering
+- `client::render`: flat fullbright pipeline (WGSL), box meshing with per-face shades, world mesh from map file, dynamic vertex buffer for per-frame geometry, Quake-axis camera + Hor+ FOV. `client::offscreen`: windowless device, timed frames, readback with row padding, PNG save, pixel checks. Windowed client now draws the arena from spawn 1 looking at spawn 2.
+- Done together: an offscreen check of an empty frame proves nothing; the arena is what the check asserts.
+- check.sh stage "client offscreen render" now live (replaces SKIP).
+- Measured (RTX 4060, Vulkan, 1920×1080 offscreen, GPU wait each frame): 300 frames p50 0.098 ms, p99 0.659 ms, avg 7506 fps. Image: 4 distinct colours, floor 49.1% of pixels. Screenshot inspected visually: floor/walls/ceiling in correct perspective.
+- Test bug caught and fixed: camera test had "right" as −x when facing +y; in Quake axes right is +x (left point now asserted negative too).
+- Verified: check.sh GREEN.

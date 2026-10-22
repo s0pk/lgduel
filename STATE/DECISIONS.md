@@ -135,3 +135,11 @@ Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update th
 - Optional `--fps-cap N` uses sleep-based pacing (good enough for now; a spin-wait tail can be added in
   Phase 10 if cap accuracy matters).
 - `lgduel --frames N` renders N frames then prints a `FRAMESTATS` line (p50/p99/max, avg fps, present mode).
+
+## D13 — Renderer (2026-10-22)
+- Single flat pipeline: position + colour vertices, depth test, no lighting. Per-face brightness
+  (top 1.0, ±x 0.85, ±y 0.72, bottom 0.55) keeps geometry readable while staying fullbright.
+- Camera: Quake axes → view space via angle_vectors; own `perspective_rh` (0..1 depth; glam 0.34 moved
+  its projection API). FOV: Quake-style horizontal FOV at 4:3, clamped 10–130, Hor+ for wider aspects.
+- Headless: `lgduel --headless --screenshot P` renders offscreen (hardware adapter, software fallback),
+  reads back, saves PNG, asserts ≥4 distinct colours and floor colour ≥5% of pixels; exits 1 otherwise.

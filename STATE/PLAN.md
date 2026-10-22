@@ -27,8 +27,8 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 
 ## Phase 3 — Local playable (deps: 2.x)
 - [x] 3.1 Client window (winit + wgpu), low-latency present mode, vsync off default, frame-time p50/p99 logging
-- [ ] 3.2 Offscreen/headless render path + screenshot to artifacts/ + non-blank/colour assertion in check.sh
-- [ ] 3.3 Flat-shaded fullbright arena rendering from map file
+- [x] 3.2 Offscreen/headless render path + screenshot to artifacts/ + non-blank/colour assertion in check.sh
+- [x] 3.3 Flat-shaded fullbright arena rendering from map file
 - [ ] 3.4 Raw mouse input, sub-pixel accumulation, cm/360 + DPI sensitivity, FOV 10–130
 - [ ] 3.5 Local movement through sim at fixed tick, render interpolation of own view
 - [ ] 3.6 Player models: simple original geometry, forced enemy colours head/upper/lower

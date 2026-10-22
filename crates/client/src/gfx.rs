@@ -108,34 +108,6 @@ impl Gfx {
     }
 }
 
-/// Encode a clear of `view` to `color`.
-pub fn clear(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    view: &wgpu::TextureView,
-    color: wgpu::Color,
-) {
-    let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("clear"),
-    });
-    {
-        let _pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("clear"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(color),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            ..Default::default()
-        });
-    }
-    queue.submit([enc.finish()]);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
