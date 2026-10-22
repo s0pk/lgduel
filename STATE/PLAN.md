@@ -126,7 +126,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 ## Visual customisation (handoff plan, user-approved 2026-10-23)
 Full instructions: `STATE/HANDOFF_VISUALS.md` (read section 0 first). Client-side only; default look must stay pixel-identical.
 - [x] T1 Material tags in maps (sim parses/stores, never hashed)
-- [ ] T2 Textured world pipeline (texture array, UVs), classic look identical
+- [x] T2 Textured world pipeline (texture array, UVs), classic look identical
 - [ ] T3 Theme system + built-in themes classic / grid (procedural textures), video.theme setting
 - [ ] T4 User themes from folders (theme.toml + PNG), example theme, THEMES.md
 - [ ] T5 Built-in character models (classic, humanoid) + forced-colour banding + skins

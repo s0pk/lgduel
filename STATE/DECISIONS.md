@@ -600,3 +600,11 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
 ## D59 — Map material tags (2026-10-23)
 - Optional `material` on brush/ramp/stairs/convex entries → `World.materials` (parallel to `brushes`, stairs steps
   share their entry's tag) and `ConvexBrush.material`. Purely visual: not in `content_hash`, not used by sim/trace.
+
+## D60 — Textured world pipeline (2026-10-23)
+- World geometry draws with its own pipeline (`WorldVertex` = pos, uv, tint, layer; 2D texture array, 256², 9 mips,
+  repeat/linear/trilinear). Dynamic geometry and HUD keep the flat pipeline. Layer 0 is white: tint × white = the
+  old flat colour, so `ClassicStyle` reproduces the previous output exactly (test compares vertex by vertex with the
+  old `world_mesh`, kept test-only).
+- `WorldStyle` trait (`key`, `textures`, `look(map, Surface)`) is what themes implement; the renderer re-uploads when
+  (map content hash, style key) changes. UVs are planar along the dominant normal axis.

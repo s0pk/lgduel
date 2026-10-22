@@ -29,6 +29,7 @@ mod players;
 mod render;
 mod scene;
 mod settings;
+mod textures;
 mod ttf;
 mod ui;
 
@@ -427,7 +428,7 @@ fn run_headless_demo(opts: &Options) -> Result<(), String> {
     let (w, h) = opts.s.video.size;
     let off = offscreen::Offscreen::new(w, h)?;
     let mut r = Renderer::new(&off.device, offscreen::FORMAT);
-    r.set_world(&off.device, world);
+    r.set_world(&off.device, &off.queue, world, &render::ClassicStyle::new());
     let cam = scene::view_camera(
         &fv,
         Default::default(),
@@ -498,7 +499,12 @@ fn run_headless(opts: &Options) -> Result<(), String> {
     let world = load_world(&opts.s.practice.map);
     println!("MAP {} ({:016x})", world.name, world.content_hash());
     let mut r = Renderer::new(&off.device, offscreen::FORMAT);
-    r.set_world(&off.device, &world);
+    r.set_world(
+        &off.device,
+        &off.queue,
+        &world,
+        &render::ClassicStyle::new(),
+    );
     // Local player at spawn 1, an idle opponent at spawn 2; look at the opponent's chest.
     // Opponent placed 400u in front (mid LG range) so effects are a few pixels wide.
     // Knockback off so the opponent stays put and the picture is stable frame to frame.
@@ -1029,7 +1035,12 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
         .ok_or(format!("never got a frame from {server}: {:?}", n.state()))?;
     let world = n.world().clone();
     println!("MAP {} ({:016x})", world.name, world.content_hash());
-    r.set_world(&off.device, &world);
+    r.set_world(
+        &off.device,
+        &off.queue,
+        &world,
+        &render::ClassicStyle::new(),
+    );
     let cfg = n.config().cloned().ok_or("no config from server")?;
     let cam = Camera {
         eye: fv.eye,
@@ -1720,7 +1731,12 @@ impl ApplicationHandler for App {
                     g.config.present_mode
                 );
                 let mut r = Renderer::new(&g.device, g.config.format);
-                r.set_world(&g.device, &self.world);
+                r.set_world(
+                    &g.device,
+                    &g.queue,
+                    &self.world,
+                    &render::ClassicStyle::new(),
+                );
                 self.depth = Some(render::depth_texture(
                     &g.device,
                     g.config.width,
@@ -1862,7 +1878,7 @@ impl ApplicationHandler for App {
                     (&mut self.gfx, &mut self.renderer, &self.depth)
                 {
                     let size = (g.config.width, g.config.height);
-                    r.set_world(&g.device, world);
+                    r.set_world(&g.device, &g.queue, world, &render::ClassicStyle::new());
                     r.set_dynamic(&g.device, &g.queue, &dynamic);
                     let hud = fv
                         .as_ref()

@@ -372,3 +372,7 @@
 ## 2026-10-23 — iteration 66: visuals T1 material tags
 - world.rs/brush.rs: `material` keys + fields; World literals gained `materials: Vec::new()`; MAPS.md section.
 - Verified: new parse test for all four entry kinds, content-hash test extended (tags don't change it), determinism golden hash 0x9e74a8ea7918ee78 unchanged, check.sh GREEN 133 s.
+
+## 2026-10-23 — iteration 67: visuals T2 textured world pipeline
+- textures.rs (Image, mips, TextureSet, upload), render.rs (box_faces, WorldVertex, Surface/Look/WorldStyle/ClassicStyle, planar_uv, world_mesh_textured, world pipeline + texture bind group, set_world(device, queue, world, style)); callers updated.
+- Verified: classic textured mesh == old mesh for all built-in maps, planar_uv test, mip/dedupe tests, check.sh GREEN 112 s with no pixel-assertion changes, 4552 fps at 1080p (arena_tiers).
