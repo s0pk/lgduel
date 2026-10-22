@@ -189,6 +189,22 @@ pub struct Inputs {
     /// Newest snapshot tick the client has received (delta baseline / ack).
     pub ack_snapshot: Option<Tick>,
     pub cmds: Vec<UserCmd>,
+    /// Per command (parallel to `cmds`): the fractional snapshot tick at which
+    /// the player saw remote players when the command was made (anti-lag
+    /// rewind target). Missing entries mean "unknown".
+    pub views: Vec<Option<f64>>,
+}
+
+/// View times travel as ticks × 256 in a u32 (u32::MAX = none).
+fn encode_view(v: Option<f64>) -> u32 {
+    v.filter(|v| v.is_finite() && *v >= 0.0)
+        .map_or(u32::MAX, |v| {
+            ((v * 256.0).round() as u64).min(u32::MAX as u64 - 1) as u32
+        })
+}
+
+fn decode_view(v: u32) -> Option<f64> {
+    (v != u32::MAX).then_some(v as f64 / 256.0)
 }
 
 impl Inputs {
@@ -197,8 +213,9 @@ impl Inputs {
         w.u8(1); // message kind: inputs
         w.u32(self.ack_snapshot.map_or(u32::MAX, |t| t.0));
         w.u8(self.cmds.len().min(255) as u8);
-        for c in self.cmds.iter().take(255) {
+        for (i, c) in self.cmds.iter().take(255).enumerate() {
             write_cmd(&mut w, c);
+            w.u32(encode_view(self.views.get(i).copied().flatten()));
         }
         w.finish()
     }
@@ -211,12 +228,15 @@ impl Inputs {
         let ack = r.u32()?;
         let n = r.u8()?;
         let mut cmds = Vec::with_capacity(n as usize);
+        let mut views = Vec::with_capacity(n as usize);
         for _ in 0..n {
             cmds.push(read_cmd(&mut r)?);
+            views.push(decode_view(r.u32()?));
         }
         Some(Self {
             ack_snapshot: (ack != u32::MAX).then_some(Tick(ack)),
             cmds,
+            views,
         })
     }
 }
@@ -225,7 +245,7 @@ impl Inputs {
 /// whichever (possibly redundant, reordered) packet brings it first.
 #[derive(Debug, Clone, Default)]
 pub struct InputBuffer {
-    cmds: std::collections::BTreeMap<u32, UserCmd>,
+    cmds: std::collections::BTreeMap<u32, (UserCmd, Option<f64>)>,
     /// Newest tick already consumed by the simulation.
     consumed: Option<u32>,
     pub received: u64,
@@ -235,11 +255,16 @@ pub struct InputBuffer {
 
 impl InputBuffer {
     pub fn push(&mut self, c: UserCmd) {
+        self.push_with_view(c, None);
+    }
+
+    /// Like `push`, also recording the client's view time for anti-lag.
+    pub fn push_with_view(&mut self, c: UserCmd, view: Option<f64>) {
         if self.consumed.is_some_and(|t| c.tick.0 <= t) {
             self.late += 1;
             return;
         }
-        if self.cmds.insert(c.tick.0, c.sanitized()).is_some() {
+        if self.cmds.insert(c.tick.0, (c.sanitized(), view)).is_some() {
             self.duplicates += 1;
         } else {
             self.received += 1;
@@ -248,6 +273,11 @@ impl InputBuffer {
 
     /// Command for `tick`, if it arrived. Older buffered commands are discarded.
     pub fn take(&mut self, tick: Tick) -> Option<UserCmd> {
+        self.take_with_view(tick).map(|(c, _)| c)
+    }
+
+    /// Command for `tick` and its view time.
+    pub fn take_with_view(&mut self, tick: Tick) -> Option<(UserCmd, Option<f64>)> {
         self.consumed = Some(tick.0);
         let c = self.cmds.remove(&tick.0);
         self.cmds.retain(|t, _| *t > tick.0);
@@ -405,12 +435,22 @@ mod tests {
         let i = Inputs {
             ack_snapshot: Some(Tick(77)),
             cmds: (100..108).map(cmd).collect(),
+            views: (0..8)
+                .map(|k| {
+                    if k == 3 {
+                        None
+                    } else {
+                        Some(95.0 + k as f64 * 0.25)
+                    }
+                })
+                .collect(),
         };
         let d = Inputs::decode(&i.encode()).unwrap();
         assert_eq!(d, i);
         let none = Inputs {
             ack_snapshot: None,
             cmds: vec![],
+            views: vec![],
         };
         assert_eq!(Inputs::decode(&none.encode()), Some(none));
         assert_eq!(Inputs::decode(&[1, 0, 0, 0]), None);

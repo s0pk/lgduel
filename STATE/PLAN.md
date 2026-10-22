@@ -46,7 +46,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] 4.5 Clock sync + client tick alignment
 - [x] 4.6 Client prediction + reconciliation (own movement + own LG beam)
 - [x] 4.7 Entity interpolation with configurable buffer; extrapolation off by default
-- [ ] 4.8 Lag compensation: rewind buffer, anti-lag mode (≤200 ms) and no-anti-lag mode
+- [x] 4.8 Lag compensation: rewind buffer, anti-lag mode (≤200 ms) and no-anti-lag mode
 - [ ] 4.9 Bot as network client
 - [ ] 4.10 Headless match test in check.sh: server + 2 bots, 60 s vamp duel, assertions (connect, no panic/desync, damage, exact lifesteal, stats file)
 - [x] 4.11 Prediction error test (<0.5u at 0% loss) in check.sh

@@ -7,12 +7,13 @@ use lgduel_net::conn::Connection;
 use lgduel_net::protocol::{Connectionless, Control, InputBuffer, Inputs, cookie};
 use lgduel_net::snapshot::{Snapshot, SnapshotHistory};
 use lgduel_net::transport::Transport;
-use lgduel_sim::config::{ConfigError, GameConfig};
+use lgduel_sim::config::{ConfigError, GameConfig, HitMode};
 use lgduel_sim::game::{Game, GameEvent, PlayerId};
 use lgduel_sim::tick::Tick;
 use lgduel_sim::usercmd::UserCmd;
-use lgduel_sim::world::World;
+use lgduel_sim::world::{Aabb, World};
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use std::net::SocketAddr;
 
 /// `[server]` section of the server config file.
@@ -107,6 +108,39 @@ pub struct Server<T: Transport> {
     secret: u64,
     /// Log lines for the operator (connects, disconnects).
     pub log: Vec<String>,
+    /// Rewind buffer: (snapshot tick, hitboxes of living players) per tick.
+    rewind: VecDeque<(u32, Vec<(PlayerId, Aabb)>)>,
+    /// Anti-lag diagnostics: how far back shots were rewound (ticks), and how
+    /// many requests exceeded `max_rewind_ms` and were clamped.
+    pub rewind_stats: RewindStats,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct RewindStats {
+    pub shots_rewound: u64,
+    pub sum_rewind_ticks: f64,
+    pub clamped: u64,
+}
+
+/// Hitbox of `id` at fractional snapshot tick `t`, interpolated between the two
+/// recorded ticks around it (matching what the client's interpolation showed).
+fn rewound_box(
+    history: &VecDeque<(u32, Vec<(PlayerId, Aabb)>)>,
+    id: PlayerId,
+    t: f64,
+) -> Option<Aabb> {
+    let lo = t.floor() as u32;
+    let frac = (t - t.floor()) as f32;
+    let find = |tick: u32| {
+        history
+            .iter()
+            .find(|(ht, _)| *ht == tick)
+            .and_then(|(_, b)| b.iter().find(|(p, _)| *p == id).map(|(_, a)| *a))
+    };
+    let a = find(lo)?;
+    let b = find(lo + 1).unwrap_or(a);
+    let lerp = |x: lgduel_sim::math::Vec3, y: lgduel_sim::math::Vec3| x + (y - x) * frac;
+    Some(Aabb::new(lerp(a.min, b.min), lerp(a.max, b.max)))
 }
 
 impl<T: Transport> Server<T> {
@@ -118,6 +152,8 @@ impl<T: Transport> Server<T> {
             clients: Vec::new(),
             secret,
             log: Vec::new(),
+            rewind: VecDeque::new(),
+            rewind_stats: RewindStats::default(),
         }
     }
 
@@ -161,8 +197,9 @@ impl<T: Transport> Server<T> {
                 {
                     c.acked = Some(t);
                 }
-                for cmd in inp.cmds {
-                    c.inputs.push(cmd);
+                for (i, cmd) in inp.cmds.into_iter().enumerate() {
+                    c.inputs
+                        .push_with_view(cmd, inp.views.get(i).copied().flatten());
                 }
             }
             let mut leave = None;
@@ -271,11 +308,15 @@ impl<T: Transport> Server<T> {
     pub fn tick(&mut self, now_us: u64) {
         let tick = self.game.tick;
         let mut cmds = Vec::with_capacity(self.clients.len());
+        let mut views: Vec<(PlayerId, f64)> = Vec::new();
         for c in &mut self.clients {
-            let cmd = match c.inputs.take(tick) {
-                Some(cmd) => {
+            let cmd = match c.inputs.take_with_view(tick) {
+                Some((cmd, view)) => {
                     c.last_consumed = Some(tick);
                     c.last_cmd = Some(cmd);
+                    if let Some(v) = view {
+                        views.push((c.player, v));
+                    }
                     cmd
                 }
                 None => {
@@ -290,7 +331,57 @@ impl<T: Transport> Server<T> {
             };
             cmds.push((c.player, cmd));
         }
-        self.game.step(&cmds);
+        // Anti-lag: test each shooter's beam against targets where that shooter saw them.
+        let anti_lag = self.game.cfg.rules.hit_mode == HitMode::AntiLag;
+        let max_rewind_ticks =
+            self.game.cfg.rules.max_rewind_ms as f64 * self.game.cfg.tick_rate_hz as f64 / 1000.0;
+        // The newest recorded state is the current one (snapshot tick == game.tick).
+        let now_t = tick.0 as f64;
+        let clamped_views: Vec<(PlayerId, f64)> = views
+            .iter()
+            .map(|(p, v)| (*p, v.clamp(now_t - max_rewind_ticks, now_t)))
+            .collect();
+        let history = &self.rewind;
+        let rewind = |shooter: PlayerId, target: PlayerId| -> Option<Aabb> {
+            if !anti_lag {
+                return None;
+            }
+            let (_, v) = clamped_views.iter().find(|(p, _)| *p == shooter)?;
+            rewound_box(history, target, *v)
+        };
+        let shots_before: u64 = self.game.players.iter().map(|p| p.stats.shots as u64).sum();
+        self.game.step_with(&cmds, &rewind);
+        if anti_lag {
+            let shots_after: u64 = self.game.players.iter().map(|p| p.stats.shots as u64).sum();
+            for (p, v) in &views {
+                if shots_after > shots_before
+                    && self
+                        .game
+                        .events
+                        .iter()
+                        .any(|e| matches!(e, GameEvent::Fire { shooter, .. } if shooter == p))
+                {
+                    self.rewind_stats.shots_rewound += 1;
+                    self.rewind_stats.sum_rewind_ticks +=
+                        (now_t - v.clamp(now_t - max_rewind_ticks, now_t)).max(0.0);
+                    if *v < now_t - max_rewind_ticks {
+                        self.rewind_stats.clamped += 1;
+                    }
+                }
+            }
+        }
+        // Record hitboxes for future rewinds, labelled like snapshots.
+        let boxes = self
+            .game
+            .players
+            .iter()
+            .filter(|p| p.alive)
+            .map(|p| (p.id, self.game.hitbox(p)))
+            .collect();
+        self.rewind.push_back((self.game.tick.0, boxes));
+        while self.rewind.len() > 128 {
+            self.rewind.pop_front();
+        }
         let send = self
             .game
             .tick
@@ -421,6 +512,7 @@ mod tests {
             let inp = Inputs {
                 ack_snapshot: self.newest,
                 cmds: self.cmds[from..].to_vec(),
+                views: vec![],
             };
             let pkt = self.conn.build_packet(now_us, &inp.encode());
             self.ep.send_to(self.server, &pkt).unwrap();

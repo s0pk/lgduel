@@ -264,6 +264,17 @@ impl Game {
     /// Advance one tick. `cmds` holds at most one command per player; players
     /// without one repeat neutral input. Players are processed in list order.
     pub fn step(&mut self, cmds: &[(PlayerId, UserCmd)]) {
+        self.step_with(cmds, &|_, _| None);
+    }
+
+    /// `step` with lag compensation: `rewind(shooter, target)` may return the
+    /// hitbox the shooter's hitscan should test for `target` instead of its
+    /// current one (anti-lag: where the shooter saw it). `None` = current box.
+    pub fn step_with(
+        &mut self,
+        cmds: &[(PlayerId, UserCmd)],
+        rewind: &dyn Fn(PlayerId, PlayerId) -> Option<Aabb>,
+    ) {
         self.events.clear();
         let tick = self.tick;
         let dt = self.dt();
@@ -306,12 +317,18 @@ impl Game {
                 continue;
             }
             pmove(&mut p.pm, &cmd, &self.world, &self.cfg.physics, dt);
-            self.weapon(i, &cmd, tick_us);
+            self.weapon(i, &cmd, tick_us, rewind);
         }
         self.tick = tick.next();
     }
 
-    fn weapon(&mut self, i: usize, cmd: &UserCmd, tick_us: i32) {
+    fn weapon(
+        &mut self,
+        i: usize,
+        cmd: &UserCmd,
+        tick_us: i32,
+        rewind: &dyn Fn(PlayerId, PlayerId) -> Option<Aabb>,
+    ) {
         let p = &mut self.players[i];
         if p.weapon_time_us > 0 {
             p.weapon_time_us -= tick_us;
@@ -324,10 +341,10 @@ impl Game {
             return;
         }
         p.weapon_time_us += self.cfg.lg.refire_ms as i32 * 1000;
-        self.fire(i);
+        self.fire(i, rewind);
     }
 
-    fn fire(&mut self, i: usize) {
+    fn fire(&mut self, i: usize, rewind: &dyn Fn(PlayerId, PlayerId) -> Option<Aabb>) {
         let shooter = &self.players[i];
         let sid = shooter.id;
         let start = shooter.pm.eye(&self.cfg.physics);
@@ -336,7 +353,7 @@ impl Game {
             .players
             .iter()
             .filter(|p| p.alive && p.id != sid)
-            .map(|p| (p.id, self.hitbox(p)))
+            .map(|p| (p.id, rewind(sid, p.id).unwrap_or_else(|| self.hitbox(p))))
             .collect();
         let hs = hitscan(&self.world, start, dir, self.cfg.lg.range, &targets);
         self.players[i].stats.shots += 1;

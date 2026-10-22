@@ -153,3 +153,9 @@
 - Iterations driven by measurement: (1) render clock = estimated server time → 100% starved (design error); (2) fixed 3-tick delay at 50±10 ms → 0.76% starved; (3) adaptive delay; (4) delay creeping up too slowly → asymmetric growth; (5) per-frame target overwrote the starvation bump → separate decaying floor. Snapshot-clock smoothing kept (sound, though not the cause).
 - Measured: 50 ms → delay 1.5, 0.00% starved, max step 0.336u (= 320 u/s + 5% dilation); 50±10 → delay 3.88, 0.00%, 0.336u; 100±20 ms + 2% loss → delay 6.25, 0.03% starved (one 3 ms hold), max step 1.04u. Thresholds per condition recorded in DECISIONS D26.
 - Verified: check.sh GREEN.
+
+## 2026-10-22 — iteration 29: PLAN 4.8 lag compensation
+- sim: `Game::step_with(cmds, rewind)` hook (step = no rewind). net: protocol v2 with per-command view time; `InputBuffer::push_with_view/take_with_view`; `NetClient::send_cmd_with_view`. server: rewind buffer, interpolated rewound hitboxes, clamp to max_rewind_ms, `RewindStats`.
+- `crates/server/tests/lagcomp.rs`: shooter at 100 ms RTT aims at what its interpolation shows; strafer A/D.
+- Measured: anti-lag 100.0% (219 shots, mean rewind 119 ms) vs no-anti-lag 24.7% at 100 ms RTT; anti-lag 100.0% at 100±20 ms (mean rewind 143 ms); 600 ms RTT → 214/214 rewinds clamped to 200 ms, accuracy 12.6%.
+- Verified: determinism golden hash unchanged; check.sh GREEN.

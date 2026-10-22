@@ -52,6 +52,8 @@ pub struct NetClient<T: Transport> {
     newest: Option<(Tick, u64)>,
     /// Commands sent (newest last) for redundancy and prediction.
     pub sent_cmds: VecDeque<UserCmd>,
+    /// View time for each entry of `sent_cmds`.
+    sent_views: VecDeque<Option<f64>>,
     tick_us: f64,
     /// Client simulation clock in µs since tick 0 (fractional, dilated).
     clock_us: f64,
@@ -87,6 +89,7 @@ impl<T: Transport> NetClient<T> {
             fresh: Vec::new(),
             newest: None,
             sent_cmds: VecDeque::new(),
+            sent_views: VecDeque::new(),
             tick_us: 8_000.0,
             clock_us: 0.0,
             clock_started: false,
@@ -335,17 +338,26 @@ impl<T: Transport> NetClient<T> {
 
     /// Send `cmd` (plus the previous ones for redundancy) and ack the newest snapshot.
     pub fn send_cmd(&mut self, now_us: u64, cmd: UserCmd) {
+        self.send_cmd_with_view(now_us, cmd, None);
+    }
+
+    /// Send `cmd` with the snapshot time (fractional ticks) at which remote
+    /// players were rendered when it was made — the anti-lag rewind target.
+    pub fn send_cmd_with_view(&mut self, now_us: u64, cmd: UserCmd, view: Option<f64>) {
         if self.player().is_none() {
             return;
         }
         self.sent_cmds.push_back(cmd);
+        self.sent_views.push_back(view);
         while self.sent_cmds.len() > 256 {
             self.sent_cmds.pop_front();
+            self.sent_views.pop_front();
         }
         let from = self.sent_cmds.len().saturating_sub(INPUT_REDUNDANCY);
         let inp = Inputs {
             ack_snapshot: self.newest.map(|(t, _)| t),
             cmds: self.sent_cmds.iter().skip(from).copied().collect(),
+            views: self.sent_views.iter().skip(from).copied().collect(),
         };
         let pkt = self.conn.build_packet(now_us, &inp.encode());
         let _ = self.transport.send_to(self.server, &pkt);

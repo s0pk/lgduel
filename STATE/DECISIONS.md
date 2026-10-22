@@ -273,3 +273,16 @@ Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update th
 - Smoothness thresholds (seed for PLAN 5.x), per 1 ms render frame while the target walks at 320 u/s:
   clean links (50 ms, 50±10 ms): max step < 0.7u and < 0.1% starved — measured 0.336u, 0.00%.
   100±20 ms + 2% loss: max step < 1.6u (≤ 5 ms catch-up), < 0.1% starved — measured 1.04u, 0.03% (one 3 ms hold).
+
+## D27 — Lag compensation (2026-10-22)
+- Protocol v2: every command carries the client's view time = snapshot-clock − interpolation delay at the
+  moment the command was made (ticks × 256, u32::MAX = none).
+- Server keeps a 128-tick rewind buffer of living players' hitboxes, labelled with snapshot tick numbers.
+  `Game::step_with(cmds, rewind)` lets the hitscan use a substitute hitbox per (shooter, target);
+  plain `step` = no substitution (offline/determinism unchanged; golden hash unchanged).
+- anti_lag: target box interpolated between the two recorded ticks around the shooter's view time,
+  clamped to [now − max_rewind_ms, now] (default 200 ms). no_anti_lag: current boxes.
+- Only hit tests are rewound; damage/knockback apply to the live player state.
+- Measured (MemNet, perfect on-screen aim at a target strafing A/D every 400 ms at 300u):
+  100 ms RTT → anti-lag 100.0% (mean rewind 119 ms), no-anti-lag 24.7%; 100±20 ms RTT → anti-lag 100.0%;
+  600 ms RTT → all rewinds clamped at 200 ms, 12.6%.
