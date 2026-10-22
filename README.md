@@ -28,6 +28,8 @@ Windows build provided; Linux/macOS: build from source.
 3. **Esc** opens the menu (settings, spectate, disconnect). **F11** toggles fullscreen.
 
 Full guide (online play, hosting, all settings, what to report): **[PLAY.md](PLAY.md)**.
+More: [HOSTING.md](HOSTING.md) (every way to host) · [DEPLOY.md](DEPLOY.md) (VPS server in one command) ·
+[CONFIG.md](CONFIG.md) (all settings) · [MAPS.md](MAPS.md) (map format) · [docs/PERF.md](docs/PERF.md).
 
 ## Controls
 

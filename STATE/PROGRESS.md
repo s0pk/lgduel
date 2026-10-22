@@ -358,3 +358,9 @@
 ## 2026-10-23 — iteration 64: PLAN 9.1 + 9.2 demos
 - net/demo.rs (format + tests); client: LocalSession `from_game`, `start/stop_recording`, `step_with_cmds`, `due_ticks`; NetSession recording (snapshots + cmds); demo_play.rs (`DemoPlayer::{Local, Net}`, `Verdict`, `run_to_end`, frame_view with recorded angles, input_view); Session::Demo; App recording (`--record`, console record/stoprecord, saved on session end), `play_demo` (console playdemo, `--play-demo`), input overlay forced in demos; headless `run_headless_record` / `run_headless_demo`; console `demo_path`; PLAY.md demos section; check.sh record + replay stage.
 - Verified: demo format round trip / garbage / truncation / version; `local_demo_replays_bit_exactly` (3000 ticks of a real fight on arena_pillars → Match with identical stats; one tampered yaw → Mismatch); headless: 20 s arena_tiers practice recorded (dealt 335 / took 35) → replay Match, end screenshot shows "REPLAY MATCHES THE RECORDING" + input overlay; online demo recorded from a real server session (999 frames) and played back (screenshot: the duel from the player's view); check.sh GREEN 128 s.
+
+
+## 2026-10-23 — iteration 65: PLAN 10.1, 10.2, 11.2, 11.3
+- 10.1: windowed 1920x1080 practice duel, vsync off, RTX 4060 / Ryzen 7 9700X: avg 4138 fps (p50 0.20 ms, p99 0.58 ms); arena_tiers + gun + input display 3933 fps. Target 500+ met. 10.2: input latency path documented; sizes release vs dist; startup ~650 ms to first frame, server ~30 ms. docs/PERF.md. `[profile.dist]`, package.sh + release workflow use it.
+- 11.2: HOSTING.md, CONFIG.md (+ `lgduel --print-settings`); 11.3: MAPS.md (second/third maps exist since M3.3). README links, docs shipped in the zip.
+- Verified: package.sh with dist profile → PACKAGE OK (packaged host + bot + client smoke); check.sh GREEN 112 s.

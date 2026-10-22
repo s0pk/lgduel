@@ -589,3 +589,10 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
   says whether the replay matched. Console record/stoprecord/playdemo (demos/NAME.lgdemo next to the
   settings), CLI --record/--play-demo; headless record (scripted practice duel vs the bot) + verified replay
   in check.sh.
+
+## D58 — Release profile and docs (2026-10-23)
+- `[profile.dist]` (fat LTO, 1 codegen unit, stripped) for release packages: lgduel.exe 15.0 → 13.4 MB, same
+  frame times; check.sh keeps release-dbg (dist takes ~2 min). Measurements in docs/PERF.md.
+- Docs split by audience: README (overview), PLAY (players), HOSTING (all ways to host), DEPLOY (VPS),
+  CONFIG (every server and client key; `lgduel --print-settings`), MAPS (format, movement rules, limits).
+  Packages ship all of them.

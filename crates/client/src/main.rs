@@ -304,6 +304,11 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
                 })
             }
             "--screenshot" => o.screenshot = Some(val("--screenshot")?),
+            "--print-settings" => {
+                // Every setting with its current value (defaults with --no-settings).
+                print!("{}", o.s.to_toml());
+                std::process::exit(0);
+            }
             "--version" => {
                 println!(
                     "lgduel {} (sim tick {} Hz, protocol v{})",

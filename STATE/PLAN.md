@@ -114,11 +114,11 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] 9.3 End-of-fight summary UI — done with 6.4 (iteration 57)
 
 ## Phase 10 — Perf (deps: 3.x, 4.x)
-- [ ] 10.1 Profile client; reach 500+ FPS target at 1080p (document hardware)
-- [ ] 10.2 Latency notes, binary size, startup time
+- [x] 10.1 Profile client; reach 500+ FPS target at 1080p (document hardware)
+- [x] 10.2 Latency notes, binary size, startup time
 
 ## Phase 11 — Packaging & docs
 - [x] 11.1 README quick start (≤5 steps to duel a friend) — README "Play" (3 steps), iteration 55
-- [ ] 11.2 HOSTING.md, CONFIG.md
-- [ ] 11.3 Second map (pillars/height variant) + map format doc
+- [x] 11.2 HOSTING.md, CONFIG.md
+- [x] 11.3 Second map (pillars/height variant) + map format doc
 - [ ] 11.4 Definition-of-done run, write STATE/DONE

@@ -15,13 +15,13 @@ NAME="LGDuel-$OS-x64"
 OUT="dist/$NAME"
 T="${CARGO_TARGET_DIR:-target}"
 
-cargo build --release -p lgduel-client -p lgduel-server -p lgduel-bot
+cargo build --profile dist -p lgduel-client -p lgduel-server -p lgduel-bot
 rm -rf "$OUT" "dist/$NAME.zip"
 mkdir -p "$OUT"
 for b in lgduel lgduel-server lgduel-bot; do
-    cp "$T/release/$b$EXE" "$OUT/"
+    cp "$T/dist/$b$EXE" "$OUT/"
 done
-cp PLAY.md README.md LICENSE "$OUT/"
+cp PLAY.md README.md HOSTING.md DEPLOY.md CONFIG.md MAPS.md LICENSE "$OUT/"
 cp config/server.example.toml "$OUT/"
 git rev-parse --short HEAD > "$OUT/VERSION.txt" 2>/dev/null || echo unknown > "$OUT/VERSION.txt"
 

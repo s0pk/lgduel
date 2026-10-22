@@ -21,11 +21,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build and zip
         run: |
-          cargo build --release -p lgduel-client -p lgduel-server -p lgduel-bot
+          cargo build --profile dist -p lgduel-client -p lgduel-server -p lgduel-bot
           OUT=dist/LGDuel-windows-x64
           mkdir -p "$OUT"
-          cp target/release/lgduel.exe target/release/lgduel-server.exe target/release/lgduel-bot.exe "$OUT/"
-          cp PLAY.md README.md LICENSE config/server.example.toml "$OUT/"
+          cp target/dist/lgduel.exe target/dist/lgduel-server.exe target/dist/lgduel-bot.exe "$OUT/"
+          cp PLAY.md README.md HOSTING.md DEPLOY.md CONFIG.md MAPS.md LICENSE config/server.example.toml "$OUT/"
           echo "${GITHUB_REF_NAME} ($(git rev-parse --short HEAD))" > "$OUT/VERSION.txt"
           cd dist && 7z a -tzip LGDuel-windows-x64.zip LGDuel-windows-x64 >/dev/null
       - uses: actions/upload-artifact@v4
@@ -41,10 +41,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build and pack the dedicated server
         run: |
-          cargo build --release -p lgduel-server -p lgduel-bot
+          cargo build --profile dist -p lgduel-server -p lgduel-bot
           OUT=dist/lgduel-server-linux-x64
           mkdir -p "$OUT"
-          cp target/release/lgduel-server target/release/lgduel-bot "$OUT/"
+          cp target/dist/lgduel-server target/dist/lgduel-bot "$OUT/"
           cp DEPLOY.md LICENSE config/server.example.toml deploy/lgduel-server.service deploy/lgduel-relay.service "$OUT/"
           echo "${GITHUB_REF_NAME} ($(git rev-parse --short HEAD))" > "$OUT/VERSION.txt"
           tar -C dist -czf dist/lgduel-server-linux-x64.tar.gz lgduel-server-linux-x64
