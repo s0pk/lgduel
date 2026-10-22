@@ -167,3 +167,9 @@
 - MemNet duel (25±5 ms, 1% loss, 30 s): hard 9W–0L, 42.1% vs 9.3% accuracy; lifesteal_earned == damage_dealt for both; prediction 0.0000 over 3493 checks.
 - Live UDP (server + 2 bot binaries, 10 s): both connected/left cleanly; hard 62.6% acc 4 kills, easy 10.7%; lifesteal exact; prediction 0.0000 (1235/1173 checks); server 1499 ticks in 12.0 s.
 - Verified: check.sh GREEN.
+
+## 2026-10-22 — iteration 31: PLAN 4.10 headless match in check.sh
+- Server: `--stats-file` (TOML, includes departed players), `Server::stats_toml`. Tools: `netem` UDP proxy (per-client upstream sockets, delay/jitter/loss both ways, profiles), `matchrun` orchestrator, `lgduel-tools match|netem`. check.sh stage "headless match" live (was SKIP).
+- Measured (60 s each, parallel, check.sh run): clean — hard 58.7% 21 kills vs medium 18.1%, earned==dealt (3045/945); lossy — 38.1% vs 38.6%, netem dropped ~2%, earned==dealt (2991/3030), prediction mean 0.0038 / max 6.69u (hard) and 0.0000 (medium); highping (RTT ~205 ms) — 9.2% vs 11.8%, earned==dealt, prediction 0.0000. check.sh total 71 s (was ~11 s).
+- First non-zero misprediction seen (lossy, one bot, max 6.7u): consistent with an occasional command arriving after its tick under jitter (server repeats last command). Within threshold; to be characterised in PLAN 5.2.
+- Verified: check.sh GREEN.

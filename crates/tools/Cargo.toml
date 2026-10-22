@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 lgduel-sim = { path = "../sim" }
 lgduel-net = { path = "../net" }
+toml = "1.1.8"
 
 [[bin]]
 name = "lgduel-tools"

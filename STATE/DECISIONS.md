@@ -294,3 +294,14 @@ Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update th
 - Desync = prediction error on snapshots *not* preceded by an external change to the predicted player
   (damage taken → knockback, death, respawn). Those are counted separately as `external` corrections;
   detected from authoritative state (damage_taken/deaths/alive), not from events (events can be lost, KI-10).
+
+## D29 — Headless match test (2026-10-22)
+- `lgduel-tools match` (Rust, cross-platform) spawns the real `lgduel-server` (--stats-file) and two
+  `lgduel-bot` processes (hard vs medium) through an in-process UDP netem proxy, one profile per thread:
+  clean (0 ms), lossy (30±10 ms each way, 2% loss each way), highping (100±5 ms each way).
+- Asserts: both bots connect (bot + server logs), no non-zero exits / panics, BOTRESULT present, server
+  stats file parses with 2 players, damage dealt > 0 for both, lifesteal_earned == dealt × pct / 100 exactly,
+  healed ≤ earned, prediction ≥ 100 checks with mean error < 0.5u (desync threshold).
+- check.sh runs 60 s (env MATCH_SECS overrides for quick local runs); the three profiles run in parallel,
+  so the whole check takes ~70 s.
+- `lgduel-tools netem` exposes the same proxy for manual testing.

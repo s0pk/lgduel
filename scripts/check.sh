@@ -34,8 +34,8 @@ for bin in lgduel-bot lgduel-tools; do
     echo "ok: $bin"
 done
 
-stage "headless match sim"
-echo "SKIP: not implemented yet (PLAN Phase 4: networking / headless match)"
+stage "headless match: server + 2 bots, 60 s vamp duel × {clean, lossy 2% 30±10 ms, highping 100 ms} in parallel"
+"target/$PROFILE/lgduel-tools" match --secs "${MATCH_SECS:-60}" --out artifacts
 
 stage "netem matrix"
 echo "SKIP: not implemented yet (PLAN Phase 5)"

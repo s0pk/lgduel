@@ -110,6 +110,8 @@ pub struct Server<T: Transport> {
     pub log: Vec<String>,
     /// Rewind buffer: (snapshot tick, hitboxes of living players) per tick.
     rewind: VecDeque<(u32, Vec<(PlayerId, Aabb)>)>,
+    /// (name, final stats) of clients that left.
+    departed: Vec<(String, lgduel_sim::game::PlayerStats)>,
     /// Anti-lag diagnostics: how far back shots were rewound (ticks), and how
     /// many requests exceeded `max_rewind_ms` and were clamped.
     pub rewind_stats: RewindStats,
@@ -153,8 +155,65 @@ impl<T: Transport> Server<T> {
             secret,
             log: Vec::new(),
             rewind: VecDeque::new(),
+            departed: Vec::new(),
             rewind_stats: RewindStats::default(),
         }
+    }
+
+    /// Per-player stats as a TOML document (written at shutdown with `--stats-file`).
+    /// Includes players that already left (their last known stats).
+    pub fn stats_toml(&self) -> String {
+        let mut out = String::new();
+        out.push_str(&format!(
+            "# LGDuel server stats
+ticks = {}
+mode = \"{:?}\"
+lifesteal_percent = {}
+hit_mode = \"{:?}\"
+",
+            self.game.tick.0,
+            self.game.cfg.rules.mode,
+            self.game.cfg.rules.lifesteal_percent,
+            self.game.cfg.rules.hit_mode
+        ));
+        let current = self.clients.iter().filter_map(|c| {
+            self.game
+                .player(c.player)
+                .map(|p| (c.name.clone(), p.stats))
+        });
+        for (name, s) in self.departed.iter().cloned().chain(current) {
+            out.push_str(&format!(
+                "
+[[players]]
+name = {name:?}
+shots = {}
+hits = {}
+accuracy_pct = {:.2}
+damage_dealt = {}
+damage_taken = {}
+healed = {}
+lifesteal_earned = {}
+kills = {}
+deaths = {}
+fights_won = {}
+fights_lost = {}
+fight_ticks = {}
+",
+                s.shots,
+                s.hits,
+                s.accuracy_pct(),
+                s.damage_dealt,
+                s.damage_taken,
+                s.healed,
+                s.lifesteal_earned,
+                s.kills,
+                s.deaths,
+                s.fights_won,
+                s.fights_lost,
+                s.fight_ticks
+            ));
+        }
+        out
     }
 
     pub fn client_count(&self) -> usize {
@@ -299,6 +358,9 @@ impl<T: Transport> Server<T> {
 
     fn drop_client(&mut self, i: usize, why: &str) {
         let c = self.clients.remove(i);
+        if let Some(p) = self.game.player(c.player) {
+            self.departed.push((c.name.clone(), p.stats));
+        }
         self.game.remove_player(c.player);
         self.log
             .push(format!("{} (player {}) {why}", c.name, c.player.0));
@@ -571,6 +633,24 @@ mod tests {
         assert_eq!(server.clients()[0].missing_cmds, 0);
         assert!(snap.tick.0 > 240);
         assert!(server.clients()[0].rtt_ms > 15.0, "{:?}", server.clients());
+    }
+
+    #[test]
+    fn stats_toml_parses_and_keeps_departed_players() {
+        let (net, mut server, mut client) = setup(LinkConditions::default());
+        client.connect_request();
+        for t in 1..20 {
+            net.advance_to(t);
+            server.poll(t);
+            client.pump(t);
+        }
+        server.tick(20);
+        server.poll(10_000_000); // times out → departed
+        let doc: toml::Table = toml::from_str(&server.stats_toml()).unwrap();
+        let players = doc["players"].as_array().unwrap();
+        assert_eq!(players.len(), 1);
+        assert_eq!(players[0]["name"].as_str(), Some("t"));
+        assert_eq!(doc["lifesteal_percent"].as_integer(), Some(100));
     }
 
     #[test]

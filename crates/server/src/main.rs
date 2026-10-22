@@ -12,6 +12,7 @@ struct Args {
     port: Option<u16>,
     bind: Option<String>,
     duration: Option<f64>,
+    stats_file: Option<String>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -20,6 +21,7 @@ fn parse_args() -> Result<Args, String> {
         port: None,
         bind: None,
         duration: None,
+        stats_file: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -28,6 +30,7 @@ fn parse_args() -> Result<Args, String> {
             "--config" => a.config = Some(val()?),
             "--port" => a.port = Some(val()?.parse().map_err(|_| "--port needs a number")?),
             "--bind" => a.bind = Some(val()?),
+            "--stats-file" => a.stats_file = Some(val()?),
             "--duration-secs" => {
                 a.duration = Some(
                     val()?
@@ -128,6 +131,10 @@ fn run() -> Result<(), String> {
                 server.game.tick.0,
                 server.client_count()
             );
+            if let Some(path) = &args.stats_file {
+                std::fs::write(path, server.stats_toml()).map_err(|e| format!("{path}: {e}"))?;
+                println!("stats written to {path}");
+            };
             return Ok(());
         }
         // Sleep most of the way to the next tick, polling the socket at ≥ 1 kHz.
