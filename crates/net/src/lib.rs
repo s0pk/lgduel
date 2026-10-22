@@ -4,6 +4,7 @@
 pub mod browser;
 pub mod client;
 pub mod conn;
+pub mod demo;
 pub mod hitreg;
 pub mod interp;
 pub mod predict;

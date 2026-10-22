@@ -42,6 +42,8 @@ pub struct NetSession {
     follow: Option<lgduel_sim::game::PlayerId>,
     /// Latest server message and when it arrived (shown for a few seconds).
     toast: Option<(String, u64)>,
+    /// Demo being recorded and when recording began (µs).
+    recorder: Option<(lgduel_net::demo::Demo, u64)>,
 }
 
 fn nonce() -> u64 {
@@ -117,7 +119,33 @@ impl NetSession {
             map_error: None,
             follow: None,
             toast: None,
+            recorder: None,
         }
+    }
+
+    /// Start recording snapshots and own commands (needs to be connected).
+    pub fn start_recording(&mut self) -> Result<(), String> {
+        let (Some(me), Some(cfg)) = (self.client.player(), self.client.config.as_ref()) else {
+            return Err("not connected yet".into());
+        };
+        let header = lgduel_net::demo::DemoHeader {
+            kind: lgduel_net::demo::DemoKind::Net,
+            map: self.world.name.clone(),
+            map_hash: self.world.content_hash(),
+            config_toml: cfg.to_toml_string(),
+            me: me.0,
+            initial: vec![],
+        };
+        self.recorder = Some((lgduel_net::demo::Demo::new(header), self.now_us()));
+        Ok(())
+    }
+
+    pub fn stop_recording(&mut self) -> Option<lgduel_net::demo::Demo> {
+        let (mut d, _) = self.recorder.take()?;
+        let tick = self.latest.as_ref().map_or(0, |s| s.tick.0);
+        d.frames
+            .push(lgduel_net::demo::DemoFrame::End { tick, hash: 0 });
+        Some(d)
     }
 
     pub fn now_us(&self) -> u64 {
@@ -175,7 +203,16 @@ impl NetSession {
             .predictor
             .get_or_insert_with(|| Predictor::new(me, self.world.clone(), cfg.clone()));
         let mut events: Vec<GameEvent> = Vec::new();
-        for snap in self.client.take_snapshots() {
+        let fresh = self.client.take_snapshots();
+        if let Some((d, start)) = &mut self.recorder {
+            for snap in &fresh {
+                d.frames.push(lgduel_net::demo::DemoFrame::Snapshot {
+                    at_us: now.saturating_sub(*start),
+                    data: snap.encode(),
+                });
+            }
+        }
+        for snap in fresh {
             self.interp.push(snap.tick.0, &snap.players);
             self.hitreg.on_snapshot(me, &snap);
             self.last_snapshot_us = Some(now);
@@ -267,6 +304,12 @@ impl NetSession {
         };
         for t in self.client.advance(now) {
             let cmd = cmd_for(t);
+            if let Some((d, start)) = &mut self.recorder {
+                d.frames.push(lgduel_net::demo::DemoFrame::Cmd {
+                    at_us: now.saturating_sub(*start),
+                    cmd,
+                });
+            }
             self.client.send_cmd_with_view(now, cmd, Some(view_tick));
             predictor.predict(&cmd);
             if cmd.pressed(buttons::FIRE) && mine.alive {

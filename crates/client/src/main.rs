@@ -13,6 +13,7 @@
 mod audio;
 mod browser;
 mod console;
+mod demo_play;
 mod effects;
 mod fight;
 mod font;
@@ -86,6 +87,10 @@ struct Options {
     join: Option<String>,
     /// Joining by code: skip the direct attempt and use the relay.
     force_relay: bool,
+    /// Record a demo to this file.
+    record: Option<String>,
+    /// Play this demo file.
+    play_demo: Option<String>,
     /// Skip the main menu and start a practice session.
     practice: bool,
     /// Skip the main menu: host a game with the saved host settings and join it.
@@ -133,6 +138,8 @@ impl Options {
             spectate: false,
             join: None,
             force_relay: false,
+            record: None,
+            play_demo: None,
             menu_online: false,
             summary_demo: false,
             menu_console: false,
@@ -250,6 +257,8 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
             "--join" => o.join = Some(val("--join")?),
             "--rendezvous" => o.s.rendezvous = val("--rendezvous")?,
             "--force-relay" => o.force_relay = true,
+            "--record" => o.record = Some(val("--record")?),
+            "--play-demo" => o.play_demo = Some(val("--play-demo")?),
             "--practice" => o.practice = true,
             "--map" => {
                 let m = val("--map")?;
@@ -347,6 +356,118 @@ fn player_rows(n: &NetSession) -> Vec<menu::PlayerRow> {
             me: Some(e.id) == me,
         })
         .collect()
+}
+
+/// Headless `--record FILE`: a scripted practice duel against the practice bot
+/// (the player aims at it, strafes and fires), recorded as a demo.
+fn run_headless_record(opts: &Options) -> Result<(), String> {
+    let path = opts.record.clone().unwrap_or_default();
+    let world = load_world(&opts.s.practice.map);
+    let (session, _) = new_practice(opts, &world);
+    let Session::Local { mut s, bot } = session else {
+        return Err("practice session expected".into());
+    };
+    let (mut bot, bot_id) = bot.ok_or("--record needs the practice bot")?;
+    s.start_recording();
+    let ticks = (opts.secs * s.game.cfg.tick_rate_hz as f64) as u32;
+    for t in 0..ticks {
+        let me = s.game.player(s.me).ok_or("no player")?;
+        let target = s.game.player(bot_id).ok_or("no bot")?.pm.origin;
+        let (pitch, yaw) = look_angles(target - me.pm.origin);
+        let mine = UserCmd {
+            tick: s.game.tick,
+            pitch,
+            yaw,
+            forward: 0,
+            right: if (t / 60) % 2 == 0 { 127 } else { -127 },
+            buttons: lgduel_sim::usercmd::buttons::FIRE,
+        };
+        let theirs = bot.think(&s.game, bot_id);
+        s.step_with_cmds(&[(bot_id, theirs), (s.me, mine)]);
+    }
+    let demo = s.stop_recording().ok_or("not recording")?;
+    let (tick, hash) = demo.end().unwrap_or_default();
+    std::fs::write(&path, demo.encode()).map_err(|e| format!("{path}: {e}"))?;
+    let st = s.game.player(s.me).map(|p| p.stats).unwrap_or_default();
+    println!(
+        "DEMO RECORDED {path}: {ticks} ticks to tick {tick}, hash {hash:016x}, you dealt {} took {}",
+        st.damage_dealt, st.damage_taken
+    );
+    Ok(())
+}
+
+/// Headless `--play-demo FILE`: play to the end (local demos are re-simulated
+/// and must reproduce the recorded state hash), then render the last frame.
+fn run_headless_demo(opts: &Options) -> Result<(), String> {
+    let path = opts.play_demo.clone().unwrap_or_default();
+    let bytes = std::fs::read(&path).map_err(|e| format!("{path}: {e}"))?;
+    let mut d = demo_play::DemoPlayer::open(&bytes)?;
+    match &mut d {
+        demo_play::DemoPlayer::Local(r) => {
+            let v = r.run_to_end();
+            println!("DEMO REPLAY {v:?}");
+            if !matches!(v, demo_play::Verdict::Match(_)) {
+                return Err(format!("replay does not reproduce the recording: {v:?}"));
+            }
+        }
+        demo_play::DemoPlayer::Net(_) => {
+            while !d.finished() {
+                d.advance(8_000);
+            }
+            println!("DEMO REPLAY online demo played to the end");
+        }
+    }
+    let fv = d.frame_view().ok_or("nothing to show")?;
+    let (world, cfg) = d.world_cfg();
+    let (w, h) = opts.s.video.size;
+    let off = offscreen::Offscreen::new(w, h)?;
+    let mut r = Renderer::new(&off.device, offscreen::FORMAT);
+    r.set_world(&off.device, world);
+    let cam = scene::view_camera(
+        &fv,
+        Default::default(),
+        Default::default(),
+        opts.s.video.fov,
+    );
+    let firing = fv.spectate.is_some_and(|s| s.firing);
+    let hud_s = HudSettings {
+        input_display: true,
+        ..HudSettings::default()
+    };
+    let input = d.input_view();
+    off.render(
+        &mut r,
+        3,
+        |i| {
+            let scene = scene::scene_mesh(
+                &fv,
+                world,
+                cfg,
+                &cam,
+                firing,
+                &EnemyColors::default(),
+                &opts.s.effects,
+                i,
+            );
+            let hud = scene::hud_mesh(
+                &fv,
+                &cam,
+                (w, h),
+                &DamageNumbers::default(),
+                &hud_s,
+                None,
+                Some(input),
+            );
+            (cam, scene, hud)
+        },
+        CLEAR,
+    );
+    if let Some(shot) = &opts.screenshot {
+        offscreen::save_png(std::path::Path::new(shot), w, h, &off.read_pixels())?;
+        println!("SCREENSHOT {shot}");
+    }
+    println!("DEMO CHECK OK");
+    Ok(())
 }
 
 /// A built-in map by name (arena_flat if unknown).
@@ -640,6 +761,7 @@ enum Session {
         bot: Option<(Bot, PlayerId)>,
     },
     Net(NetSession),
+    Demo(Box<demo_play::DemoPlayer>),
 }
 
 impl Session {
@@ -647,6 +769,26 @@ impl Session {
         match self {
             Session::Local { s, .. } => Some(s.frame_view()),
             Session::Net(n) => n.frame_view().cloned(),
+            Session::Demo(d) => d.frame_view(),
+        }
+    }
+
+    fn start_recording(&mut self) -> Result<(), String> {
+        match self {
+            Session::Local { s, .. } => {
+                s.start_recording();
+                Ok(())
+            }
+            Session::Net(n) => n.start_recording(),
+            Session::Demo(_) => Err("can't record while playing a demo".into()),
+        }
+    }
+
+    fn stop_recording(&mut self) -> Option<lgduel_net::demo::Demo> {
+        match self {
+            Session::Local { s, .. } => s.stop_recording(),
+            Session::Net(n) => n.stop_recording(),
+            Session::Demo(_) => None,
         }
     }
 
@@ -654,6 +796,10 @@ impl Session {
         match self {
             Session::Local { s, .. } => (&s.game.world, Some(&s.game.cfg)),
             Session::Net(n) => (n.world(), n.config()),
+            Session::Demo(d) => {
+                let (w, c) = d.world_cfg();
+                (w, Some(c))
+            }
         }
     }
 }
@@ -809,7 +955,11 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
     let mut frames = 0u64;
     let mut seen_opponent_frames = 0u64;
     let mut asked_spectate = false;
+    let mut recording = false;
     while start.elapsed().as_secs_f64() < opts.secs {
+        if opts.record.is_some() && !recording {
+            recording = n.start_recording().is_ok();
+        }
         if opts.spectate && !asked_spectate && n.client.player().is_some() {
             n.set_spectate(true);
             asked_spectate = true;
@@ -838,6 +988,13 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
     }
     if let Some(e) = &n.map_error {
         return Err(format!("can't join {server}: {e}"));
+    }
+    if let (Some(path), Some(demo)) = (&opts.record, n.stop_recording()) {
+        std::fs::write(path, demo.encode()).map_err(|e| format!("{path}: {e}"))?;
+        println!(
+            "DEMO RECORDED {path}: {} frames (online)",
+            demo.frames.len()
+        );
     }
     // The picture is checked for the opponent's colours: if the session ended
     // right after a frag (opponent dead / respawning), keep playing idle up to
@@ -1011,6 +1168,11 @@ struct App {
     error: Option<String>,
     /// `quit` typed in the console (handled at the end of the frame).
     quit_requested: bool,
+    /// Demo file being recorded to (recording starts once a session is running).
+    recording: Option<std::path::PathBuf>,
+    recording_started: bool,
+    /// The end of the demo being played was reported.
+    demo_reported: bool,
 }
 
 impl App {
@@ -1147,6 +1309,32 @@ impl App {
         }
         let acted = action.is_some();
         match action {
+            Some(console::ConsoleAction::Record(name)) => {
+                match console::demo_path(dir.as_deref(), &name) {
+                    Ok(p) if self.session.is_some() => {
+                        self.save_recording();
+                        self.menu
+                            .console
+                            .print(&format!("recording to {}", p.display()));
+                        self.recording = Some(p);
+                    }
+                    Ok(_) => self.menu.console.print("start a game first"),
+                    Err(e) => self.menu.console.print(&e),
+                }
+            }
+            Some(console::ConsoleAction::StopRecord) => {
+                if self.recording.is_some() {
+                    self.save_recording();
+                } else {
+                    self.menu.console.print("not recording");
+                }
+            }
+            Some(console::ConsoleAction::PlayDemo(name)) => {
+                match console::demo_path(dir.as_deref(), &name) {
+                    Ok(p) => self.play_demo(&p),
+                    Err(e) => self.menu.console.print(&e),
+                }
+            }
             Some(console::ConsoleAction::Connect(a)) => {
                 self.leave_session(None, menu::Screen::Closed);
                 self.start_online(&a);
@@ -1165,8 +1353,9 @@ impl App {
             Some(console::ConsoleAction::Quit) => self.quit_requested = true,
             None => {}
         }
-        if acted {
+        if acted && self.session.is_some() && self.menu.screen == menu::Screen::Closed {
             self.menu.console.open = false;
+            self.set_grab(true);
         }
     }
 
@@ -1212,6 +1401,22 @@ impl App {
                 );
             }
             Session::Net(n) => n.update(|t| keys.cmd(t, &look)),
+            Session::Demo(d) => {
+                d.advance(elapsed.as_micros() as u64);
+                if let demo_play::DemoPlayer::Local(r) = d.as_ref()
+                    && let Some(v) = &r.verdict
+                    && !self.demo_reported
+                {
+                    self.demo_reported = true;
+                    println!("DEMO end: {v:?}");
+                }
+            }
+        }
+        if self.recording.is_some()
+            && let Some(s) = &mut self.session
+            && !self.recording_started
+        {
+            self.recording_started = s.start_recording().is_ok();
         }
         self.check_connection();
         if let Some(fv) = self.session.as_ref().and_then(Session::frame_view) {
@@ -1425,6 +1630,50 @@ impl App {
                 }
                 n.disconnect();
             }
+            Session::Demo(_) => {}
+        }
+        self.save_recording();
+    }
+
+    /// Write the demo being recorded (if any) to its file.
+    fn save_recording(&mut self) {
+        let Some(path) = self.recording.take() else {
+            return;
+        };
+        self.recording_started = false;
+        let Some(demo) = self.session.as_mut().and_then(Session::stop_recording) else {
+            return;
+        };
+        let msg = match path
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .and_then(|_| std::fs::write(&path, demo.encode()))
+        {
+            Ok(()) => format!(
+                "demo saved: {} ({} frames)",
+                path.display(),
+                demo.frames.len()
+            ),
+            Err(e) => format!("demo not saved: {}: {e}", path.display()),
+        };
+        println!("DEMO {msg}");
+        self.menu.console.print(&msg);
+    }
+
+    /// Play a demo file (replaces the current session).
+    fn play_demo(&mut self, path: &std::path::Path) {
+        let opened = std::fs::read(path)
+            .map_err(|e| format!("{}: {e}", path.display()))
+            .and_then(|b| demo_play::DemoPlayer::open(&b));
+        match opened {
+            Ok(d) => {
+                self.leave_session(None, menu::Screen::Closed);
+                println!("DEMO playing {}", path.display());
+                self.session = Some(Session::Demo(Box::new(d)));
+                self.demo_reported = false;
+                self.set_grab(true);
+            }
+            Err(e) => self.menu.console.print(&format!("can't play demo: {e}")),
         }
     }
 }
@@ -1614,6 +1863,10 @@ impl ApplicationHandler for App {
                         .as_ref()
                         .map(|fv| {
                             let k = self.keys;
+                            let demo_input = match &self.session {
+                                Some(Session::Demo(d)) => Some(d.input_view()),
+                                _ => None,
+                            };
                             let input = match fv.spectate {
                                 Some(sv) => hud::InputView {
                                     jump: sv.buttons & lgduel_sim::usercmd::buttons::JUMP != 0,
@@ -1631,14 +1884,20 @@ impl ApplicationHandler for App {
                                     fire: k.fire,
                                 },
                             };
+                            // Demos always show the recorded inputs.
+                            let hud_s = crate::hud::HudSettings {
+                                input_display: self.opts.s.hud.input_display
+                                    || demo_input.is_some(),
+                                ..self.opts.s.hud
+                            };
                             scene::hud_mesh(
                                 fv,
                                 &cam,
                                 size,
                                 &self.numbers,
-                                &self.opts.s.hud,
+                                &hud_s,
                                 self.fights.summary(),
-                                Some(input),
+                                Some(demo_input.unwrap_or(input)),
                             )
                         })
                         .unwrap_or_default();
@@ -1835,6 +2094,20 @@ fn main() {
             std::process::exit(2);
         }
     };
+    if opts.headless && opts.play_demo.is_some() {
+        if let Err(e) = run_headless_demo(&opts) {
+            eprintln!("lgduel: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    if opts.headless && opts.record.is_some() && opts.connect.is_none() && opts.join.is_none() {
+        if let Err(e) = run_headless_record(&opts) {
+            eprintln!("lgduel: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
     if opts.headless && (opts.connect.is_some() || opts.join.is_some()) {
         if let Err(e) = run_headless_online(&opts) {
             eprintln!("lgduel: {e}");
@@ -1890,6 +2163,7 @@ fn main() {
         opts.s.mouse.dpi,
         opts.s.mouse.degrees_per_count()
     );
+    let opts_record = opts.record.clone();
     let mut app = App {
         world,
         session,
@@ -1918,8 +2192,13 @@ fn main() {
         frames: 0,
         error: None,
         quit_requested: false,
+        recording: opts_record.map(std::path::PathBuf::from),
+        recording_started: false,
+        demo_reported: false,
     };
-    if let Some(code) = app.opts.join.clone() {
+    if let Some(p) = app.opts.play_demo.clone() {
+        app.play_demo(std::path::Path::new(&p));
+    } else if let Some(code) = app.opts.join.clone() {
         app.start_code(&code);
     } else if let Some(addr) = connect_to {
         app.start_online(&addr);

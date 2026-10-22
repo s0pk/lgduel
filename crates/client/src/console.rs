@@ -13,12 +13,16 @@ const HELP: &str = "console commands:
   set KEY VALUE         change it now (KEY VALUE works too), e.g. set fov 110 -> video.fov 110
   writeconfig NAME      save all settings to NAME.cfg (a profile)
   exec NAME             run NAME.cfg
+  record NAME | stoprecord | playdemo NAME   demos (practice: exact replay)
   connect ADDRESS | join CODE | practice | disconnect | quit
   clear | help";
 
 /// Things the console asks the app to do.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConsoleAction {
+    Record(String),
+    StopRecord,
+    PlayDemo(String),
     Connect(String),
     Join(String),
     Practice,
@@ -141,6 +145,13 @@ fn type_name(v: &toml::Value) -> &'static str {
     }
 }
 
+/// Demo file for `name` in the demos folder next to the settings.
+pub fn demo_path(settings_dir: Option<&Path>, name: &str) -> Result<PathBuf, String> {
+    let name = name.trim().trim_end_matches(".lgdemo");
+    let p = profile(settings_dir.map(|d| d.join("demos")).as_deref(), name)?;
+    Ok(p.with_extension("lgdemo"))
+}
+
 /// Profile file for `name` (letters, digits, - and _ only).
 fn profile(dir: Option<&Path>, name: &str) -> Result<PathBuf, String> {
     let dir = dir.ok_or("no settings folder (started with --no-settings)")?;
@@ -241,6 +252,11 @@ fn run_depth(
         "connect" if !rest.is_empty() => (vec![], Some(ConsoleAction::Connect(rest.into())), false),
         "join" if !rest.is_empty() => (vec![], Some(ConsoleAction::Join(rest.into())), false),
         "practice" => (vec![], Some(ConsoleAction::Practice), false),
+        "record" if !rest.is_empty() => (vec![], Some(ConsoleAction::Record(rest.into())), false),
+        "stoprecord" => (vec![], Some(ConsoleAction::StopRecord), false),
+        "playdemo" if !rest.is_empty() => {
+            (vec![], Some(ConsoleAction::PlayDemo(rest.into())), false)
+        }
         "disconnect" => (vec![], Some(ConsoleAction::Disconnect), false),
         "quit" | "exit" => (vec![], Some(ConsoleAction::Quit), false),
         key if rest.is_empty() => {

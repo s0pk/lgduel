@@ -578,3 +578,14 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
 - `scene::view_camera` is the only camera source; tests assert the camera and the whole dynamic scene are
   identical with and without damage/kill events (no screen shake, kick, blood, gibs or flashes).
 - With these, every §1 visibility option is in Settings → Visuals (PLAN 8.2).
+
+## D57 — Demos (2026-10-23)
+- `net::demo` (`.lgdemo`, "LGDM" v1): header (kind, map + content hash, gameplay config TOML, recording
+  player, initial state) + frames. Local demos: initial full snapshot + every tick's commands of every player
+  + End{tick, state_hash}; playback re-simulates with `LocalSession::step_with_cmds` and reports Match /
+  Mismatch / Unverified. Net demos: snapshots as received (full encoding, arrival time) + own commands;
+  playback shows the snapshot at the playback clock (no re-simulation: the server's state is the truth).
+- Playback view = the recorder's own angles (SpectateView) with the input overlay forced on; status line
+  says whether the replay matched. Console record/stoprecord/playdemo (demos/NAME.lgdemo next to the
+  settings), CLI --record/--play-demo; headless record (scripted practice duel vs the bot) + verified replay
+  in check.sh.

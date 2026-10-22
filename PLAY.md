@@ -78,6 +78,14 @@ Command-line options still work and override the file for that run, e.g.
 again. Profiles are plain text (`set KEY VALUE` lines), so you can keep several setups and share them.
 The console also does `connect ADDRESS`, `join CODE`, `practice`, `disconnect` and `quit`.
 
+## Demos
+
+In the console: `record NAME` starts recording the current game (practice or online), `stoprecord`
+saves it as `demos/NAME.lgdemo` next to your settings, `playdemo NAME` plays it. Practice demos are
+re-simulated from your exact inputs, so playback is identical to what happened (the game checks this at
+the end); online demos replay what the server sent you. Playback is from your own view and always shows
+the keys you pressed. From the command line: `lgduel.exe --play-demo FILE`, `--record FILE`.
+
 ## Server rules (hosting)
 
 The Host screen sets name, map, port, mode (vamp / classic), lifesteal % and anti-lag. Everything else

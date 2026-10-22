@@ -57,6 +57,9 @@ stage "client offscreen render (1920x1080, screenshot + pixel checks)"
 "$T/$PROFILE/lgduel" --headless --frames 3 --summary-demo --size 1280x720 --screenshot artifacts/fight_summary.png | grep -E "CHECK"
 # Gun model + input display on (both optional; default off).
 "$T/$PROFILE/lgduel" --headless --frames 3 --gun normal --input-display --size 1280x720 --screenshot artifacts/gun_input.png | grep -E "CHECK"
+# Demo: record a 20 s practice duel on arena_tiers, replay it: the re-simulation must reproduce the state hash.
+"$T/$PROFILE/lgduel" --headless --no-settings --map arena_tiers --record artifacts/practice.lgdemo --secs 20 | grep -E "DEMO RECORDED"
+"$T/$PROFILE/lgduel" --headless --no-settings --play-demo artifacts/practice.lgdemo --size 1280x720 --screenshot artifacts/demo_end.png | grep -E "DEMO (REPLAY|CHECK)"
 # Every built-in map renders with the duel checks passing.
 for m in arena_pillars arena_tiers; do
   "$T/$PROFILE/lgduel" --headless --frames 3 --map "$m" --size 1280x720 --screenshot "artifacts/map_$m.png" | grep -E "^MAP|CHECK"

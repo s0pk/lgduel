@@ -19,29 +19,79 @@ pub struct LocalSession {
     interp: Vec<(PlayerId, Vec3, Vec3)>,
     /// Game events from all ticks run by the most recent `advance`.
     pub events: Vec<GameEvent>,
+    /// Demo being recorded (every tick's commands).
+    pub recorder: Option<lgduel_net::demo::Demo>,
 }
 
 impl LocalSession {
     /// New offline game with the local player; `extra` more idle players are added.
     pub fn new(cfg: GameConfig, world: World, extra: usize) -> Self {
-        let rate = cfg.tick_rate_hz;
         let mut game = Game::new(cfg, world);
         let me = game.add_player();
         for _ in 0..extra {
             game.add_player();
         }
+        Self::from_game(game, me)
+    }
+
+    /// A session around an existing game (demo playback starts from its recorded state).
+    pub fn from_game(game: Game, me: PlayerId) -> Self {
         let interp = game
             .players
             .iter()
             .map(|p| (p.id, p.pm.origin, p.pm.origin))
             .collect();
         Self {
+            stepper: FixedStepper::new(game.cfg.tick_rate_hz),
             game,
             me,
-            stepper: FixedStepper::new(rate),
             interp,
             events: Vec::new(),
+            recorder: None,
         }
+    }
+
+    /// Start recording a demo from the current state.
+    pub fn start_recording(&mut self) {
+        let g = &self.game;
+        let initial = lgduel_net::snapshot::Snapshot::capture(g, vec![], None).encode();
+        self.recorder = Some(lgduel_net::demo::Demo::new(lgduel_net::demo::DemoHeader {
+            kind: lgduel_net::demo::DemoKind::Local,
+            map: g.world.name.clone(),
+            map_hash: g.world.content_hash(),
+            config_toml: g.cfg.to_toml_string(),
+            me: self.me.0,
+            initial,
+        }));
+    }
+
+    /// Stop recording; the demo ends with the current tick and state hash.
+    pub fn stop_recording(&mut self) -> Option<lgduel_net::demo::Demo> {
+        let mut d = self.recorder.take()?;
+        d.frames.push(lgduel_net::demo::DemoFrame::End {
+            tick: self.game.tick.0,
+            hash: self.game.state_hash(),
+        });
+        Some(d)
+    }
+
+    /// Run exactly one tick with these commands (recorded if recording).
+    pub fn step_with_cmds(&mut self, cmds: &[(PlayerId, UserCmd)]) {
+        if let Some(d) = &mut self.recorder {
+            d.frames.push(lgduel_net::demo::DemoFrame::Tick {
+                tick: self.game.tick.0,
+                cmds: cmds.iter().map(|(p, c)| (p.0, *c)).collect(),
+            });
+        }
+        self.game.step(cmds);
+        self.events.extend(self.game.events.iter().cloned());
+        self.update_interp();
+    }
+
+    /// Ticks due after `elapsed_us` of real time (for callers that make their own commands).
+    pub fn due_ticks(&mut self, elapsed_us: u64) -> u32 {
+        self.events.clear();
+        self.stepper.advance(elapsed_us).1
     }
 
     /// Advance by real elapsed time; `cmd_for` builds the local command for each tick
@@ -58,9 +108,7 @@ impl LocalSession {
             let tick = Tick(start.0 + i);
             let mut cmds = others(&self.game, tick);
             cmds.push((self.me, cmd_for(tick)));
-            self.game.step(&cmds);
-            self.events.extend(self.game.events.iter().cloned());
-            self.update_interp();
+            self.step_with_cmds(&cmds);
         }
         n
     }

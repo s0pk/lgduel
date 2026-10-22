@@ -109,8 +109,8 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] 8.5 Gun model options (configurable/absent), no screen shake, no blood (assert)
 
 ## Phase 9 — Demos & stats (deps: 4.x)
-- [ ] 9.1 Demo recording (inputs + snapshots)
-- [ ] 9.2 Deterministic playback + input overlay; record→playback hash test
+- [x] 9.1 Demo recording (inputs + snapshots)
+- [x] 9.2 Deterministic playback + input overlay; record→playback hash test
 - [x] 9.3 End-of-fight summary UI — done with 6.4 (iteration 57)
 
 ## Phase 10 — Perf (deps: 3.x, 4.x)
