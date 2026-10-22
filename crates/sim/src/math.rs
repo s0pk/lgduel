@@ -238,6 +238,55 @@ fn poly_sin_cos(x: f64) -> (f64, f64) {
     (s * x, c)
 }
 
+/// Deterministic `atan2(y, x)` in radians, (-π, π], using only + - * / sqrt.
+/// Two half-angle reductions bring the argument under tan(π/16), then a fixed
+/// Taylor series (error < 1e-15).
+pub fn atan2_det(y: f64, x: f64) -> f64 {
+    use std::f64::consts::{FRAC_PI_2, PI};
+    if x == 0.0 && y == 0.0 {
+        return 0.0;
+    }
+    let (ax, ay) = (x.abs(), y.abs());
+    // Angle of (ax, ay) in [0, π/2].
+    let swap = ay > ax;
+    let mut t = if swap { ax / ay } else { ay / ax };
+    // atan(t) = 2 atan(t / (1 + sqrt(1 + t²))), applied twice.
+    for _ in 0..2 {
+        t /= 1.0 + (1.0 + t * t).sqrt();
+    }
+    let t2 = t * t;
+    let mut s = 0.0;
+    for k in (0..12).rev() {
+        let term = 1.0 / (2 * k + 1) as f64;
+        s = s * t2 + if k % 2 == 0 { term } else { -term };
+    }
+    let mut a = 4.0 * s * t;
+    if swap {
+        a = FRAC_PI_2 - a;
+    }
+    match (x < 0.0, y < 0.0) {
+        (false, false) => a,
+        (true, false) => PI - a,
+        (true, true) => a - PI,
+        (false, true) => -a,
+    }
+}
+
+impl Angle {
+    /// Nearest angle to `rad` radians (wraps).
+    pub fn from_radians(rad: f64) -> Angle {
+        Angle::from_degrees(rad * (180.0 / std::f64::consts::PI))
+    }
+}
+
+/// (pitch, yaw) that look along `dir` (positive pitch = down). Deterministic.
+pub fn look_angles(dir: Vec3) -> (Angle, Angle) {
+    let yaw = atan2_det(dir.y as f64, dir.x as f64);
+    let flat = (dir.x as f64 * dir.x as f64 + dir.y as f64 * dir.y as f64).sqrt();
+    let pitch = -atan2_det(dir.z as f64, flat);
+    (Angle::from_radians(pitch), Angle::from_radians(yaw))
+}
+
 /// View basis from pitch (positive = look down) and yaw, roll = 0.
 /// Returns (forward, right, up), matching Quake's AngleVectors convention.
 pub fn angle_vectors(pitch: Angle, yaw: Angle) -> (Vec3, Vec3, Vec3) {
@@ -376,6 +425,40 @@ mod tests {
         let mut b = StateHasher::new();
         b.f32(-0.0);
         assert_ne!(a.finish(), b.finish());
+    }
+
+    #[test]
+    fn atan2_matches_std() {
+        let mut worst = 0.0f64;
+        let mut seed = 12345u64;
+        for _ in 0..100_000 {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            let y = ((seed >> 11) as f64 / (1u64 << 53) as f64) * 2000.0 - 1000.0;
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            let x = ((seed >> 11) as f64 / (1u64 << 53) as f64) * 2000.0 - 1000.0;
+            worst = worst.max((atan2_det(y, x) - y.atan2(x)).abs());
+        }
+        assert!(worst < 1e-13, "worst {worst}");
+        assert_eq!(atan2_det(0.0, 0.0), 0.0);
+        assert_eq!(atan2_det(1.0, 0.0), std::f64::consts::FRAC_PI_2);
+        assert_eq!(atan2_det(0.0, -1.0), std::f64::consts::PI);
+    }
+
+    #[test]
+    fn look_angles_round_trip() {
+        for d in [
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.3, -0.8, 0.2),
+            Vec3::new(-5.0, 2.0, -3.0),
+        ] {
+            let (p, y) = look_angles(d);
+            let (f, _, _) = angle_vectors(p, y);
+            assert!((f - d.normalize()).length() < 1e-6, "{d:?} -> {f:?}");
+        }
     }
 
     #[test]

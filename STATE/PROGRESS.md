@@ -53,3 +53,9 @@
 ## 2026-10-22 — iteration 11: PLAN 2.13 rules
 - Fight lifecycle in `Game`: `fight_start` set when ≥2 players all alive; kill → `FightEnd{winner,loser,ticks}`; stats fights_won/fights_lost/fight_ticks; `frags` score; classic `MatchEnd` at frag_limit with score reset; vamp resets winner to spawn health (new `rules.reset_winner_health`, default true). State hash covers new fields.
 - Verified: check.sh GREEN. New tests: vamp fight lifecycle (fight start at tick 0, FightEnd with ticks, no MatchEnd, winner back to 100, W/L + fight ticks on both players, next fight starts after respawn); classic frag limit 2 → exactly one MatchEnd and scores reset.
+
+## 2026-10-22 — iteration 12: PLAN 2.14 determinism
+- Added deterministic `atan2_det` + `look_angles` to `sim::math` (tests: < 1e-13 vs std over 100k points; look → angle_vectors round trip).
+- `crates/sim/tests/determinism.rs`: seeded drivers (random A/D strafes 150–600 ms, 10% jump segments, range keeping 200–450u, aim with 1.5° vs 4° jitter, always firing) play 7500 ticks; inputs recorded, replayed on a fresh game; hashes equal + pinned. New check.sh stage prints the result.
+- Measured: hash 0x9e74a8ea7918ee78; 994 damage events, 25 kills; accuracy a 57.1% / b 44.1% → 25W-0L in vamp (accuracy gap decides fights, as in the real format). 60 s sim runs in ~0.01 s (release-dbg).
+- Phase 2 (sim core) complete. Verified: check.sh GREEN.

@@ -121,3 +121,10 @@ Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update th
   true) so every fight starts even. Classic: frags count to `frag_limit` → `MatchEnd`, scores reset.
 - **Pair isolation = one `Game` instance per duel arena.** The server will host many `Game`s (one per
   pair) plus lobby/spectators, so cross-pair damage/collision is impossible by construction (Phase 6).
+
+## D11 — Determinism verification (2026-10-22)
+- `sim::math::atan2_det` / `look_angles`: deterministic inverse trig (basic ops only, < 1e-13 vs std), so
+  bots/tests/lag-comp aim never depend on platform libm.
+- Determinism test records a 60 s seeded duel's inputs and replays them; hashes must match each other and
+  the pinned golden hash 0x9e74a8ea7918ee78. Running the same test on Linux (KI-1) is the cross-platform
+  drift check. Any intentional sim change updates the pin (note it in PROGRESS).

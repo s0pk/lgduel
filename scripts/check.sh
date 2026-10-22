@@ -22,6 +22,9 @@ cargo build --workspace --profile "$PROFILE"
 stage "cargo test ($PROFILE)"
 cargo test --workspace --profile "$PROFILE"
 
+stage "determinism (recorded 60 s duel replayed, golden hash)"
+cargo test -q -p lgduel-sim --profile "$PROFILE" --test determinism -- --nocapture 2>&1 | grep -E "DETERMINISM|test result"
+
 stage "binaries run"
 for bin in lgduel lgduel-server lgduel-bot lgduel-tools; do
     "target/$PROFILE/$bin" >/dev/null

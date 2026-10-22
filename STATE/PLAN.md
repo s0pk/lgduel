@@ -23,7 +23,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] 2.11 Hitscan LG: 50 ms refire, range 768, ray vs player AABB, damage, knockback
 - [x] 2.12 Damage/health/armor(off)/death/respawn timer, lifesteal % (0–100), exact-heal test
 - [x] 2.13 Rules: vamp duel (default), first-to-N classic, fight lifecycle, stats counters
-- [ ] 2.14 Determinism test: input log replayed twice → identical state hash; wired into check.sh
+- [x] 2.14 Determinism test: input log replayed twice → identical state hash; wired into check.sh
 
 ## Phase 3 — Local playable (deps: 2.x)
 - [ ] 3.1 Client window (winit + wgpu), low-latency present mode, vsync off default, frame-time p50/p99 logging
