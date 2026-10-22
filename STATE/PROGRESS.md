@@ -118,3 +118,7 @@
 - `net::wire` (LE codec, varint/zig-zag, panic-free reader), `net::transport` (Transport trait, UdpTransport, MemNet with latency/jitter/loss), `net::conn` (seq/ack bits, reliable ordered resend, unreliable payload, RTT/jitter/loss stats).
 - Bug found by test and fixed: loss was only counted when a history slot was reused (1024 packets later), so short sessions always reported 0% loss; now counted when a packet leaves the 33-packet ack window.
 - Verified: net tests 13 passed — 500 reliable messages delivered exactly once in order over 40±20 ms / 20% loss; RTT estimate 112 ms for 2×50 ms (+step quantisation); 10% loss link reports loss within 5–15%; duplicates/garbage rejected; MTU cap; real UDP loopback; MemNet loss rate 5% ±1% and deterministic; jitter reorders. check.sh GREEN.
+
+## 2026-10-22 — iteration 23: PLAN 4.2 protocol messages
+- `net::protocol`: Connectionless handshake messages + cookie, `Inputs` (8× redundant cmds), `InputBuffer` (dedup, sanitize, late/dup counters, lead), `Control`. `net::snapshot`: `Snapshot` capture/apply/encode/decode with all player state and events.
+- Verified: net tests 24 passed — handshake round trips, no-amplification sizes, name truncation, cookie keyed on secret/addr/nonce, inputs exact, input buffer survives a lost packet via redundancy (10 received, 6 dups), sanitisation, snapshot of a 900-tick fight → decode → apply → identical state hash and identical next tick; truncated snapshots rejected. Full snapshot 173 bytes. check.sh GREEN.

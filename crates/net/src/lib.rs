@@ -2,6 +2,8 @@
 //! interpolation and lag compensation. Transport-agnostic.
 
 pub mod conn;
+pub mod protocol;
+pub mod snapshot;
 pub mod transport;
 pub mod wire;
 

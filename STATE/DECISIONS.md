@@ -210,3 +210,14 @@ Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update th
   with `newest` flag; MTU cap 1200 bytes. RTT/jitter: TCP-style smoothing (1/8, 1/4).
 - Loss = packets that fall > 32 behind the newest ack without being acked (and un-counted if a straggler
   ack arrives later).
+
+## D21 — Protocol (2026-10-22)
+- Handshake (connectionless, first byte 0xFF): ConnectRequest{version, nonce} (padded ≥ Challenge size: no
+  amplification) → Challenge{nonce, cookie=keyed hash(secret, addr, nonce)} → ConnectResponse{…, cookie,
+  name ≤ 24} → Accept{player id, tick rate, gameplay config TOML} / Reject{reason}. Spoofed sources never
+  get a slot (they can't see the cookie).
+- Inputs (unreliable): last 8 UserCmds per packet (exact u32 angles) + newest snapshot tick seen. Server
+  `InputBuffer` takes each tick's command once, sanitises it, counts duplicates/late, and reports lead.
+- Snapshots (unreliable): full state at `game.tick`, f32 as exact bits, events since the last snapshot, and
+  the receiving client's last consumed command tick. 173 bytes for 2 players before delta compression.
+- Control (reliable): Disconnect, ServerEvent.
