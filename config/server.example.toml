@@ -16,6 +16,10 @@ crouch_speed_scale = 0.25
 player_mins = [-15.0, -15.0, -24.0]
 player_maxs = [15.0, 15.0, 32.0]
 crouch_maxs_z = 16.0
+view_height = 26.0         # eye height (hitscan origin)
+crouch_view_height = 12.0
+auto_hop = true            # hold jump to re-jump on landing
+snap_velocity = true       # round velocity each tick (Q3 style)
 
 [lg]
 refire_ms = 50

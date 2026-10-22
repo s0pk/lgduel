@@ -71,3 +71,17 @@ original or CC0/MIT.
 - Trig is our own: integer octant reduction + degree-15/16 Taylor in f64, then cast to f32. Same bits on
   every IEEE platform. Error < 1e-14 vs std.
 - State hash: FNV-1a 64 over exact bit patterns (not `std::hash`, whose output may change between releases).
+
+## D7 — Movement model details (2026-10-22)
+- pmove follows the Quake 3 movement structure (friction → accelerate → clip to ground → step-slide;
+  air: accelerate with air_accelerate, trapezoidal gravity, 4-bump / 5-plane slide, step-up). Written
+  from the documented behaviour; no code copied.
+- Deviation: the walk-move "clip velocity to ground then restore speed" step uses an exact projection
+  (overbounce 1.0) instead of OVERCLIP 1.001. With OVERCLIP + renormalise, a residual +1 u/s vertical
+  velocity after landing (from velocity snapping) is restored every tick and never decays.
+- `snap_velocity` rounds to nearest (ties away from zero). Original Q3 C code truncates, but the x86
+  builds people actually played rounded to nearest (fistp), which is what produced the familiar
+  125 Hz feel. Revisit against golden jump numbers in 2.9.
+- `auto_hop = true` default (Quake Live lets you hold jump to bunny hop); Q3 behaviour available via config.
+- Jump sets vertical velocity to jump_velocity (no additive/ramp jumps, no double jump; VQL-style).
+- Open question: Quake Live may use step height 22 rather than Q3's 18 — verify (KI-4).

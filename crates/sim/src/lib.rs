@@ -4,6 +4,7 @@
 
 pub mod config;
 pub mod math;
+pub mod pmove;
 pub mod tick;
 pub mod trace;
 pub mod usercmd;

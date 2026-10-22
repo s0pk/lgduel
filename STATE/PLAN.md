@@ -15,9 +15,9 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] 2.3 Usercmd: view angles (exact, quantized like wire format), forward/right/up move, buttons (jump/crouch/fire)
 - [x] 2.4 World geometry: AABB brush list + map data file format, loader + tests
 - [x] 2.5 Trace: swept AABB vs brushes (fraction, normal, startsolid), unit tests
-- [ ] 2.6 pmove ground: friction, accel (Q3-style accelerate), stop speed, ground check
-- [ ] 2.7 pmove air: air accel, gravity, jump (+ hold-jump behaviour per DECISIONS)
-- [ ] 2.8 pmove slide-move / clip velocity / step-up 18u, crouch hull + speed scale
+- [x] 2.6 pmove ground: friction, accel (Q3-style accelerate), stop speed, ground check
+- [x] 2.7 pmove air: air accel, gravity, jump (+ hold-jump behaviour per DECISIONS)
+- [x] 2.8 pmove slide-move / clip velocity / step-up 18u, crouch hull + speed scale
 - [ ] 2.9 Golden tests: standing jump apex, ground accel-to-320 time, strafe-jump speed gain, circle-jump
 - [ ] 2.10 Strafe-aim relative-speed ratio test: mirroring ≈0.00v, anti-mirroring ≈2.00v, HSW mirroring ≈0.29v, HSW anti ≈1.71v
 - [ ] 2.11 Hitscan LG: 50 ms refire, range 768, ray vs player AABB, damage, knockback

@@ -47,6 +47,14 @@ pub struct PhysicsConfig {
     pub player_maxs: [f32; 3],
     /// Hull maxs.z while crouched.
     pub crouch_maxs_z: f32,
+    /// Eye height above origin while standing (hitscan origin).
+    pub view_height: f32,
+    /// Eye height above origin while crouched.
+    pub crouch_view_height: f32,
+    /// Holding jump re-jumps on landing (Quake Live behaviour); false = must re-press.
+    pub auto_hop: bool,
+    /// Round velocity to whole units at the end of every tick (Quake 3 style).
+    pub snap_velocity: bool,
 }
 
 /// Lightning Gun (hitscan beam).
@@ -128,6 +136,10 @@ impl Default for PhysicsConfig {
             player_mins: [-15.0, -15.0, -24.0],
             player_maxs: [15.0, 15.0, 32.0],
             crouch_maxs_z: 16.0,
+            view_height: 26.0,
+            crouch_view_height: 12.0,
+            auto_hop: true,
+            snap_velocity: true,
         }
     }
 }
@@ -210,6 +222,8 @@ impl GameConfig {
             ("stop_speed", p.stop_speed),
             ("step_height", p.step_height),
             ("crouch_speed_scale", p.crouch_speed_scale),
+            ("view_height", p.view_height),
+            ("crouch_view_height", p.crouch_view_height),
             ("lg.range", self.lg.range),
             ("lg.knockback", self.lg.knockback),
         ];

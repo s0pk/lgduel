@@ -32,3 +32,9 @@
 ## 2026-10-22 — iteration 7: PLAN 2.5 trace
 - `sim::trace`: swept AABB vs world brushes (6 half-spaces per expanded brush, Quake-style 0.125 surface epsilon), returns fraction/end/normal/start_solid/all_solid; `World::trace`, `World::trace_ray` (zero hull for hitscan).
 - Verified: check.sh GREEN. Tests: fall onto floor stops at 24.125, wall hit normal + position, sliding epsilon above floor is free, start/all-solid flags, ray hit/miss, diagonal picks nearest plane.
+
+## 2026-10-22 — iteration 8: PLAN 2.6 + 2.7 + 2.8 pmove (done together)
+- These three items share one slide-move core and can't be tested apart without stubs, so they were built and verified together.
+- `sim::pmove`: `PlayerMove` state (origin, velocity, ground normal, ducked, jump_held), `pmove()` per tick: duck check (stand only with room), ground probe 0.25u, walk move (friction w/ stop speed, cmd scale so diagonal = straight, ground-projected axes, crouch speed cap), air move (air accel), trapezoidal gravity, clip-plane slide move, step-up to step_height, velocity snap. Config gained view_height 26 / crouch_view_height 12, auto_hop, snap_velocity.
+- Bug found by test and fixed: residual +1 u/s vertical velocity after landing (see DECISIONS D7).
+- Verified: check.sh GREEN. sim tests 41 passed; pmove tests: stand still exactly, fall + land at z=24.125 with vz=0, ground accel → exactly 320, diagonal ≤ 321, friction stops 320→0 within 1 s, crouch walk = 80, can't stand under low ceiling, wall block + slide, step 16u yes / 24u no, jump re-press without auto_hop, auto hop keeps hopping, crouch eye 14u lower.
