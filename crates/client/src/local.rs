@@ -15,8 +15,8 @@ pub struct LocalSession {
     pub game: Game,
     pub me: PlayerId,
     stepper: FixedStepper,
-    prev_origin: Vec3,
-    cur_origin: Vec3,
+    /// (player, origin at previous tick, origin at current tick) for render interpolation.
+    interp: Vec<(PlayerId, Vec3, Vec3)>,
 }
 
 impl LocalSession {
@@ -28,13 +28,16 @@ impl LocalSession {
         for _ in 0..extra {
             game.add_player();
         }
-        let o = game.player(me).unwrap().pm.origin;
+        let interp = game
+            .players
+            .iter()
+            .map(|p| (p.id, p.pm.origin, p.pm.origin))
+            .collect();
         Self {
             game,
             me,
             stepper: FixedStepper::new(rate),
-            prev_origin: o,
-            cur_origin: o,
+            interp,
         }
     }
 
@@ -51,14 +54,34 @@ impl LocalSession {
             let tick = Tick(start.0 + i);
             let mut cmds = others(&self.game, tick);
             cmds.push((self.me, cmd_for(tick)));
-            self.prev_origin = self.cur_origin;
             self.game.step(&cmds);
-            self.cur_origin = self.game.player(self.me).unwrap().pm.origin;
-            if (self.cur_origin - self.prev_origin).length() > TELEPORT_DIST {
-                self.prev_origin = self.cur_origin;
-            }
+            self.update_interp();
         }
         n
+    }
+
+    fn update_interp(&mut self) {
+        let old = std::mem::take(&mut self.interp);
+        for p in &self.game.players {
+            let cur = p.pm.origin;
+            let prev = old
+                .iter()
+                .find(|(id, _, _)| *id == p.id)
+                .map(|(_, _, c)| *c)
+                .filter(|c| (cur - *c).length() <= TELEPORT_DIST)
+                .unwrap_or(cur);
+            self.interp.push((p.id, prev, cur));
+        }
+    }
+
+    /// Origin of `id` interpolated between the last two ticks.
+    pub fn origin(&self, id: PlayerId) -> Vec3 {
+        let a = self.alpha();
+        self.interp
+            .iter()
+            .find(|(pid, _, _)| *pid == id)
+            .map(|(_, prev, cur)| *prev + (*cur - *prev) * a)
+            .unwrap_or_else(|| self.game.player(id).map_or(Vec3::ZERO, |p| p.pm.origin))
     }
 
     /// Interpolation fraction between the last two ticks.
@@ -68,8 +91,7 @@ impl LocalSession {
 
     /// Eye position interpolated between the last two ticks.
     pub fn eye(&self) -> Vec3 {
-        let a = self.alpha();
-        let o = self.prev_origin + (self.cur_origin - self.prev_origin) * a;
+        let o = self.origin(self.me);
         let p = self.game.player(self.me).unwrap();
         o + (p.pm.eye(&self.game.cfg.physics) - p.pm.origin)
     }
@@ -123,6 +145,29 @@ mod tests {
         assert_eq!(tf, 250);
         assert_eq!(ts, 250);
         assert_eq!(fast.game.state_hash(), slow.game.state_hash());
+    }
+
+    #[test]
+    fn other_players_interpolate_too() {
+        let mut s = session();
+        let other = s.game.players[1].id;
+        let walk = |t: Tick| UserCmd {
+            tick: t,
+            forward: 127,
+            ..UserCmd::default()
+        };
+        for _ in 0..50 {
+            s.advance(8_000, fwd, |_, t| vec![(other, walk(t))]);
+        }
+        let a = s.origin(other);
+        s.advance(4_000, fwd, |_, t| vec![(other, walk(t))]);
+        let mid = s.origin(other);
+        s.advance(4_000, fwd, |_, t| vec![(other, walk(t))]);
+        let b = s.origin(other);
+        assert!(
+            (mid - (a + (b - a) * 0.5)).length() < 1e-3,
+            "{a:?} {mid:?} {b:?}"
+        );
     }
 
     #[test]

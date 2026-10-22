@@ -77,3 +77,9 @@
 - `client::input`: `MouseSettings` (dpi, cm/360, invert), `MouseLook` (sub-count accumulation, pitch clamp), `Keys` → UserCmd. `client::local::LocalSession`: Game + FixedStepper, prev/cur origin interpolation, teleport snap. App: cursor grab (click to grab, Esc releases, focus loss clears keys), WASD/space/ctrl-C/mouse1, raw mouse motion, flags `--sens-cm --dpi --invert --synthetic-input`.
 - Done together: mouse look has nothing to look at until the sim loop drives the camera.
 - Verified: unit tests (full turn returns within 2 angle units after uneven fractional chunks; 10k×0.1 counts == 1000 counts; directions + clamp + invert; sens math; keys→cmd; 1000 fps vs 37 fps → same 250 ticks and same state hash; eye interpolation at half tick). Live run `lgduel --synthetic-input --frames 3000 --size 1920x1080`: 107 ticks in 0.86 s (125 Hz), yaw turned 228.6° = 3000×2 counts×0.0381°, ground speed 396 u/s; FRAMESTATS p50 0.204 ms, p99 2.096 ms, avg 3486 fps (RTX 4060, Immediate). check.sh GREEN.
+
+## 2026-10-22 — iteration 16: PLAN 3.6 player models + forced enemy colours
+- `client::players`: `EnemyColors` (head/upper/lower), `push_player` (three solid bands of the hitbox + facing nub, crouch aware). `LocalSession` now interpolates every player (teleport snap per player). Windowed client and headless render draw opponents.
+- Headless check asserts forced enemy colours visible: head 120 px, upper 300 px, lower 340 px at 768u / FOV 110 / 1080p; screenshot inspected (three bands visible at far wall).
+- Test fix: facing-nub assertion boundary (nub touches the hitbox face at x=15 → `>=`).
+- Verified: check.sh GREEN; client tests 18 passed (incl. other-player interpolation at half tick).

@@ -153,3 +153,11 @@ Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update th
 - Local sim runs through `FixedStepper` at the config tick rate; own eye is interpolated between the last
   two ticks (teleports > 128u snap). Frame rate never changes sim results (tested: 1000 fps vs 37 fps
   give identical state hash).
+
+## D15 — Player models & forced colours (2026-10-22)
+- Model = the hitbox itself, split into lower (0–45% height) / upper (45–85%) / head (85–100%) bands,
+  plus a small facing nub at head height. Solid unshaded colours (no face shading) = maximum visibility,
+  and what you see is exactly what you can hit. Crouch shrinks the model with the hull.
+- Default forced enemy colours: head yellow (1,1,0), upper green (0,1,0), lower cyan (0,0.6,1) —
+  configurable in Phase 8.
+- Headless check now asserts each forced colour appears (≥50 px) on an opponent at 768u.

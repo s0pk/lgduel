@@ -12,6 +12,7 @@ mod gfx;
 mod input;
 mod local;
 mod offscreen;
+mod players;
 mod render;
 
 use frame_stats::FrameStats;
@@ -21,6 +22,7 @@ use lgduel_sim::config::GameConfig;
 use lgduel_sim::math::{Vec3, look_angles};
 use lgduel_sim::world::{World, builtin};
 use local::LocalSession;
+use players::EnemyColors;
 use render::{Camera, Renderer};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -137,16 +139,23 @@ fn load_world() -> World {
     World::from_toml_str(builtin::ARENA_FLAT, hull).expect("builtin map")
 }
 
-/// Camera at the first spawn's eye, looking at the second spawn.
-fn spawn_camera(w: &World, fov: f32) -> Camera {
-    let eye = w.spawns[0].origin + Vec3::new(0.0, 0.0, GameConfig::default().physics.view_height);
-    let (pitch, yaw) = look_angles(w.spawns[1].origin - eye);
-    Camera {
-        eye,
-        pitch,
-        yaw,
-        fov,
+/// Dynamic geometry for everyone except the local player.
+fn scene_mesh(session: &LocalSession, colors: &EnemyColors) -> Vec<render::Vertex> {
+    let mut v = Vec::new();
+    for p in &session.game.players {
+        if p.id == session.me || !p.alive {
+            continue;
+        }
+        players::push_player(
+            &mut v,
+            session.origin(p.id),
+            p.yaw,
+            p.pm.ducked,
+            &session.game.cfg.physics,
+            colors,
+        );
     }
+    v
 }
 
 fn run_headless(opts: &Options) -> Result<(), String> {
@@ -159,9 +168,25 @@ fn run_headless(opts: &Options) -> Result<(), String> {
     let world = load_world();
     let mut r = Renderer::new(&off.device, offscreen::FORMAT);
     r.set_world(&off.device, &world);
-    let cam = spawn_camera(&world, opts.fov);
+    // Local player at spawn 1, an idle opponent at spawn 2; look at the opponent's chest.
+    let session = LocalSession::new(GameConfig::default(), world.clone(), 1);
+    let enemy = session.game.players[1].pm.origin;
+    let eye = session.eye();
+    let (pitch, yaw) = look_angles(enemy + Vec3::new(0.0, 0.0, 8.0) - eye);
+    let cam = Camera {
+        eye,
+        pitch,
+        yaw,
+        fov: opts.fov,
+    };
+    let colors = EnemyColors::default();
     let frames = opts.frames.unwrap_or(120) as u32;
-    let stats = off.render(&mut r, frames, |_| (cam, vec![]), CLEAR);
+    let stats = off.render(
+        &mut r,
+        frames,
+        |_| (cam, scene_mesh(&session, &colors)),
+        CLEAR,
+    );
     if let Some(s) = stats.summary() {
         println!("FRAMESTATS {s} | offscreen (GPU wait per frame)");
     }
@@ -181,6 +206,21 @@ fn run_headless(opts: &Options) -> Result<(), String> {
     if distinct < 4 {
         return Err(format!("render looks blank ({distinct} colours)"));
     }
+    let total = (w * h) as f64;
+    for (name, c) in [
+        ("head", colors.head),
+        ("upper", colors.upper),
+        ("lower", colors.lower),
+    ] {
+        let srgb = offscreen::linear_to_srgb8(c);
+        let px_count = (offscreen::color_fraction(&px, srgb, 2) * total).round() as u64;
+        println!("IMAGE enemy {name} {srgb:?}: {px_count} px");
+        if px_count < 50 {
+            return Err(format!(
+                "forced enemy {name} colour not visible ({px_count} px)"
+            ));
+        }
+    }
     if floor_frac < 0.05 {
         return Err(format!(
             "floor colour covers only {:.2}%",
@@ -198,6 +238,7 @@ struct App {
     look: MouseLook,
     keys: Keys,
     grabbed: bool,
+    colors: EnemyColors,
     window: Option<Arc<Window>>,
     gfx: Option<Gfx>,
     renderer: Option<Renderer>,
@@ -392,6 +433,7 @@ impl ApplicationHandler for App {
                     self.simulate(now - last);
                 }
                 self.last_frame = Some(now);
+                let dynamic = scene_mesh(&self.session, &self.colors);
                 let cam = Camera {
                     eye: self.session.eye(),
                     pitch: self.look.pitch,
@@ -399,9 +441,10 @@ impl ApplicationHandler for App {
                     fov: self.opts.fov,
                 };
                 if let (Some(g), Some(r), Some(depth)) =
-                    (&mut self.gfx, &self.renderer, &self.depth)
+                    (&mut self.gfx, &mut self.renderer, &self.depth)
                 {
                     let size = (g.config.width, g.config.height);
+                    r.set_dynamic(&g.device, &g.queue, &dynamic);
                     g.frame(|d, q, v| r.draw(d, q, v, depth, size, &cam, CLEAR));
                 }
                 self.frames += 1;
@@ -451,6 +494,7 @@ fn main() {
         look,
         keys: Keys::default(),
         grabbed: false,
+        colors: EnemyColors::default(),
         opts,
         window: None,
         gfx: None,
