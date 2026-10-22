@@ -35,7 +35,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] 3.7a LG beam (styles incl. none, own beam from muzzle, enemy beams), impact sparks on/off + size
 - [x] 3.7b Hit sound (procedurally generated, original), audio output, volume
 - [x] 3.8 HUD: text rendering, health, crosshair, fight stats, damage numbers
-- [ ] 3.9 Bot crate: strafe patterns (random A/D w/ reaction model, mirror, anti-mirror, HSW), tracking aim w/ accuracy + reaction delay
+- [x] 3.9 Bot crate: strafe patterns (random A/D w/ reaction model, mirror, anti-mirror, HSW), tracking aim w/ accuracy + reaction delay
 - [ ] 3.10 Offline vs bot practice mode playable
 
 ## Phase 4 — Networking (deps: 2.x; 3.x only for client integration)

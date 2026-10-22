@@ -191,3 +191,13 @@ Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update th
   after 0.6 s (a stream of 7s at 20 Hz was an unreadable stack).
 - Headless run now really fires: fixed virtual 2 ms per frame (300 frames = 0.6 s = 12 LG cells),
   knockback off so the scene is stable; checks crosshair/HUD text/damage-number pixels.
+
+## D19 — Bots (2026-10-22)
+- `lgduel_bot` lib (+ bin). Perception: opponent position from `reaction_ms` ago plus `lead`×velocity×reaction.
+  Aim: proportional controller (`gain`/tick) capped by `turn_speed`, plus uniform `noise_deg` jitter. Presets
+  aimbot / hard (120 ms) / medium (180 ms) / easy (250 ms).
+- Strafe patterns relative to the line between the players: still, random A/D (hold min..max ms, optional
+  jumps), mirror, anti-mirror, HSW mirror, HSW anti (diagonal with range-band forward/back). Range keeping
+  via min/max band. Seeded PRNG → same seed + same game = same inputs.
+- Measured bot-vs-bot (8 s, 200–400u band, zero reaction): relative lateral speed mirror 0.11v, anti 1.86v,
+  HSW 0.31v, HSW anti 1.74v (ideal 0 / 2 / 0.29 / 1.71; transitions between directions account for the gap).

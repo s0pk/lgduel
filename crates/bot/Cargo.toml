@@ -13,6 +13,10 @@ workspace = true
 lgduel-sim = { path = "../sim" }
 lgduel-net = { path = "../net" }
 
+[lib]
+name = "lgduel_bot"
+path = "src/lib.rs"
+
 [[bin]]
 name = "lgduel-bot"
 path = "src/main.rs"
