@@ -203,3 +203,10 @@
 - Predictor: `max_correction`, `rubber_bands` (> 1u, external corrections excluded; dead counts as external). Matrix table gained own-correction columns + assertion (≤ 2 per cell). BOTRESULT reports them; `lgduel-tools match` asserts ≤ 1 per 10 s per bot in all three profiles (lossy + highping required by the plan were already in check.sh).
 - Measured: matrix 0 rubber-bands in 15/16 cells, 2 (3.33u max) at 0 ms + 5% loss; headless 60 s matches: see check log (all within threshold).
 - Verified: check.sh GREEN.
+
+## 2026-10-22 — iteration 37: PLAN 5.5 net-graph
+- Connection byte counters; `hud::NetGraph` + overlay; NetSession computes it each frame; F3 / `--no-net-graph`; headless online renders the HUD and asserts net-graph values + pixels; client-smoke prints NETGRAPH.
+- Measured (real UDP smoke): ping 3.9 ms ±1.9, loss 0.00%, tick 125 Hz, snapshots 125/s, interp 16.3 ms, in 15.5 KB/s, out 20.5 KB/s, rubber-bands 0, hitreg 100%; net-graph 4424 px. Screenshot inspected.
+- Tooling: bash heredocs with long embedded Python failed to parse again; edit scripts now written with the Write tool.
+- Priority change (user, 2026-10-22): friend-test first — next a release package + "play with a friend" guide, then continue the plan.
+- Verified: check.sh GREEN.

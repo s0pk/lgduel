@@ -78,6 +78,7 @@ struct Options {
     name: String,
     /// Headless online run length.
     secs: f64,
+    net_graph: bool,
 }
 
 impl Default for Options {
@@ -105,6 +106,7 @@ impl Default for Options {
             connect: None,
             name: "player".into(),
             secs: 5.0,
+            net_graph: true,
         }
     }
 }
@@ -156,6 +158,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Options, String>
                     .ok_or(format!("--beam must be none|thin|thick|zigzag, got {v}"))?
             }
             "--no-sparks" => o.effects.sparks = false,
+            "--no-net-graph" => o.net_graph = false,
             "--no-sound" => o.volume = 0.0,
             "--no-bot" => o.bot = None,
             "--bot" => {
@@ -434,6 +437,7 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
     let mut r = Renderer::new(&off.device, offscreen::FORMAT);
     r.set_world(&off.device, &world);
     let colors = EnemyColors::default();
+    let hud_settings = HudSettings::default();
     let start = Instant::now();
     let mut aim = (lgduel_sim::math::Angle::ZERO, lgduel_sim::math::Angle::ZERO);
     let mut frames = 0u64;
@@ -480,7 +484,8 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
             seed += 1;
             let scene =
                 scene::scene_mesh(&fv, &world, &cfg, &cam, false, &colors, &opts.effects, seed);
-            (cam, scene, vec![])
+            let hud = scene::hud_mesh(&fv, &cam, (w, h), &DamageNumbers::default(), &hud_settings);
+            (cam, scene, hud)
         },
         CLEAR,
     );
@@ -522,6 +527,34 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
                 "remote opponent {name} colour not visible ({count} px)"
             ));
         }
+    }
+    let g = fv.hud.net.ok_or("no net-graph data online")?;
+    println!(
+        "NETGRAPH ping {:.1} ms +-{:.1} | loss {:.2}% | tick {} Hz | snapshots {:.0}/s | interp {:.1} ms | in {:.1} KB/s out {:.1} KB/s | rubber-bands {} | hitreg {:.1}%",
+        g.ping_ms,
+        g.jitter_ms,
+        g.loss_pct,
+        g.tick_hz,
+        g.snap_hz,
+        g.interp_delay_ms,
+        g.in_kbps,
+        g.out_kbps,
+        g.rubber_bands,
+        g.hitreg_pct
+    );
+    if g.tick_hz != cfg.tick_rate_hz
+        || !(100.0..=140.0).contains(&g.snap_hz)
+        || g.ping_ms <= 0.0
+        || g.in_kbps <= 0.0
+        || g.out_kbps <= 0.0
+    {
+        return Err(format!("net-graph values implausible: {g:?}"));
+    }
+    let ng = offscreen::linear_to_srgb8(hud_settings.net_graph_color);
+    let ng_px = (offscreen::color_fraction(&px, ng, 2) * total).round() as u64;
+    println!("IMAGE net-graph {ng:?}: {ng_px} px");
+    if ng_px < 200 {
+        return Err(format!("net-graph not drawn ({ng_px} px)"));
     }
     n.disconnect();
     println!("ONLINE CHECK OK");
@@ -575,6 +608,7 @@ impl App {
             KeyCode::Space => self.keys.jump = down,
             KeyCode::ControlLeft | KeyCode::KeyC => self.keys.crouch = down,
             KeyCode::Escape if down => self.set_grab(false),
+            KeyCode::F3 if down => self.hud.net_graph = !self.hud.net_graph,
             _ => {}
         }
     }
@@ -907,7 +941,10 @@ fn main() {
         grabbed: false,
         colors: EnemyColors::default(),
         audio,
-        hud: HudSettings::default(),
+        hud: HudSettings {
+            net_graph: opts.net_graph,
+            ..HudSettings::default()
+        },
         numbers: DamageNumbers::default(),
         opts,
         window: None,

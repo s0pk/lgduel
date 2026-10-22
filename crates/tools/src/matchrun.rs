@@ -312,7 +312,10 @@ pub fn run_client_smoke(bin_dir: &Path, out_dir: &Path, secs: f64) -> MatchResul
         Ok(out) => {
             let stdout = String::from_utf8_lossy(&out.stdout);
             for l in stdout.lines().filter(|l| {
-                l.starts_with("ONLINE") || l.starts_with("IMAGE") || l.starts_with("SCREENSHOT")
+                l.starts_with("ONLINE")
+                    || l.starts_with("IMAGE")
+                    || l.starts_with("SCREENSHOT")
+                    || l.starts_with("NETGRAPH")
             }) {
                 r.lines.push(l.to_string());
             }

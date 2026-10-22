@@ -1,7 +1,7 @@
 //! Online session: NetClient + prediction (own movement) + interpolation
 //! (everyone else), producing the same `FrameView` the offline session does.
 
-use crate::hud::HudInfo;
+use crate::hud::{HudInfo, NetGraph};
 use crate::scene::{FrameView, OtherView};
 use lgduel_net::client::{ClientState, NetClient};
 use lgduel_net::hitreg::HitReg;
@@ -29,6 +29,10 @@ pub struct NetSession {
     last_us: u64,
     /// Client-vs-server hit verdict agreement for our LG cells.
     pub hitreg: HitReg,
+    /// Receive times of recent snapshots (for the measured snapshot rate).
+    snap_times: std::collections::VecDeque<u64>,
+    /// (time, bytes in, bytes out) at the start of the bandwidth window.
+    bw_mark: (u64, u64, u64),
 }
 
 impl NetSession {
@@ -47,6 +51,8 @@ impl NetSession {
             view: None,
             last_us: 0,
             hitreg: HitReg::default(),
+            snap_times: std::collections::VecDeque::new(),
+            bw_mark: (0, 0, 0),
         })
     }
 
@@ -83,6 +89,7 @@ impl NetSession {
         for snap in self.client.take_snapshots() {
             self.interp.push(snap.tick.0, &snap.players);
             self.hitreg.on_snapshot(me, &snap);
+            self.snap_times.push_back(now);
             events.extend(snap.events.iter().cloned());
             let newest = self.latest.as_ref().is_none_or(|l| snap.tick > l.tick);
             if newest {
@@ -141,6 +148,31 @@ impl NetSession {
                 self.hitreg.record(t.0, hs.target.is_some());
             }
         }
+        while self
+            .snap_times
+            .front()
+            .is_some_and(|t| now.saturating_sub(*t) > 1_000_000)
+        {
+            self.snap_times.pop_front();
+        }
+        let st = self.client.conn.stats;
+        if now.saturating_sub(self.bw_mark.0) >= 2_000_000 {
+            self.bw_mark = (now, st.bytes_received, st.bytes_sent);
+        }
+        let bw_secs = (now.saturating_sub(self.bw_mark.0) as f32 / 1e6).max(0.001);
+        let net = NetGraph {
+            ping_ms: (self.client.rtt_us() / 1000.0) as f32,
+            jitter_ms: (st.rtt_var_us / 1000.0) as f32,
+            loss_pct: (st.loss() * 100.0) as f32,
+            tick_hz: cfg.tick_rate_hz,
+            snap_hz: self.snap_times.len() as f32,
+            interp_delay_ms: (self.interp.settings.delay_ticks * 1000.0 / cfg.tick_rate_hz as f64)
+                as f32,
+            in_kbps: (st.bytes_received - self.bw_mark.1) as f32 / 1024.0 / bw_secs,
+            out_kbps: (st.bytes_sent - self.bw_mark.2) as f32 / 1024.0 / bw_secs,
+            rubber_bands: predictor.stats.rubber_bands,
+            hitreg_pct: self.hitreg.stats.agreement_pct() as f32,
+        };
         let rate = cfg.tick_rate_hz as f32;
         self.view = Some(FrameView {
             me,
@@ -158,6 +190,7 @@ impl NetSession {
                     .fight_start
                     .map(|s| snap.tick.0.saturating_sub(s.0) as f32 / rate),
                 opponent_health: snap.players.iter().find(|p| p.id != me).map(|p| p.health),
+                net: Some(net),
             },
             events,
         });

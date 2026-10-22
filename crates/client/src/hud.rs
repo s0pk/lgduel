@@ -39,6 +39,8 @@ pub struct HudSettings {
     pub text_scale: f32,
     /// Dark drop shadow behind text for contrast on bright walls.
     pub text_shadow: bool,
+    pub net_graph: bool,
+    pub net_graph_color: [f32; 3],
 }
 
 impl Default for HudSettings {
@@ -50,6 +52,8 @@ impl Default for HudSettings {
             damage_color: [1.0, 0.45, 0.05],
             text_scale: 3.0,
             text_shadow: true,
+            net_graph: true,
+            net_graph_color: [1.0, 0.85, 0.4],
         }
     }
 }
@@ -66,6 +70,28 @@ pub struct HudInfo {
     /// Seconds into the current fight, if one is running.
     pub fight_secs: Option<f32>,
     pub opponent_health: Option<i32>,
+    /// Network statistics (online only).
+    pub net: Option<NetGraph>,
+}
+
+/// Live connection numbers for the net-graph overlay.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct NetGraph {
+    pub ping_ms: f32,
+    /// RTT mean deviation (jitter), ms.
+    pub jitter_ms: f32,
+    pub loss_pct: f32,
+    /// Server simulation rate.
+    pub tick_hz: u32,
+    /// Snapshots actually received per second (last 1 s).
+    pub snap_hz: f32,
+    pub interp_delay_ms: f32,
+    pub in_kbps: f32,
+    pub out_kbps: f32,
+    /// Own-view snap-backs (> 1u) so far.
+    pub rubber_bands: u64,
+    /// Client/server LG hit verdict agreement, %.
+    pub hitreg_pct: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -267,6 +293,35 @@ pub fn build(
         let t = format!("OPP {}", h.max(0));
         let x = screen.0 - margin - text_width(&t, sc);
         label(out, screen, x, margin, sc, s.text_color, sh, &t);
+    }
+    if s.net_graph
+        && let Some(n) = &info.net
+    {
+        let ns = (sc * 0.67).max(1.0);
+        let nline = (GLYPH_H as f32 + 3.0) * ns;
+        let rows = [
+            format!("PING {:.0} MS +-{:.0}", n.ping_ms, n.jitter_ms),
+            format!("LOSS {:.1}%", n.loss_pct),
+            format!("TICK {} HZ SNAP {:.0} HZ", n.tick_hz, n.snap_hz),
+            format!("INTERP {:.0} MS", n.interp_delay_ms),
+            format!("IN {:.1} OUT {:.1} KB/S", n.in_kbps, n.out_kbps),
+            format!("HITREG {:.0}% RB {}", n.hitreg_pct, n.rubber_bands),
+        ];
+        let width = rows.iter().map(|r| text_width(r, ns)).fold(0.0, f32::max);
+        let x = screen.0 - margin - width;
+        let y0 = screen.1 - margin - rows.len() as f32 * nline;
+        for (i, r) in rows.iter().enumerate() {
+            label(
+                out,
+                screen,
+                x,
+                y0 + i as f32 * nline,
+                ns,
+                s.net_graph_color,
+                sh,
+                r,
+            );
+        }
     }
     if s.damage_numbers {
         for d in &numbers.items {

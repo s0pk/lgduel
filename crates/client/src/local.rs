@@ -135,6 +135,7 @@ impl LocalSession {
                     .fight_start
                     .map(|s| (g.tick.0 - s.0) as f32 / g.cfg.tick_rate_hz as f32),
                 opponent_health: g.players.iter().find(|p| p.id != self.me).map(|p| p.health),
+                net: None,
             },
             events: self.events.clone(),
         }

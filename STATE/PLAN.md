@@ -57,7 +57,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] 5.2 Matrix tests: 0/50/100/200 ms × 0–5% loss × ±20 ms jitter; thresholds documented
 - [x] 5.3 Hit-reg agreement metric (client-predicted hit vs server hit), anti-lag on/off
 - [x] 5.4 Rubber-band detector; one lossy + one high-ping run in check.sh
-- [ ] 5.5 Net-graph: ping, loss, jitter, tick rate, snapshot rate
+- [x] 5.5 Net-graph: ping, loss, jitter, tick rate, snapshot rate
 - [ ] 5.6 Game events survive snapshot loss: resend events until a snapshot carrying them is acked (dedupe client-side by tick)
 
 ## Phase 6 — Multi-duel server (deps: 4.x)

@@ -349,3 +349,9 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
   in check.sh). Remote players: matrix max per-frame jump (D31).
 - Measured: 0 in 15/16 matrix cells; 0 ms + 5% loss: 2 × 3.3u (input lead is only 1–2 ticks at ~2 ms RTT,
   so a loss burst can make a command late). Headless 60 s matches: see PROGRESS.
+
+## D34 — Net-graph (2026-10-22)
+- Online HUD overlay (bottom-right, colour (1, 0.85, 0.4), on by default, F3 toggles, `--no-net-graph`):
+  ping ± jitter (RTT and its mean deviation), loss %, server tick rate, measured snapshot rate (last 1 s),
+  interpolation delay (ms), in/out KB/s (connection byte counters, 2 s window), own rubber-band count, hit-reg
+  agreement %. Headless online smoke asserts plausible values and that the overlay is drawn.

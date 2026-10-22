@@ -67,6 +67,8 @@ pub struct ConnStats {
     pub rtt_us: f64,
     /// Smoothed mean deviation of RTT, µs (jitter estimate).
     pub rtt_var_us: f64,
+    pub bytes_sent: u64,
+    pub bytes_received: u64,
 }
 
 impl ConnStats {
@@ -188,6 +190,7 @@ impl Connection {
             valid: true,
         };
         self.stats.packets_sent += 1;
+        self.stats.bytes_sent += w.buf.len() as u64;
         w.finish()
     }
 
@@ -234,6 +237,7 @@ impl Connection {
             self.recv_bits |= 1 << (back - 1);
         }
         self.stats.packets_received += 1;
+        self.stats.bytes_received += data.len() as u64;
 
         // Acks.
         if ack != 0xFFFF || ack_bits != 0 {
