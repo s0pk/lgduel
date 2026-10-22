@@ -2,11 +2,13 @@
 //! by `lgduel-server` and `lgduel host`.
 
 use crate::{Server, ServerConfig};
+use lgduel_net::rendezvous::{RDV_PORT, RelayTransport, format_code};
 use lgduel_net::transport::{Transport, UdpTransport};
 use lgduel_sim::math::Vec3;
 use lgduel_sim::tick::FixedStepper;
 use lgduel_sim::world::{World, builtin};
 use std::net::{IpAddr, UdpSocket};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -18,9 +20,11 @@ pub struct HostArgs {
     pub stats_file: Option<String>,
     /// Built-in map name or map file path (overrides the config file).
     pub map: Option<String>,
+    /// Rendezvous service for a join code (overrides the config file).
+    pub rendezvous: Option<String>,
 }
 
-pub const USAGE: &str = "[--config server.toml] [--port N] [--bind ADDR] [--map NAME|FILE] [--duration-secs N] [--stats-file out.toml]";
+pub const USAGE: &str = "[--config server.toml] [--port N] [--bind ADDR] [--map NAME|FILE] [--rendezvous HOST[:PORT]] [--duration-secs N] [--stats-file out.toml]";
 
 pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<HostArgs, String> {
     let mut a = HostArgs::default();
@@ -32,6 +36,7 @@ pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<HostArgs, St
             "--port" => a.port = Some(val()?.parse().map_err(|_| "--port needs a number")?),
             "--bind" => a.bind = Some(val()?),
             "--map" => a.map = Some(val()?),
+            "--rendezvous" => a.rendezvous = Some(val()?),
             "--stats-file" => a.stats_file = Some(val()?),
             "--duration-secs" => {
                 a.duration = Some(
@@ -78,6 +83,7 @@ pub fn run(args: &HostArgs) -> Result<(), String> {
     let admin = Admin {
         config_path: args.config.clone(),
         console: true,
+        join_code: None,
     };
     run_config(
         cfg,
@@ -96,6 +102,24 @@ pub struct Admin {
     pub config_path: Option<String>,
     /// Read console commands from stdin (`help` lists them).
     pub console: bool,
+    /// Where to put the join code ("LG-XXXX") once the rendezvous gives one.
+    pub join_code: Option<Arc<Mutex<Option<String>>>>,
+}
+
+/// `host[:port]` → address (default port: the rendezvous port).
+pub fn resolve_rendezvous(s: &str) -> Result<std::net::SocketAddr, String> {
+    let with_port = if s
+        .rsplit_once(':')
+        .is_some_and(|(_, p)| p.parse::<u16>().is_ok())
+    {
+        s.to_string()
+    } else {
+        format!("{s}:{RDV_PORT}")
+    };
+    std::net::ToSocketAddrs::to_socket_addrs(&with_port)
+        .map_err(|e| format!("rendezvous {s}: {e}"))?
+        .find(|a| a.is_ipv4())
+        .ok_or(format!("rendezvous {s}: no IPv4 address"))
 }
 
 /// Lines typed into the terminal, read on a background thread (EOF just ends it).
@@ -130,6 +154,9 @@ pub fn config_from_args(args: &HostArgs) -> Result<ServerConfig, String> {
     if let Some(m) = &args.map {
         cfg.server.map = m.clone();
     }
+    if let Some(r) = &args.rendezvous {
+        cfg.server.rendezvous = r.clone();
+    }
     Ok(cfg)
 }
 
@@ -144,6 +171,10 @@ pub fn run_config(
     admin: Admin,
     on_bound: impl FnOnce(Result<std::net::SocketAddr, String>),
 ) -> Result<(), String> {
+    let rendezvous = match cfg.server.rendezvous.trim() {
+        "" => None,
+        r => Some(resolve_rendezvous(r)?),
+    };
     let bound: Result<(World, UdpTransport), String> = (|| {
         let world = load_world(&cfg.server.map.clone(), &cfg)?;
         let addr: std::net::SocketAddr = format!("{}:{}", cfg.server.bind, cfg.server.port)
@@ -192,7 +223,15 @@ pub fn run_config(
     if !cfg.server.rcon_password.is_empty() {
         println!("  remote console on (rcon_password set): lgduel-server rcon ADDRESS COMMAND");
     }
+    let transport = match rendezvous {
+        Some(r) => {
+            println!("  join code: registering with {r}...");
+            RelayTransport::host(transport, r, secret)
+        }
+        None => RelayTransport::plain(transport),
+    };
     let mut server = Server::new(transport, cfg, world, secret);
+    let mut announced = false;
     server.config_path = admin.config_path;
     let console = admin.console.then(stdin_lines);
     if console.is_some() {
@@ -206,7 +245,19 @@ pub fn run_config(
     loop {
         let now = Instant::now();
         let now_us = (now - start).as_micros() as u64;
+        server.transport.tick(now_us);
         server.poll(now_us);
+        if !announced && let Some(c) = server.transport.code() {
+            announced = true;
+            server.join_code = Some(c);
+            let code = format_code(c);
+            println!(
+                "JOIN CODE {code}  (friends: Play online -> Join code; no port forwarding needed)"
+            );
+            if let Some(out) = &admin.join_code {
+                *out.lock().unwrap() = Some(code);
+            }
+        }
         let (_, n) = stepper.advance((now - last).as_micros() as u64);
         last = now;
         for _ in 0..n {

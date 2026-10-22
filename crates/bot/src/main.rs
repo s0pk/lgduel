@@ -7,6 +7,7 @@
 use lgduel_bot::netbot::NetBot;
 use lgduel_bot::{AimSkill, BotConfig, StrafePattern};
 use lgduel_net::client::ClientState;
+use lgduel_net::rendezvous::{JOIN_ADDR, RDV_PORT, RelayTransport, parse_code};
 use lgduel_net::transport::UdpTransport;
 use lgduel_sim::config::GameConfig;
 use lgduel_sim::math::Vec3;
@@ -16,6 +17,9 @@ use std::time::{Duration, Instant};
 
 fn run() -> Result<(), String> {
     let mut server = None;
+    let mut join: Option<String> = None;
+    let mut rendezvous: Option<String> = None;
+    let mut force_relay = false;
     let mut cfg = BotConfig::default();
     let mut name = "bot".to_string();
     let mut duration = 60.0;
@@ -24,6 +28,9 @@ fn run() -> Result<(), String> {
         let mut val = || it.next().ok_or(format!("{a} needs a value"));
         match a.as_str() {
             "--server" => server = Some(val()?),
+            "--join" => join = Some(val()?),
+            "--rendezvous" => rendezvous = Some(val()?),
+            "--force-relay" => force_relay = true,
             "--pattern" => cfg.pattern = StrafePattern::parse(&val()?).ok_or("bad --pattern")?,
             "--skill" => cfg.aim = AimSkill::preset(&val()?).ok_or("bad --skill")?,
             "--name" => name = val()?,
@@ -45,16 +52,40 @@ fn run() -> Result<(), String> {
             other => return Err(format!("unknown argument: {other}")),
         }
     }
-    let Some(server) = server else {
-        println!("lgduel-bot: nothing to do (use --server HOST:PORT; --version for version)");
-        return Ok(());
+    let udp = UdpTransport::bind("0.0.0.0:0".parse().unwrap()).map_err(|e| e.to_string())?;
+    let (addr, transport) = match (server, join) {
+        (_, Some(code)) => {
+            let c = parse_code(&code).ok_or(format!("{code:?} is not a join code"))?;
+            let rdv = rendezvous.ok_or("--join needs --rendezvous HOST[:PORT]")?;
+            let r = std::net::ToSocketAddrs::to_socket_addrs(&if rdv.contains(':') {
+                rdv.clone()
+            } else {
+                format!("{rdv}:{RDV_PORT}")
+            })
+            .map_err(|e| format!("{rdv}: {e}"))?
+            .find(|a| a.is_ipv4())
+            .ok_or(format!("{rdv}: no address"))?;
+            let mut t = RelayTransport::join(udp, r, c, std::process::id() as u64);
+            if force_relay {
+                t = t.forcing_relay();
+            }
+            (JOIN_ADDR, t)
+        }
+        (Some(server), None) => {
+            let addr = server
+                .to_socket_addrs()
+                .map_err(|e| format!("{server}: {e}"))?
+                .next()
+                .ok_or(format!("{server}: no address"))?;
+            (addr, RelayTransport::plain(udp))
+        }
+        (None, None) => {
+            println!(
+                "lgduel-bot: nothing to do (use --server HOST:PORT or --join CODE --rendezvous HOST; --version for version)"
+            );
+            return Ok(());
+        }
     };
-    let addr = server
-        .to_socket_addrs()
-        .map_err(|e| format!("{server}: {e}"))?
-        .next()
-        .ok_or(format!("{server}: no address"))?;
-    let transport = UdpTransport::bind("0.0.0.0:0".parse().unwrap()).map_err(|e| e.to_string())?;
     let phys = GameConfig::default().physics;
     let world = World::from_toml_str(
         builtin::ARENA_FLAT,
@@ -65,6 +96,8 @@ fn run() -> Result<(), String> {
     )
     .map_err(|e| e.to_string())?;
     let mut bot = NetBot::new(transport, addr, &name, cfg, world);
+    // Joining by code may fall back to the relay after a few seconds.
+    let connect_secs = if addr == JOIN_ADDR { 12.0 } else { 5.0 };
     let start = Instant::now();
     let mut announced = false;
     // Measurements (prediction, rubber-bands, late commands) start after a
@@ -76,6 +109,12 @@ fn run() -> Result<(), String> {
     loop {
         let now = start.elapsed();
         let now_us = now.as_micros() as u64;
+        bot.client.transport.tick(now_us);
+        if let Some(lgduel_net::rendezvous::JoinState::Failed(e)) =
+            bot.client.transport.join_state()
+        {
+            return Err(format!("join failed: {e}"));
+        }
         bot.step(now_us);
         match bot.state() {
             ClientState::Connected { player } if !announced => {
@@ -85,8 +124,8 @@ fn run() -> Result<(), String> {
             }
             ClientState::Rejected(r) => return Err(format!("rejected: {r}")),
             ClientState::Disconnected(r) => return Err(format!("disconnected: {r}")),
-            ClientState::Connecting if now.as_secs_f64() > 5.0 => {
-                return Err("could not connect within 5 s".into());
+            ClientState::Connecting if now.as_secs_f64() > connect_secs => {
+                return Err(format!("could not connect within {connect_secs} s"));
             }
             _ => {}
         }

@@ -45,8 +45,8 @@ stage "online client smoke: real lgduel --headless --connect vs server + bot, an
 stage "netem matrix: {0,50,100,200} ms × {0,1,2.5,5}% loss × ±20 ms jitter (MemNet, thresholds asserted)"
 cargo test -q -p lgduel-server --profile "$PROFILE" --test netem_matrix -- --nocapture 2>&1 | grep -E "^\||test result"
 
-stage "p2p rendezvous"
-echo "SKIP: not implemented yet (PLAN Phase 7)"
+stage "p2p: join code via lgduel-server relay; bot direct, client forced through the relay (NAT cases: tests/p2p.rs)"
+"$T/$PROFILE/lgduel-tools" p2p-smoke --secs 5 --out artifacts
 
 stage "client offscreen render (1920x1080, screenshot + pixel checks)"
 "$T/$PROFILE/lgduel" --headless --frames 300 --size 1920x1080 --screenshot artifacts/offscreen.png

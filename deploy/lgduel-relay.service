@@ -1,0 +1,19 @@
+# systemd unit for the LGDuel join-code service (installed by deploy/install.sh).
+[Unit]
+Description=LGDuel join-code rendezvous + relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=lgduel
+ExecStart=/opt/lgduel/lgduel-server relay --port 27950
+Restart=always
+RestartSec=2
+# Hardening: the relay only needs its UDP port.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

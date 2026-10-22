@@ -25,14 +25,17 @@ install -d /opt/lgduel /etc/lgduel
 install -m 755 "$src/lgduel-server" /opt/lgduel/lgduel-server
 [ -f /etc/lgduel/server.toml ] || install -m 644 "$src/server.example.toml" /etc/lgduel/server.toml
 install -m 644 "$src/lgduel-server.service" /etc/systemd/system/lgduel-server.service
+install -m 644 "$src/lgduel-relay.service" /etc/systemd/system/lgduel-relay.service
 systemctl daemon-reload
-systemctl enable --now lgduel-server
-systemctl restart lgduel-server
+systemctl enable --now lgduel-server lgduel-relay
+systemctl restart lgduel-server lgduel-relay
 
 # Open the game port if ufw is active (the provider's firewall is separate: see DEPLOY.md).
 if command -v ufw >/dev/null && ufw status | grep -q "Status: active"; then
     ufw allow 27960/udp
+    ufw allow 27950/udp
 fi
 sleep 1
 systemctl --no-pager --lines=5 status lgduel-server || true
-echo "LGDuel server installed. Config: /etc/lgduel/server.toml  Logs: journalctl -u lgduel-server -f"
+echo "LGDuel server installed (game: UDP 27960, join codes: UDP 27950)."
+echo "Config: /etc/lgduel/server.toml  Logs: journalctl -u lgduel-server -u lgduel-relay -f"

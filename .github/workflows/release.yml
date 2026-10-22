@@ -45,7 +45,7 @@ jobs:
           OUT=dist/lgduel-server-linux-x64
           mkdir -p "$OUT"
           cp target/release/lgduel-server target/release/lgduel-bot "$OUT/"
-          cp DEPLOY.md LICENSE config/server.example.toml deploy/lgduel-server.service "$OUT/"
+          cp DEPLOY.md LICENSE config/server.example.toml deploy/lgduel-server.service deploy/lgduel-relay.service "$OUT/"
           echo "${GITHUB_REF_NAME} ($(git rev-parse --short HEAD))" > "$OUT/VERSION.txt"
           tar -C dist -czf dist/lgduel-server-linux-x64.tar.gz lgduel-server-linux-x64
       - uses: actions/upload-artifact@v4

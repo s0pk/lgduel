@@ -2,7 +2,7 @@
 
 - KI-1 (2026-10-22): Dev machine is Windows; DoD requires check.sh green on Linux. No Linux run yet.
   Add a Linux verification path (WSL / Docker / CI) by PLAN 7.8 at the latest.
-- KI-2 (2026-10-22): check.sh stage p2p prints `SKIP`
+- KI-2 (2026-10-22, RESOLVED iteration 60: real p2p-smoke stage): check.sh stage p2p prints `SKIP`
   until Phase 7 lands. Absent, not passing. (Offscreen render live since it. 14, headless match since it. 31, netem matrix since it. 34.)
 - KI-3 (2026-10-22): cargo is installed at ~/.cargo/bin but may not be on PATH in fresh shells
   until a new login session. Prefix `export PATH="$HOME/.cargo/bin:$PATH"` if `cargo` is not found.

@@ -81,6 +81,10 @@ struct Options {
     bot: Option<(StrafePattern, AimSkill)>,
     /// Play online against this server instead of offline.
     connect: Option<String>,
+    /// Join by code ("LG-XXXX") through the rendezvous service.
+    join: Option<String>,
+    /// Joining by code: skip the direct attempt and use the relay.
+    force_relay: bool,
     /// Skip the main menu and start a practice session.
     practice: bool,
     /// Skip the main menu: host a game with the saved host settings and join it.
@@ -124,6 +128,8 @@ impl Options {
             practice: false,
             host_game: false,
             spectate: false,
+            join: None,
+            force_relay: false,
             menu_online: false,
             summary_demo: false,
             secs: 5.0,
@@ -228,6 +234,9 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
             "--no-settings" => o.settings_path = None,
             "--settings" => o.settings_path = Some(val("--settings")?.into()),
             "--connect" => o.connect = Some(val("--connect")?),
+            "--join" => o.join = Some(val("--join")?),
+            "--rendezvous" => o.s.rendezvous = val("--rendezvous")?,
+            "--force-relay" => o.force_relay = true,
             "--practice" => o.practice = true,
             "--map" => {
                 let m = val("--map")?;
@@ -282,6 +291,27 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
         }
     }
     Ok(o)
+}
+
+/// The rendezvous service to use: the player's setting, else the shipped one.
+fn rendezvous_of(s: &Settings) -> Option<String> {
+    Some(s.rendezvous.trim().to_string())
+        .filter(|r| !r.is_empty())
+        .or_else(browser::shipped_rendezvous)
+}
+
+/// Start joining `code` (a NetSession that resolves it via the rendezvous).
+fn join_session(
+    s: &Settings,
+    code: &str,
+    force_relay: bool,
+    world: World,
+) -> Result<NetSession, String> {
+    let c = lgduel_net::rendezvous::parse_code(code)
+        .ok_or(format!("{code:?} is not a join code (like LG-7KQ2)"))?;
+    let rdv = rendezvous_of(s).ok_or("no rendezvous service set (Play online → \"via\")")?;
+    let addr = lgduel_server::host::resolve_rendezvous(&rdv)?;
+    NetSession::connect_code(addr, c, force_relay, &s.name, world).map_err(|e| e.to_string())
 }
 
 /// The online player list for the Esc menu.
@@ -418,6 +448,7 @@ fn run_headless(opts: &Options) -> Result<(), String> {
             }
         }
         let rows = b.rows(&entries);
+        menu.has_rendezvous = rendezvous_of(&s).is_some();
         if opts.menu_online {
             menu.spectating = Some(false);
             menu.invite = Some((3, "dave".into()));
@@ -585,12 +616,22 @@ impl Session {
 struct HostHandle {
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
+    /// "LG-XXXX" once the rendezvous service has given one.
+    join_code: std::sync::Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl HostHandle {
     /// Start a server with the host settings; returns once it is listening (or failed).
-    fn start(h: &settings::HostSettings) -> Result<(HostHandle, std::net::SocketAddr), String> {
+    fn start(
+        h: &settings::HostSettings,
+        rendezvous: Option<String>,
+    ) -> Result<(HostHandle, std::net::SocketAddr), String> {
         let mut cfg = lgduel_server::ServerConfig::default();
+        if h.join_code
+            && let Some(r) = rendezvous
+        {
+            cfg.server.rendezvous = r;
+        }
         cfg.server.name = h.name.clone();
         cfg.server.port = h.port;
         cfg.server.map = h.map.clone();
@@ -608,8 +649,13 @@ impl HostHandle {
         let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let (tx, rx) = std::sync::mpsc::channel();
         let flag = stop.clone();
+        let join_code = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let code_out = join_code.clone();
         let thread = std::thread::spawn(move || {
-            let admin = lgduel_server::host::Admin::default();
+            let admin = lgduel_server::host::Admin {
+                join_code: Some(code_out),
+                ..Default::default()
+            };
             let _ = lgduel_server::host::run_config(cfg, None, None, &flag, admin, |r| {
                 let _ = tx.send(r);
             });
@@ -619,6 +665,7 @@ impl HostHandle {
                 HostHandle {
                     stop,
                     thread: Some(thread),
+                    join_code,
                 },
                 addr,
             )),
@@ -691,9 +738,21 @@ fn resolve(addr: &str) -> Result<std::net::SocketAddr, String> {
 /// first opponent), render offscreen, check the opponent is drawn in the forced
 /// colours. Proves network + snapshots + interpolation + prediction + render.
 fn run_headless_online(opts: &Options) -> Result<(), String> {
-    let server = resolve(opts.connect.as_deref().unwrap())?;
-    let mut n = NetSession::connect(server, &opts.s.name, load_world(&opts.s.practice.map))
-        .map_err(|e| e.to_string())?;
+    let world = load_world(&opts.s.practice.map);
+    let (server, mut n) = match &opts.join {
+        Some(code) => (
+            code.clone(),
+            join_session(&opts.s, code, opts.force_relay, world)?,
+        ),
+        None => {
+            let addr = opts.connect.clone().unwrap_or_default();
+            let server = resolve(&addr)?;
+            (
+                addr,
+                NetSession::connect(server, &opts.s.name, world).map_err(|e| e.to_string())?,
+            )
+        }
+    };
     let (w, h) = opts.s.video.size;
     let off = offscreen::Offscreen::new(w, h)?;
     let mut r = Renderer::new(&off.device, offscreen::FORMAT);
@@ -733,6 +792,28 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
     }
     if let Some(e) = &n.map_error {
         return Err(format!("can't join {server}: {e}"));
+    }
+    // The picture is checked for the opponent's colours: if the session ended
+    // right after a frag (opponent dead / respawning), keep playing idle up to
+    // 2 s until they're back, aimed at.
+    let wait = Instant::now();
+    while wait.elapsed() < Duration::from_secs(2)
+        && !n
+            .frame_view()
+            .is_some_and(|fv| fv.others.iter().any(|o| o.alive))
+    {
+        n.update(|t| UserCmd {
+            tick: t,
+            pitch: aim.0,
+            yaw: aim.1,
+            ..UserCmd::default()
+        });
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    if let Some(fv) = n.frame_view()
+        && let Some(o) = fv.others.iter().find(|o| o.alive)
+    {
+        aim = look_angles(o.origin + Vec3::new(0.0, 0.0, 8.0) - fv.eye);
     }
     let fv = n
         .frame_view()
@@ -1074,7 +1155,7 @@ impl App {
     fn start_host(&mut self) {
         self.save_settings();
         self.host = None;
-        match HostHandle::start(&self.opts.s.host) {
+        match HostHandle::start(&self.opts.s.host, rendezvous_of(&self.opts.s)) {
             Ok((handle, addr)) => {
                 let port = addr.port();
                 let lan = lgduel_server::host::lan_ip()
@@ -1089,6 +1170,30 @@ impl App {
                 println!("MENU Can't host: {e}");
                 self.menu.message = Some(format!("Can't host: {e}"));
                 self.menu.screen = menu::Screen::Host;
+            }
+        }
+    }
+
+    /// Begin joining by code; the Connecting screen shows the progress.
+    fn start_code(&mut self, code: &str) {
+        match join_session(
+            &self.opts.s,
+            code,
+            self.opts.force_relay,
+            self.world.clone(),
+        ) {
+            Ok(n) => {
+                self.save_settings();
+                println!("ONLINE joining {code} as {}", self.opts.s.name);
+                self.session = Some(Session::Net(n));
+                self.menu.connecting_to = code.trim().to_uppercase();
+                self.menu.screen = menu::Screen::Connecting;
+                self.connect_started = Some(Instant::now());
+                self.numbers = DamageNumbers::default();
+            }
+            Err(e) => {
+                self.menu.message = Some(format!("Can't join: {e}"));
+                self.menu.screen = menu::Screen::Online;
             }
         }
     }
@@ -1120,7 +1225,14 @@ impl App {
         let Some(Session::Net(n)) = &self.session else {
             return;
         };
+        // Joining by code: relay fallback can take a few seconds longer.
+        let patience = if n.join_progress().is_some() { 12 } else { 6 };
         let problem = match n.state() {
+            _ if n.join_failed().is_some() => Some(format!(
+                "Can't join {}: {}",
+                self.menu.connecting_to,
+                n.join_failed().unwrap_or_default()
+            )),
             _ if n.map_error.is_some() => Some(format!(
                 "Can't join: {}",
                 n.map_error.as_deref().unwrap_or_default()
@@ -1130,7 +1242,7 @@ impl App {
             _ if self.menu.screen == menu::Screen::Connecting
                 && self
                     .connect_started
-                    .is_some_and(|t| t.elapsed() > Duration::from_secs(6)) =>
+                    .is_some_and(|t| t.elapsed() > Duration::from_secs(patience)) =>
             {
                 Some(format!(
                     "No answer from {} (is the server running and the UDP port open?)",
@@ -1419,6 +1531,25 @@ impl ApplicationHandler for App {
                     let ui_out = match (&mut self.ui, &self.window) {
                         (Some(ui), Some(w)) if self.menu.is_open() => {
                             let online = matches!(self.session, Some(Session::Net(_)));
+                            self.menu.has_rendezvous = rendezvous_of(&self.opts.s).is_some();
+                            self.menu.connect_detail = match &self.session {
+                                Some(Session::Net(n)) => n.join_progress(),
+                                _ => None,
+                            };
+                            if let Some(h) = &self.host
+                                && let Some(code) = h.join_code.lock().unwrap().clone()
+                                && !self
+                                    .menu
+                                    .hosting_info
+                                    .as_ref()
+                                    .is_some_and(|i| i.contains(&code))
+                            {
+                                println!("HOST join code {code}");
+                                self.menu.hosting_info = Some(format!(
+                                    "{} | join code {code}",
+                                    self.menu.hosting_info.clone().unwrap_or_default()
+                                ));
+                            }
                             self.menu.spectating = match &self.session {
                                 Some(Session::Net(n)) => Some(n.spectating()),
                                 _ => None,
@@ -1477,6 +1608,7 @@ impl ApplicationHandler for App {
                         }
                         Some(menu::Action::StartPractice) => self.start_practice(),
                         Some(menu::Action::Connect(addr)) => self.start_online(&addr),
+                        Some(menu::Action::JoinCode(code)) => self.start_code(&code),
                         Some(menu::Action::StartHost) => self.start_host(),
                         Some(menu::Action::RefreshServers) => {
                             if let Some(b) = &mut self.browser {
@@ -1571,7 +1703,7 @@ fn main() {
             std::process::exit(2);
         }
     };
-    if opts.headless && opts.connect.is_some() {
+    if opts.headless && (opts.connect.is_some() || opts.join.is_some()) {
         if let Err(e) = run_headless_online(&opts) {
             eprintln!("lgduel: {e}");
             std::process::exit(1);
@@ -1654,7 +1786,9 @@ fn main() {
         frames: 0,
         error: None,
     };
-    if let Some(addr) = connect_to {
+    if let Some(code) = app.opts.join.clone() {
+        app.start_code(&code);
+    } else if let Some(addr) = connect_to {
         app.start_online(&addr);
     } else if app.opts.host_game {
         app.start_host();

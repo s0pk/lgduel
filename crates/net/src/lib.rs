@@ -8,6 +8,7 @@ pub mod hitreg;
 pub mod interp;
 pub mod predict;
 pub mod protocol;
+pub mod rendezvous;
 pub mod snapshot;
 pub mod transport;
 pub mod wire;

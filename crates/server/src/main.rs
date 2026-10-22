@@ -1,6 +1,8 @@
 //! `lgduel-server [--config server.toml] [--port N] [--bind ADDR] [--duration-secs N] [--stats-file F]`
 //! (same as `lgduel host …`), or `lgduel-server rcon [--password PW] ADDRESS COMMAND…`
-//! (password also from the `LGDUEL_RCON_PASSWORD` environment variable).
+//! (password also from the `LGDUEL_RCON_PASSWORD` environment variable), or
+//! `lgduel-server relay [--port 27950] [--bind ADDR] [--duration-secs N]` (join-code
+//! rendezvous + relay service).
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -15,6 +17,8 @@ fn main() {
     }
     let result = if args.first().map(String::as_str) == Some("rcon") {
         rcon(&args[1..])
+    } else if args.first().map(String::as_str) == Some("relay") {
+        relay(&args[1..])
     } else {
         lgduel_server::host::parse_args(args).and_then(|a| lgduel_server::host::run(&a))
     };
@@ -79,4 +83,30 @@ fn rcon(args: &[String]) -> Result<(), String> {
             return Ok(());
         }
     }
+}
+
+/// `relay [--port N] [--bind ADDR] [--duration-secs N]`
+fn relay(args: &[String]) -> Result<(), String> {
+    let (mut port, mut bind, mut duration) = (
+        lgduel_net::rendezvous::RDV_PORT,
+        "0.0.0.0".to_string(),
+        None,
+    );
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let mut val = || it.next().cloned().ok_or(format!("{a} needs a value"));
+        match a.as_str() {
+            "--port" => port = val()?.parse().map_err(|_| "--port needs a number")?,
+            "--bind" => bind = val()?,
+            "--duration-secs" => {
+                duration = Some(
+                    val()?
+                        .parse()
+                        .map_err(|_| "--duration-secs needs a number")?,
+                )
+            }
+            other => return Err(format!("relay: unknown argument {other}")),
+        }
+    }
+    lgduel_server::relay::run_relay(&bind, port, duration)
 }

@@ -13,7 +13,7 @@ players' side. One small Linux VPS runs up to 8 separate duels at once (16 playe
 ## 1. Open the game port in the provider's firewall
 
 Most providers have a firewall / security group in their web panel. Allow **inbound UDP 27960**
-(from anywhere). TCP is not used.
+(the game) and **UDP 27950** (join codes, see below), from anywhere. TCP is not used.
 
 ## 2. Install (one command)
 
@@ -25,8 +25,8 @@ curl -fsSL https://raw.githubusercontent.com/s0pk/lgduel/main/deploy/install.sh 
 
 This downloads the latest release's `lgduel-server-linux-x64.tar.gz`, installs it to `/opt/lgduel`,
 creates a `lgduel` system user, writes `/etc/lgduel/server.toml` (only if it doesn't exist yet) and
-starts the `lgduel-server` systemd service. The service restarts on crashes and on reboot.
-If `ufw` is active, it also allows UDP 27960 there.
+starts two systemd services: `lgduel-server` (the game) and `lgduel-relay` (join codes). Both restart
+on crashes and on reboot. If `ufw` is active, it also allows UDP 27960 and 27950 there.
 
 ## 3. Check it works
 
@@ -43,6 +43,20 @@ practice bot after 2 seconds; the next player to join takes its place.
 
 To put it in everyone's list, add it to `config/servers.toml` in this repository (that file ships with
 the game).
+
+## Join codes for everyone (the relay)
+
+`lgduel-relay` lets players host games on their own PC (Host a game) and have friends join with a code
+like `LG-7KQ2`, without port forwarding: it tells both PCs where the other is so they can connect
+directly, and relays the traffic when their routers don't allow that (about 256 KB/s per game at most;
+a duel needs about 30 KB/s). To make it the default for everyone, set it in `config/servers.toml`
+in this repository:
+
+```toml
+rendezvous = "YOUR.VPS.IP"
+```
+
+Players can also type it in Play online → Join code → *via*.
 
 ## Settings
 

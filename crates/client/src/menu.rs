@@ -71,6 +71,8 @@ pub enum Action {
     StartPractice,
     /// Connect to this address (host[:port]).
     Connect(String),
+    /// Join by code ("LG-XXXX") through the rendezvous service.
+    JoinCode(String),
     CancelConnect,
     RefreshServers,
     StartHost,
@@ -124,6 +126,11 @@ pub struct Menu {
     /// Online: players on the server and a pending challenge to us (set each frame).
     pub players: Vec<PlayerRow>,
     pub invite: Option<(u8, String)>,
+    /// Join-code field (Online screen) and progress line (Connecting screen).
+    pub code_text: String,
+    pub connect_detail: Option<String>,
+    /// A rendezvous service is available (shipped or set by the player).
+    pub has_rendezvous: bool,
 }
 
 pub const TITLE: &str = "LGDuel";
@@ -381,6 +388,32 @@ impl Menu {
                             self.add_address.clear();
                         }
                     });
+                    ui.label("Join code (a friend hosting with Host a game; no port forwarding)");
+                    ui.horizontal(|ui| {
+                        let edit = ui.add(
+                            egui::TextEdit::singleline(&mut self.code_text)
+                                .hint_text("LG-7KQ2")
+                                .desired_width(140.0)
+                                .char_limit(8),
+                        );
+                        let enter =
+                            edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        let ok = !self.code_text.trim().is_empty();
+                        if (ui.add_enabled(ok, egui::Button::new("Join")).clicked() || enter) && ok
+                        {
+                            action = Some(Action::JoinCode(self.code_text.trim().to_string()));
+                        }
+                        ui.label("via");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut s.rendezvous)
+                                .hint_text(if self.has_rendezvous {
+                                    "official relay"
+                                } else {
+                                    "relay host:port"
+                                })
+                                .desired_width(220.0),
+                        );
+                    });
                     ui.label("Direct connect (address or address:port)");
                     ui.horizontal(|ui| {
                         let edit = ui.add(
@@ -431,8 +464,21 @@ impl Menu {
                     row(ui, "Anti-lag", |ui| {
                         ui.checkbox(&mut h.anti_lag, "");
                     });
+                    row(ui, "Join code", |ui| {
+                        ui.add_enabled(
+                            self.has_rendezvous,
+                            egui::Checkbox::new(
+                                &mut h.join_code,
+                                "friends need no port forwarding",
+                            ),
+                        );
+                    });
                     ui.label(
-                        "Friends on your network see this game under Play online. Over the internet they need your public IP with this UDP port forwarded, or a VPN like Tailscale; a dedicated server on a VPS avoids both (see DEPLOY.md).",
+                        if h.join_code && self.has_rendezvous {
+                            "Friends on your network see this game under Play online. Anyone else joins with the join code shown in your Esc menu once hosting: no port forwarding needed."
+                        } else {
+                            "Friends on your network see this game under Play online. Over the internet they need your public IP with this UDP port forwarded, a VPN like Tailscale, or a join code (needs a rendezvous service: Play online -> Join code -> via)."
+                        },
                     );
                     if let Some(m) = &self.message {
                         ui.colored_label(egui::Color32::from_rgb(255, 170, 90), m);
@@ -454,6 +500,9 @@ impl Menu {
                 centered(ctx, "Connecting", 360.0, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.label(format!("Connecting to {}...", self.connecting_to));
+                        if let Some(d) = &self.connect_detail {
+                            ui.label(d);
+                        }
                         ui.add_space(6.0);
                         if ui.button("Cancel").clicked() {
                             action = Some(Action::CancelConnect);

@@ -2,6 +2,10 @@
 # Players can add their own in the browser; those are saved in their settings.
 # Official public servers are added here once they are running.
 
+# Join-code rendezvous/relay service (lgduel-server relay, UDP 27950), e.g. "203.0.113.5".
+# Empty: players set one themselves (Play online -> Join code -> via).
+rendezvous = ""
+
 [[server]]
 name = "This PC (lgduel host)"
 address = "127.0.0.1:27960"

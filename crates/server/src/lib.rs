@@ -5,6 +5,7 @@
 use lgduel_net::PROTOCOL_VERSION;
 pub mod admin;
 pub mod host;
+pub mod relay;
 
 use lgduel_net::conn::Connection;
 use lgduel_net::protocol::{
@@ -43,6 +44,8 @@ pub struct ServerSettings {
     pub practice_bot_after_ms: u32,
     /// Remote console password; empty = remote console off.
     pub rcon_password: String,
+    /// Rendezvous/relay service (host[:port]) for a join code; empty = off.
+    pub rendezvous: String,
 }
 
 impl Default for ServerSettings {
@@ -59,6 +62,7 @@ impl Default for ServerSettings {
             practice_bot: true,
             practice_bot_after_ms: 2000,
             rcon_password: String::new(),
+            rendezvous: String::new(),
         }
     }
 }
@@ -212,6 +216,8 @@ pub struct Server<T: Transport> {
     rcon_failures: std::collections::HashMap<std::net::IpAddr, (u32, u64)>,
     /// Server clock of the latest `poll` (µs).
     now_us: u64,
+    /// Join code from the rendezvous service, if any (set by the run loop).
+    pub join_code: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -265,6 +271,7 @@ impl<T: Transport> Server<T> {
             config_path: None,
             rcon_failures: std::collections::HashMap::new(),
             now_us: 0,
+            join_code: None,
         }
     }
 

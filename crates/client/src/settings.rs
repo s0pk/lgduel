@@ -85,6 +85,8 @@ pub struct HostSettings {
     pub anti_lag: bool,
     /// Built-in map name.
     pub map: String,
+    /// Register with the rendezvous service for a join code.
+    pub join_code: bool,
 }
 
 impl Default for HostSettings {
@@ -96,6 +98,7 @@ impl Default for HostSettings {
             lifesteal_percent: 100,
             anti_lag: true,
             map: "arena_flat".into(),
+            join_code: true,
         }
     }
 }
@@ -121,6 +124,9 @@ pub struct Settings {
     /// Servers the player added (the official list ships separately).
     pub servers: Vec<ServerEntry>,
     pub host: HostSettings,
+    /// Rendezvous/relay service for join codes (host[:port]); empty = the
+    /// one shipped in servers.toml, if any.
+    pub rendezvous: String,
 }
 
 impl Default for Settings {
@@ -136,6 +142,7 @@ impl Default for Settings {
             practice: Practice::default(),
             servers: Vec::new(),
             host: HostSettings::default(),
+            rendezvous: String::new(),
         }
     }
 }

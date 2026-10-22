@@ -532,3 +532,18 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
   broadcast reply came from a 172.31.x Hyper-V/WSL adapter, not the "LAN IP"), so de-duplication by address
   can't work. One row per instance, 127.0.0.1 preferred, none for servers already listed.
 - LAN rows are tagged "LAN" and can't be removed. UI strings avoid "…" (not in the pixel font).
+
+## D53 — Join codes: rendezvous, hole punching, relay (2026-10-22)
+- `lgduel-server relay` (server/relay.rs, UDP 27950, generic over Transport): hosts `Register` every 5 s and
+  get a code (4 chars from a 31-letter alphabet without 0/O/1/I/L, shown "LG-XXXX"); `Lookup` answers the
+  client with the host's public address and tells the host (`Incoming`) so both send `Punch` datagrams and
+  open their NATs; `RelayOpen` gives a session and the service forwards `RelayData` between exactly that
+  client and host (256 KB/s per direction cap). Stranger-sendable requests are padded to ≥ any answer;
+  lookups/relay requests limited to 30 per IP per minute; hosts expire after 30 s, sessions after 30 s idle.
+- `net::rendezvous::RelayTransport` wraps the game socket (same socket = same NAT mapping): host mode
+  registers and maps relayed clients to virtual addresses `[fd00:4c47:0:1::session]:1`; join mode always
+  presents the host as `JOIN_ADDR` and routes direct (after `Found`) or through the relay (no answer from
+  the host within 2.5 s, or `force_relay`). Server and NetClient code are unchanged above it.
+- MemNet NAT simulation (port-restricted cone, symmetric) tests both paths; check.sh `p2p-smoke` runs the real
+  binaries on 127.0.0.1 (bot direct, client forced through the relay). Settings: `rendezvous` (player) or the
+  shipped `config/servers.toml` `rendezvous` (empty until the user's VPS exists); Host screen "Join code".

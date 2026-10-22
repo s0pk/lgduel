@@ -85,6 +85,46 @@ struct MemNetInner {
     inboxes: BTreeMap<SocketAddr, Vec<(SocketAddr, Vec<u8>)>>,
     sent: u64,
     dropped: u64,
+    /// Simulated home routers, each with one endpoint behind it.
+    nats: Vec<NatBox>,
+    /// Datagrams a NAT refused (unsolicited).
+    nat_dropped: u64,
+}
+
+/// How a simulated NAT maps and filters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NatKind {
+    /// One public port per endpoint; only peers it has sent to may answer
+    /// (port-restricted cone: most home routers; hole punching works).
+    Cone,
+    /// A new public port for every destination (hole punching fails: relay).
+    Symmetric,
+}
+
+struct NatBox {
+    kind: NatKind,
+    public_ip: [u8; 4],
+    private: SocketAddr,
+    /// (destination, public port used for it).
+    mappings: Vec<(SocketAddr, u16)>,
+    next_port: u16,
+}
+
+impl NatBox {
+    fn public_port_for(&mut self, dest: SocketAddr) -> u16 {
+        if let Some((_, p)) = self.mappings.iter().find(|(d, _)| *d == dest) {
+            return *p;
+        }
+        let port = match (self.kind, self.mappings.first()) {
+            (NatKind::Cone, Some((_, p))) => *p,
+            _ => {
+                self.next_port += 1;
+                self.next_port
+            }
+        };
+        self.mappings.push((dest, port));
+        port
+    }
 }
 
 /// Shared in-memory network. Single-threaded and fully deterministic.
@@ -102,7 +142,34 @@ impl MemNet {
             inboxes: BTreeMap::new(),
             sent: 0,
             dropped: 0,
+            nats: Vec::new(),
+            nat_dropped: 0,
         })))
+    }
+
+    /// An endpoint behind its own NAT with public address `public_ip`. Its
+    /// local address is private (192.168.x); peers see the NAT's mapping.
+    pub fn endpoint_behind_nat(&self, port: u16, public_ip: [u8; 4], kind: NatKind) -> MemEndpoint {
+        let addr = SocketAddr::from(([192, 168, public_ip[3], 2], port));
+        let mut n = self.0.borrow_mut();
+        n.inboxes.entry(addr).or_default();
+        n.nats.push(NatBox {
+            kind,
+            public_ip,
+            private: addr,
+            mappings: Vec::new(),
+            next_port: 40_000,
+        });
+        drop(n);
+        MemEndpoint {
+            net: self.clone(),
+            addr,
+        }
+    }
+
+    /// Datagrams dropped by simulated NATs (unsolicited inbound).
+    pub fn nat_dropped(&self) -> u64 {
+        self.0.borrow().nat_dropped
     }
 
     pub fn set_conditions(&self, c: LinkConditions) {
@@ -121,6 +188,25 @@ impl MemNet {
         let due: Vec<(u64, u64)> = n.in_flight.range(..(now + 1, 0)).map(|(k, _)| *k).collect();
         for k in due {
             let (from, to, data) = n.in_flight.remove(&k).unwrap();
+            // Into a NAT: forward only to a mapping that has sent to `from`.
+            let nat = n
+                .nats
+                .iter()
+                .find(|b| SocketAddr::from((b.public_ip, to.port())).ip() == to.ip());
+            let to = match nat {
+                Some(b) => match b
+                    .mappings
+                    .iter()
+                    .any(|(dest, port)| *port == to.port() && *dest == from)
+                {
+                    true => b.private,
+                    false => {
+                        n.nat_dropped += 1;
+                        continue;
+                    }
+                },
+                None => to,
+            };
             n.inboxes.entry(to).or_default().push((from, data));
         }
     }
@@ -176,8 +262,12 @@ impl Transport for MemEndpoint {
         let at = (n.now_us as i64 + c.latency_us as i64 + jitter).max(n.now_us as i64) as u64;
         n.seq += 1;
         let seq = n.seq;
-        n.in_flight
-            .insert((at, seq), (self.addr, to, data.to_vec()));
+        // Out of a NAT: the source becomes the NAT's public mapping for `to`.
+        let from = match n.nats.iter_mut().find(|b| b.private == self.addr) {
+            Some(b) => SocketAddr::from((b.public_ip, b.public_port_for(to))),
+            None => self.addr,
+        };
+        n.in_flight.insert((at, seq), (from, to, data.to_vec()));
         drop(n);
         if c.latency_us == 0 && c.jitter_us == 0 {
             let now = self.net.now_us();
@@ -218,6 +308,35 @@ mod tests {
         assert_eq!(from, a.local_addr());
         assert_eq!(data, b"ping");
         assert!(b.recv().is_none());
+    }
+
+    #[test]
+    fn simulated_nats_map_and_filter() {
+        let net = MemNet::new(3);
+        let mut server = net.endpoint(100);
+        let mut cone = net.endpoint_behind_nat(5000, [203, 0, 113, 7], NatKind::Cone);
+        let mut sym = net.endpoint_behind_nat(5000, [198, 51, 100, 9], NatKind::Symmetric);
+        let mut other = net.endpoint(200);
+        // Outbound: the server sees the NAT's public address, not the private one.
+        cone.send_to(server.local_addr(), b"hi").unwrap();
+        let (from, _) = server.recv().unwrap();
+        assert_eq!(from.ip(), std::net::IpAddr::from([203, 0, 113, 7]));
+        // The answer comes back in; an unsolicited sender is dropped.
+        server.send_to(from, b"back").unwrap();
+        assert_eq!(cone.recv().map(|m| m.1), Some(b"back".to_vec()));
+        other.send_to(from, b"spam").unwrap();
+        assert!(cone.recv().is_none());
+        assert_eq!(net.nat_dropped(), 1);
+        // Cone: same public port toward every destination.
+        cone.send_to(other.local_addr(), b"x").unwrap();
+        assert_eq!(other.recv().unwrap().0, from);
+        // Symmetric: a new public port per destination.
+        sym.send_to(server.local_addr(), b"a").unwrap();
+        sym.send_to(other.local_addr(), b"b").unwrap();
+        let (s1, _) = server.recv().unwrap();
+        let (s2, _) = other.recv().unwrap();
+        assert_eq!(s1.ip(), s2.ip());
+        assert_ne!(s1.port(), s2.port());
     }
 
     #[test]

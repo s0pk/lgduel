@@ -26,11 +26,16 @@ nothing to set up: click **Join**. A server runs several duels (arenas) at once:
 
 The line at the top of the screen says where you are: `ARENA 2 - VS NAME`, `QUEUE #1 - WATCHING ARENA 1`, …
 
-**Hosting yourself** (Host a game): friends on the same network join with the LAN address the game
-shows. Over the internet they need your public IP with **UDP port 27960 forwarded** on your router, or
-a VPN like Tailscale / ZeroTier (both install it and use your Tailscale IP). Windows may ask to allow
-`lgduel.exe` through the firewall: allow it. To avoid all this, use a dedicated server: renting a small
-VPS and running the server there takes one command, see [DEPLOY.md](DEPLOY.md).
+**Hosting yourself** (Host a game): friends on the same network see your game under Play online.
+Over the internet the easiest way is a **join code**: with *Join code* ticked on the Host screen, your
+Esc menu shows a code like `LG-7KQ2`; friends type it under Play online → *Join code* and connect without
+any port forwarding (the game opens a direct path through both routers, or uses the relay when the routers
+don't allow that). Join codes need a rendezvous service: the one shipped with the game, or one you run
+yourself (`lgduel-server relay`, see [DEPLOY.md](DEPLOY.md)) and type under *via*.
+
+Without join codes, friends need your public IP with **UDP port 27960 forwarded** on your router, or a VPN
+like Tailscale / ZeroTier. Windows may ask to allow `lgduel.exe` through the firewall: allow it. A dedicated
+server on a small VPS avoids all of this, see [DEPLOY.md](DEPLOY.md).
 
 ## Controls
 

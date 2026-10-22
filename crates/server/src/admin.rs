@@ -110,8 +110,11 @@ impl<T: Transport> Server<T> {
     fn status_text(&self) -> String {
         let g = self.game();
         let mut out = format!(
-            "{} | map {} | tick {} | {} of {} players | {} arenas\n",
+            "{}{} | map {} | tick {} | {} of {} players | {} arenas\n",
             self.settings.name,
+            self.join_code
+                .map(|c| format!(" | join code {}", lgduel_net::rendezvous::format_code(c)))
+                .unwrap_or_default(),
             g.world.name,
             g.tick.0,
             self.clients.len(),
@@ -177,8 +180,12 @@ impl<T: Transport> Server<T> {
             return Err("physics and tick rate need a restart".into());
         }
         let s = (&cfg.server, &cur.server);
-        if s.0.map != s.1.map || s.0.bind != s.1.bind || s.0.port != s.1.port {
-            return Err("map, bind and port need a restart".into());
+        if s.0.map != s.1.map
+            || s.0.bind != s.1.bind
+            || s.0.port != s.1.port
+            || s.0.rendezvous != s.1.rendezvous
+        {
+            return Err("map, bind, port and rendezvous need a restart".into());
         }
         if s.0.max_arenas != s.1.max_arenas {
             return Err("max_arenas needs a restart".into());

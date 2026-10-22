@@ -16,6 +16,17 @@ pub const SHIPPED: &str = include_str!("../../../config/servers.toml");
 struct ShippedFile {
     #[serde(default)]
     server: Vec<ServerEntry>,
+    /// Official rendezvous/relay service for join codes.
+    #[serde(default)]
+    rendezvous: String,
+}
+
+/// The shipped rendezvous service, if one is listed.
+pub fn shipped_rendezvous() -> Option<String> {
+    toml::from_str::<ShippedFile>(SHIPPED)
+        .ok()
+        .map(|f| f.rendezvous)
+        .filter(|r| !r.trim().is_empty())
 }
 
 pub fn shipped_servers() -> Vec<ServerEntry> {

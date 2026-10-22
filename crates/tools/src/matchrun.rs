@@ -399,3 +399,169 @@ pub fn run_client_smoke(bin_dir: &Path, out_dir: &Path, secs: f64, spectate: boo
     }
     r
 }
+
+/// Join codes on real sockets: `lgduel-server relay` + a host registered with
+/// it + a bot joining by code (direct path) + the real client joining by code
+/// through the relay (`--force-relay`). Everything on 127.0.0.1, so no NAT:
+/// the NAT behaviour itself is covered by server/tests/p2p.rs on MemNet.
+pub fn run_p2p_smoke(bin_dir: &Path, out_dir: &Path, secs: f64) -> MatchResult {
+    use std::io::{BufRead, BufReader};
+    let mut r = MatchResult {
+        profile: "p2p".into(),
+        lines: vec![],
+        failures: vec![],
+    };
+    let _ = std::fs::create_dir_all(out_dir);
+    let (Ok(rport), Ok(hport)) = (free_udp_port(), free_udp_port()) else {
+        r.failures.push("no free port".into());
+        return r;
+    };
+    let rdv = format!("127.0.0.1:{rport}");
+    let total = format!("{}", secs + 8.0);
+    let relay = Command::new(exe(bin_dir, "lgduel-server"))
+        .args(["relay", "--bind", "127.0.0.1", "--port", &rport.to_string()])
+        .args(["--duration-secs", &total])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+    let Ok(relay) = relay else {
+        r.failures.push("start relay failed".into());
+        return r;
+    };
+    std::thread::sleep(Duration::from_millis(300));
+    let host = Command::new(exe(bin_dir, "lgduel-server"))
+        .args([
+            "--bind",
+            "0.0.0.0",
+            "--port",
+            &hport.to_string(),
+            "--rendezvous",
+            &rdv,
+        ])
+        .args(["--duration-secs", &total])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+    let Ok(mut host) = host else {
+        r.failures.push("start host failed".into());
+        return r;
+    };
+    // Read the host's output on a thread: the join code, then everything else.
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    let out = host.stdout.take().unwrap();
+    let reader = std::thread::spawn(move || {
+        for line in BufReader::new(out).lines().map_while(Result::ok) {
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    let mut host_lines = Vec::new();
+    let code = loop {
+        match rx.recv_timeout(Duration::from_secs(5)) {
+            Ok(l) => {
+                let code = l
+                    .strip_prefix("JOIN CODE ")
+                    .map(|c| c.split_whitespace().next().unwrap_or("").to_string());
+                host_lines.push(l);
+                if let Some(c) = code {
+                    break Some(c);
+                }
+            }
+            Err(_) => break None,
+        }
+    };
+    let Some(code) = code else {
+        r.failures
+            .push(format!("host never got a join code: {host_lines:?}"));
+        let _ = host.kill();
+        return r;
+    };
+    r.lines.push(format!("P2P join code {code}"));
+    let bot = Command::new(exe(bin_dir, "lgduel-bot"))
+        .args(["--join", &code, "--rendezvous", &rdv, "--name", "codebot"])
+        .args(["--pattern", "ad", "--skill", "medium"])
+        .args(["--duration-secs", &format!("{}", secs + 3.0)])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+    std::thread::sleep(Duration::from_millis(500));
+    let client = Command::new(exe(bin_dir, "lgduel"))
+        .args([
+            "--headless",
+            "--no-settings",
+            "--join",
+            &code,
+            "--rendezvous",
+            &rdv,
+        ])
+        .args([
+            "--force-relay",
+            "--name",
+            "relayclient",
+            "--secs",
+            &format!("{secs}"),
+        ])
+        .args(["--size", "1280x720", "--screenshot"])
+        .arg(out_dir.join("online_relay.png"))
+        .output();
+    match client {
+        Ok(o) => {
+            let s = String::from_utf8_lossy(&o.stdout);
+            r.lines.extend(
+                s.lines()
+                    .filter(|l| l.starts_with("STATUS") || l.starts_with("ONLINE CHECK"))
+                    .map(|l| format!("P2P client {l}")),
+            );
+            if !o.status.success() || !s.contains("ONLINE CHECK OK") {
+                r.failures.push(format!(
+                    "relayed client failed ({}): {}",
+                    o.status,
+                    String::from_utf8_lossy(&o.stderr).trim()
+                ));
+            }
+        }
+        Err(e) => r.failures.push(format!("run client: {e}")),
+    }
+    match bot.and_then(|b| b.wait_with_output()) {
+        Ok(b) if b.status.success() => {}
+        Ok(b) => r.failures.push(format!(
+            "bot joining by code failed: {}",
+            String::from_utf8_lossy(&b.stderr).trim()
+        )),
+        Err(e) => r.failures.push(format!("bot: {e}")),
+    }
+    let _ = host.wait();
+    let _ = reader.join();
+    host_lines.extend(rx.try_iter());
+    let relay_out = relay
+        .wait_with_output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_default();
+    // The bot came in directly (its real address), the client through the relay
+    // (a virtual relay-session address on the host).
+    let joined = |name: &str| {
+        host_lines
+            .iter()
+            .find(|l| l.starts_with(&format!("{name} connected from")))
+            .cloned()
+    };
+    match joined("codebot") {
+        Some(l) if l.contains("127.0.0.1") => r.lines.push(format!("P2P direct: {l}")),
+        other => r
+            .failures
+            .push(format!("bot did not join directly: {other:?}")),
+    }
+    match joined("relayclient") {
+        Some(l) if l.contains("[fd00:") => r.lines.push(format!("P2P relayed: {l}")),
+        other => r
+            .failures
+            .push(format!("client did not join through the relay: {other:?}")),
+    }
+    if !relay_out.contains("relay 127.0.0.1") {
+        r.failures
+            .push(format!("relay never opened a session: {relay_out}"));
+    }
+    r
+}

@@ -65,12 +65,12 @@ jobs:
           OUT=dist/lgduel-server-linux-x64
           mkdir -p "$OUT"
           cp target/release/lgduel-server target/release/lgduel-bot "$OUT/"
-          cp DEPLOY.md LICENSE config/server.example.toml deploy/lgduel-server.service "$OUT/"
+          cp DEPLOY.md LICENSE config/server.example.toml deploy/lgduel-server.service deploy/lgduel-relay.service "$OUT/"
           tar -C dist -czf dist/lgduel-server-linux-x64.tar.gz lgduel-server-linux-x64
       - name: install.sh as a systemd service, then a bot joins it
         run: |
           sudo LGDUEL_TARBALL="$PWD/dist/lgduel-server-linux-x64.tar.gz" bash deploy/install.sh
-          systemctl is-active lgduel-server
+          systemctl is-active lgduel-server lgduel-relay
           target/release/lgduel-bot --server 127.0.0.1:27960 --name ci-bot --duration-secs 4
           sudo journalctl -u lgduel-server --no-pager | tee journal.txt
           grep -q "ci-bot connected" journal.txt

@@ -7,6 +7,7 @@ use lgduel_net::client::{ClientState, NetClient};
 use lgduel_net::hitreg::HitReg;
 use lgduel_net::interp::{InterpSettings, Interpolator};
 use lgduel_net::predict::Predictor;
+use lgduel_net::rendezvous::{JOIN_ADDR, JoinState, RelayTransport};
 use lgduel_net::snapshot::Snapshot;
 use lgduel_net::transport::UdpTransport;
 use lgduel_sim::config::GameConfig;
@@ -19,7 +20,7 @@ use std::net::SocketAddr;
 use std::time::Instant;
 
 pub struct NetSession {
-    pub client: NetClient<UdpTransport>,
+    pub client: NetClient<RelayTransport<UdpTransport>>,
     start: Instant,
     world: World,
     pub predictor: Option<Predictor>,
@@ -43,17 +44,65 @@ pub struct NetSession {
     toast: Option<(String, u64)>,
 }
 
+fn nonce() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(1, |d| d.as_nanos() as u64)
+}
+
 /// How long a server message stays on screen.
 const TOAST_US: u64 = 4_000_000;
 
 impl NetSession {
     pub fn connect(server: SocketAddr, name: &str, world: World) -> std::io::Result<Self> {
-        let transport = UdpTransport::bind("0.0.0.0:0".parse().unwrap())?;
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(1, |d| d.as_nanos() as u64);
-        Ok(Self {
-            client: NetClient::new(transport, server, name, nonce),
+        let transport = RelayTransport::plain(UdpTransport::bind("0.0.0.0:0".parse().unwrap())?);
+        Ok(Self::with(transport, server, name, world))
+    }
+
+    /// Join the game with this code through the rendezvous service.
+    pub fn connect_code(
+        rendezvous: SocketAddr,
+        code: u32,
+        force_relay: bool,
+        name: &str,
+        world: World,
+    ) -> std::io::Result<Self> {
+        let udp = UdpTransport::bind("0.0.0.0:0".parse().unwrap())?;
+        let mut t = RelayTransport::join(udp, rendezvous, code, nonce());
+        if force_relay {
+            t = t.forcing_relay();
+        }
+        Ok(Self::with(t, JOIN_ADDR, name, world))
+    }
+
+    /// Join-code progress for the Connecting screen (None when not joining by code).
+    pub fn join_progress(&self) -> Option<String> {
+        Some(match self.client.transport.join_state()? {
+            JoinState::LookingUp => "Looking up the join code...".into(),
+            JoinState::Direct { heard: false, .. } => "Connecting directly...".into(),
+            JoinState::Direct { heard: true, .. } => "Connected directly".into(),
+            JoinState::OpeningRelay => "No direct path; trying the relay...".into(),
+            JoinState::Relayed { .. } => "Connected through the relay".into(),
+            JoinState::Failed(e) => e.clone(),
+        })
+    }
+
+    /// Why joining by code failed, if it did.
+    pub fn join_failed(&self) -> Option<String> {
+        match self.client.transport.join_state()? {
+            JoinState::Failed(e) => Some(e.clone()),
+            _ => None,
+        }
+    }
+
+    fn with(
+        transport: RelayTransport<UdpTransport>,
+        server: SocketAddr,
+        name: &str,
+        world: World,
+    ) -> Self {
+        Self {
+            client: NetClient::new(transport, server, name, nonce()),
             start: Instant::now(),
             world,
             predictor: None,
@@ -68,7 +117,7 @@ impl NetSession {
             map_error: None,
             follow: None,
             toast: None,
-        })
+        }
     }
 
     pub fn now_us(&self) -> u64 {
@@ -92,6 +141,7 @@ impl NetSession {
         let now = self.now_us();
         let frame_dt = now.saturating_sub(self.last_us) as f32 / 1e6;
         self.last_us = now;
+        self.client.transport.tick(now);
         self.client.update(now);
         while let Some(m) = self.client.messages.pop_front() {
             println!("SERVER {m}");
