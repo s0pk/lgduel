@@ -228,6 +228,19 @@ pub fn run_match(bin_dir: &Path, profile_name: &str, secs: f64, out_dir: &Path) 
                 ),
             );
         }
+        // Rubber-band detector: visible own-view snap-backs (> 1u, not caused by
+        // being hit/killed) — allow at most 1 per 10 s of play.
+        let bands: u64 = b
+            .get("rubber_bands")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(u64::MAX);
+        let allowed = (secs / 10.0).ceil() as u64;
+        if bands > allowed {
+            fail(
+                &mut r,
+                format!("{bands} rubber-band corrections (allowed {allowed})"),
+            );
+        }
     }
     r
 }

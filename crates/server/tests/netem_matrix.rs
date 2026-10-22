@@ -33,6 +33,8 @@ struct Metrics {
     pred_mean: f64,
     pred_max: f32,
     pred_checked: u64,
+    max_correction: f32,
+    rubber_bands: u64,
     missing_pct: f64,
     starved_pct: f64,
     max_step: f32,
@@ -159,6 +161,8 @@ fn run(cell: Cell) -> Metrics {
         pred_mean: ps.mean_error(),
         pred_max: ps.max_error,
         pred_checked: ps.checked,
+        max_correction: ps.max_correction,
+        rubber_bands: ps.rubber_bands,
         missing_pct: missing as f64 * 100.0 / ticks as f64,
         starved_pct: interp.stats.starved as f64 * 100.0 / interp.stats.samples.max(1) as f64,
         max_step,
@@ -170,9 +174,9 @@ fn run(cell: Cell) -> Metrics {
 fn netem_matrix() {
     let mut failures = vec![];
     println!(
-        "| one-way | jitter | loss | RTT ms | pred mean u | pred max u | checked | missing cmds % | interp delay | starved % | max step u/ms |"
+        "| one-way | jitter | loss | RTT ms | pred mean u | pred max u | checked | own max correction u | rubber-bands | missing cmds % | interp delay | starved % | max step u/ms |"
     );
-    println!("|---|---|---|---|---|---|---|---|---|---|---|");
+    println!("|---|---|---|---|---|---|---|---|---|---|---|---|---|");
     for latency_ms in [0, 50, 100, 200] {
         for loss in [0.0, 0.01, 0.025, 0.05] {
             let jitter_ms = if latency_ms == 0 { 0 } else { 20 };
@@ -183,12 +187,14 @@ fn netem_matrix() {
             };
             let m = run(cell);
             println!(
-                "| {latency_ms} ms | ±{jitter_ms} | {:.1}% | {:.0} | {:.4} | {:.2} | {} | {:.3} | {:.2} | {:.3} | {:.3} |",
+                "| {latency_ms} ms | ±{jitter_ms} | {:.1}% | {:.0} | {:.4} | {:.2} | {} | {:.2} | {} | {:.3} | {:.2} | {:.3} | {:.3} |",
                 loss * 100.0,
                 m.rtt_ms,
                 m.pred_mean,
                 m.pred_max,
                 m.pred_checked,
+                m.max_correction,
+                m.rubber_bands,
                 m.missing_pct,
                 m.interp_delay,
                 m.starved_pct,
@@ -201,6 +207,13 @@ fn netem_matrix() {
             }
             if m.pred_checked < 500 {
                 failures.push(format!("{name}: only {} prediction checks", m.pred_checked));
+            }
+            // Own-view rubber-banding: at most 2 visible snap-backs (> 1u) in 12 s.
+            if m.rubber_bands > 2 {
+                failures.push(format!(
+                    "{name}: {} rubber-band corrections (max {:.2}u)",
+                    m.rubber_bands, m.max_correction
+                ));
             }
             if m.missing_pct > 0.5 {
                 failures.push(format!(

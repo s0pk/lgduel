@@ -198,3 +198,8 @@
 - Test design fixes: ±1.5° aim noise never produced on-screen misses (false-miss path untested) → ±4°; shot-count bound 150 → 100 for lossy links (events lost with snapshots, KI-10).
 - Finding: rewind ≈ RTT + lead margin + interp delay → default 200 ms cap covers RTT ≲ 140 ms (D32, KI-11).
 - Verified: check.sh GREEN.
+
+## 2026-10-22 — iteration 36: PLAN 5.4 rubber-band detector
+- Predictor: `max_correction`, `rubber_bands` (> 1u, external corrections excluded; dead counts as external). Matrix table gained own-correction columns + assertion (≤ 2 per cell). BOTRESULT reports them; `lgduel-tools match` asserts ≤ 1 per 10 s per bot in all three profiles (lossy + highping required by the plan were already in check.sh).
+- Measured: matrix 0 rubber-bands in 15/16 cells, 2 (3.33u max) at 0 ms + 5% loss; headless 60 s matches: see check log (all within threshold).
+- Verified: check.sh GREEN.

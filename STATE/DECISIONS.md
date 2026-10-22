@@ -340,3 +340,12 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
   `lead` ticks after it was made; the view is snapshot-clock − delay). With the default `max_rewind_ms = 200`
   (spec: "e.g. ≤ 200 ms") full compensation covers RTT up to ~140 ms on a clean link. Kept as default;
   servers for high-ping regions can raise it. Real UDP smoke: 100.0% agreement over 64 shots.
+
+## D33 — Rubber-band detector (2026-10-22)
+- Predictor records, per reconcile, the jump between the position shown before and after it, excluding
+  corrections caused by being hit (knockback), killed or respawned. `max_correction`, and `rubber_bands` =
+  reconciles with a correction > 1u (a visible snap-back).
+- Thresholds: netem matrix ≤ 2 per cell (12 s); headless match ≤ 1 per 10 s per bot (lossy + highping runs
+  in check.sh). Remote players: matrix max per-frame jump (D31).
+- Measured: 0 in 15/16 matrix cells; 0 ms + 5% loss: 2 × 3.3u (input lead is only 1–2 ticks at ~2 ms RTT,
+  so a loss burst can make a command late). Headless 60 s matches: see PROGRESS.

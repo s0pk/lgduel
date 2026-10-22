@@ -34,7 +34,15 @@ pub struct PredictionStats {
     /// Corrections caused by things the client cannot predict (being hit →
     /// knockback, dying, respawning). Not counted as prediction error.
     pub external: u64,
+    /// Rubber-band detector: largest jump between the shown position before and
+    /// after a reconcile, excluding external corrections (units).
+    pub max_correction: f32,
+    /// Reconciles whose correction exceeded `RUBBER_BAND_UNITS`.
+    pub rubber_bands: u64,
 }
+
+/// A correction this large (visible "snap back") counts as a rubber-band event.
+pub const RUBBER_BAND_UNITS: f32 = 1.0;
 
 impl PredictionStats {
     pub fn mean_error(&self) -> f64 {
@@ -107,7 +115,7 @@ impl Predictor {
         // Hit (knockback), killed or respawned since the last snapshot? Then a
         // correction is expected and isn't a prediction error.
         let seen = (me.stats.damage_taken, me.stats.deaths, me.alive);
-        let external = self.last_seen.is_some_and(|s| s != seen);
+        let external = self.last_seen.is_some_and(|s| s != seen) || !me.alive;
         self.last_seen = Some(seen);
         // Measure: what did we predict for the command the server just applied?
         if external {
@@ -143,6 +151,13 @@ impl Predictor {
         // Visual smoothing of the correction.
         if let Some(before) = shown_before {
             let jump = before + self.smooth_offset - self.state.origin;
+            if !external {
+                let correction = (before - self.state.origin).length();
+                self.stats.max_correction = self.stats.max_correction.max(correction);
+                if correction > RUBBER_BAND_UNITS {
+                    self.stats.rubber_bands += 1;
+                }
+            }
             self.smooth_offset = if jump.length() > SNAP_DISTANCE || !self.alive {
                 Vec3::ZERO
             } else {

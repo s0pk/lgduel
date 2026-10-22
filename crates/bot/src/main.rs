@@ -92,7 +92,7 @@ fn run() -> Result<(), String> {
     let p = bot.prediction();
     println!(
         "BOTRESULT name={name} shots={} hits={} acc={:.1} dealt={} taken={} healed={} lifesteal_earned={} kills={} deaths={} \
-         wins={} losses={} snapshots={} pred_checked={} pred_mean={:.4} pred_max={:.4} rtt_ms={:.1} loss={:.3}",
+         wins={} losses={} snapshots={} pred_checked={} pred_mean={:.4} pred_max={:.4} max_correction={:.3} rubber_bands={} rtt_ms={:.1} loss={:.3}",
         s.shots,
         s.hits,
         s.accuracy_pct(),
@@ -108,6 +108,8 @@ fn run() -> Result<(), String> {
         p.checked,
         p.mean_error(),
         p.max_error,
+        p.max_correction,
+        p.rubber_bands,
         bot.client.conn.stats.rtt_us / 1000.0,
         bot.client.conn.stats.loss()
     );
