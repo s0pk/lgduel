@@ -153,6 +153,10 @@ pub fn perspective_rh(fov_y: f32, aspect: f32, near: f32, far: f32) -> Mat4 {
 
 pub struct Renderer {
     pipeline: wgpu::RenderPipeline,
+    hud_pipeline: wgpu::RenderPipeline,
+    hud_vb: wgpu::Buffer,
+    hud_capacity: u64,
+    hud_count: u32,
     uniforms: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     world_vb: Option<(wgpu::Buffer, u32)>,
@@ -168,6 +172,12 @@ struct VOut { @builtin(position) pos: vec4<f32>, @location(0) color: vec3<f32> }
 @vertex fn vs(@location(0) pos: vec3<f32>, @location(1) color: vec3<f32>) -> VOut {
     var o: VOut;
     o.pos = u.view_proj * vec4<f32>(pos, 1.0);
+    o.color = color;
+    return o;
+}
+@vertex fn vs_hud(@location(0) pos: vec3<f32>, @location(1) color: vec3<f32>) -> VOut {
+    var o: VOut;
+    o.pos = vec4<f32>(pos.xy, 0.0, 1.0);
     o.color = color;
     return o;
 }
@@ -212,41 +222,51 @@ impl Renderer {
             bind_group_layouts: &[Some(&bgl)],
             ..Default::default()
         });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("flat"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<Vertex>() as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3],
-                })],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs"),
-                compilation_options: Default::default(),
-                targets: &[Some(color_format.into())],
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH_FORMAT,
-                depth_write_enabled: Some(true),
-                depth_compare: Some(wgpu::CompareFunction::Less),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: Default::default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        let make = |entry: &str, write: bool, compare: wgpu::CompareFunction| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(entry),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some(entry),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(wgpu::VertexBufferLayout {
+                        array_stride: std::mem::size_of::<Vertex>() as u64,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3],
+                    })],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(color_format.into())],
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: Some(write),
+                    depth_compare: Some(compare),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: Default::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let pipeline = make("vs", true, wgpu::CompareFunction::Less);
+        // HUD: screen-space, always on top, leaves depth untouched.
+        let hud_pipeline = make("vs_hud", false, wgpu::CompareFunction::Always);
         let dyn_capacity = 4096 * std::mem::size_of::<Vertex>() as u64;
         let dyn_vb = Self::dyn_buffer(device, dyn_capacity);
+        let hud_vb = Self::dyn_buffer(device, dyn_capacity);
         Self {
             pipeline,
+            hud_pipeline,
+            hud_vb,
+            hud_capacity: dyn_capacity,
+            hud_count: 0,
             uniforms,
             bind_group,
             world_vb: None,
@@ -286,6 +306,19 @@ impl Renderer {
             queue.write_buffer(&self.dyn_vb, 0, bytemuck::cast_slice(verts));
         }
         self.dyn_count = verts.len() as u32;
+    }
+
+    /// Per-frame HUD geometry (positions in NDC).
+    pub fn set_hud(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, verts: &[Vertex]) {
+        let bytes = std::mem::size_of_val(verts) as u64;
+        if bytes > self.hud_capacity {
+            self.hud_capacity = bytes.next_power_of_two();
+            self.hud_vb = Self::dyn_buffer(device, self.hud_capacity);
+        }
+        if !verts.is_empty() {
+            queue.write_buffer(&self.hud_vb, 0, bytemuck::cast_slice(verts));
+        }
+        self.hud_count = verts.len() as u32;
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -341,6 +374,11 @@ impl Renderer {
             if self.dyn_count > 0 {
                 pass.set_vertex_buffer(0, self.dyn_vb.slice(..));
                 pass.draw(0..self.dyn_count, 0..1);
+            }
+            if self.hud_count > 0 {
+                pass.set_pipeline(&self.hud_pipeline);
+                pass.set_vertex_buffer(0, self.hud_vb.slice(..));
+                pass.draw(0..self.hud_count, 0..1);
             }
         }
         queue.submit([enc.finish()]);

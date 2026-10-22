@@ -95,3 +95,9 @@
 - `client::audio`: `synth_hit` (two-tone tick, 45 ms), pure `mix()` (overlapping voices, retire, clamp), `Audio` (cpal stream, f32/i16, silent fallback). `LocalSession.events` collects events of all ticks per advance; app plays a hit per own Damage event. Flags `--volume`, `--no-sound`, `--sound-test`.
 - Tooling: edit helper now matches ignoring whitespace/commas (rustfmt reflow broke two scripted edits).
 - Verified: `lgduel --sound-test` → "AUDIO Speakers (Realtek(R) Audio) via S/PDIF @ 48000 Hz, 2 ch … played 5 hit sounds" (audibility needs a human, KI-9). Tests: sound shape (2160 samples @48k, peak 0.9, decays >20×, starts at 0), mixer overlap/retire, silent handle, 100 ms firing at enemy → exactly 2 own Damage events. check.sh GREEN.
+
+## 2026-10-22 — iteration 19: PLAN 3.8 HUD
+- `client::font` (original 5×7 glyphs: 0-9, A-Z, punctuation), `client::hud` (CrosshairStyle, HudSettings, HudInfo, DamageNumbers with merge window, NDC quads, projection, build), HUD pipeline + buffer in `Renderer`, HUD in windowed and headless modes.
+- Headless now simulates firing (virtual 2 ms/frame) → "SIM hits 12" (84 dmg, opponent 16 hp, LG 100%). Measured pixels (1080p): crosshair 68, HUD text 7118, damage numbers 279, beam 8064, sparks 68.
+- Visual review found and fixed: damage numbers stacking into an orange smear (now merged total "84"), poor text contrast on bright walls (drop shadow).
+- Verified: check.sh GREEN; new tests: glyph table well-formed/unique, fallback box, NDC mapping, crosshair parts/off, text width, damage merge/expiry, projection centre/behind.

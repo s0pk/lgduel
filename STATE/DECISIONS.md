@@ -180,3 +180,14 @@ Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update th
   voices without locks. No device / muted → silent handle, the game still runs.
 - One hit sound per own Damage event (LG cell that hit); `--volume 0..1` (default 0.7), `--no-sound`,
   `--sound-test` (plays 5 hits on the real device, exit 1 if no output).
+
+## D18 — HUD (2026-10-22)
+- Second pipeline in the same pass: vertices already in NDC, depth compare Always, no depth write → always
+  on top, no extra pass. Text from an original built-in 5×7 pixel font (no font files/licences).
+- Layout: health big bottom-left; LG %, DMG dealt/taken, W-L, fight time top-left; opponent health
+  top-right; crosshair (arms/gap/thickness/dot/colour, default pink so it differs from every scene colour);
+  1-px dark drop shadow on all text.
+- Damage numbers: hits less than 0.25 s apart merge into one running total that rises 40u and vanishes
+  after 0.6 s (a stream of 7s at 20 Hz was an unreadable stack).
+- Headless run now really fires: fixed virtual 2 ms per frame (300 frames = 0.6 s = 12 LG cells),
+  knockback off so the scene is stable; checks crosshair/HUD text/damage-number pixels.

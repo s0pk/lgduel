@@ -71,14 +71,15 @@ impl Offscreen {
         &self,
         r: &mut Renderer,
         frames: u32,
-        mut scene: impl FnMut(u32) -> (Camera, Vec<Vertex>),
+        mut scene: impl FnMut(u32) -> (Camera, Vec<Vertex>, Vec<Vertex>),
         clear: wgpu::Color,
     ) -> FrameStats {
         let mut stats = FrameStats::default();
         for i in 0..frames {
             let t = Instant::now();
-            let (cam, dynamic) = scene(i);
+            let (cam, dynamic, hud) = scene(i);
             r.set_dynamic(&self.device, &self.queue, &dynamic);
+            r.set_hud(&self.device, &self.queue, &hud);
             r.draw(
                 &self.device,
                 &self.queue,

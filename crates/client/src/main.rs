@@ -9,8 +9,10 @@
 
 mod audio;
 mod effects;
+mod font;
 mod frame_stats;
 mod gfx;
+mod hud;
 mod input;
 mod local;
 mod offscreen;
@@ -20,11 +22,12 @@ mod render;
 use effects::{BeamStyle, EffectSettings};
 use frame_stats::FrameStats;
 use gfx::Gfx;
+use hud::{DamageNumbers, HudInfo, HudSettings};
 use input::{Keys, MouseLook, MouseSettings};
 use lgduel_sim::config::GameConfig;
 use lgduel_sim::game::{GameEvent, PlayerId, hitscan};
 use lgduel_sim::math::{Angle, Vec3, angle_vectors, look_angles};
-use lgduel_sim::usercmd::buttons;
+use lgduel_sim::usercmd::{UserCmd, buttons};
 use lgduel_sim::world::{World, builtin};
 use local::LocalSession;
 use players::EnemyColors;
@@ -242,6 +245,63 @@ fn scene_mesh(
     v
 }
 
+/// HUD numbers for the local player.
+fn hud_info(session: &LocalSession) -> HudInfo {
+    let g = &session.game;
+    let me = g.player(session.me).unwrap();
+    HudInfo {
+        health: me.health,
+        accuracy_pct: me.stats.accuracy_pct(),
+        damage_dealt: me.stats.damage_dealt,
+        damage_taken: me.stats.damage_taken,
+        wins: me.stats.fights_won,
+        losses: me.stats.fights_lost,
+        fight_secs: g
+            .fight_start
+            .map(|s| (g.tick.0 - s.0) as f32 / g.cfg.tick_rate_hz as f32),
+        opponent_health: g
+            .players
+            .iter()
+            .find(|p| p.id != session.me)
+            .map(|p| p.health),
+    }
+}
+
+/// Turn the last advance's own hits into floating damage numbers; returns hit count.
+fn track_hits(session: &LocalSession, numbers: &mut DamageNumbers) -> usize {
+    let mut last_end = None;
+    let mut hits = 0;
+    for e in &session.events {
+        match e {
+            GameEvent::Fire { shooter, end, .. } if *shooter == session.me => last_end = Some(*end),
+            GameEvent::Damage {
+                attacker, amount, ..
+            } if *attacker == session.me => {
+                if let Some(p) = last_end {
+                    numbers.add(p, *amount);
+                }
+                hits += 1;
+            }
+            _ => {}
+        }
+    }
+    hits
+}
+
+fn hud_mesh(
+    session: &LocalSession,
+    cam: &Camera,
+    size: (u32, u32),
+    numbers: &DamageNumbers,
+    s: &HudSettings,
+) -> Vec<render::Vertex> {
+    let mut v = Vec::new();
+    let screen = (size.0 as f32, size.1 as f32);
+    let vp = cam.view_proj(screen.0 / screen.1.max(1.0));
+    hud::build(&mut v, screen, &vp, &hud_info(session), numbers, s);
+    v
+}
+
 fn run_headless(opts: &Options) -> Result<(), String> {
     let (w, h) = opts.size;
     let off = offscreen::Offscreen::new(w, h)?;
@@ -254,7 +314,10 @@ fn run_headless(opts: &Options) -> Result<(), String> {
     r.set_world(&off.device, &world);
     // Local player at spawn 1, an idle opponent at spawn 2; look at the opponent's chest.
     // Opponent placed 400u in front (mid LG range) so effects are a few pixels wide.
-    let mut session = LocalSession::new(GameConfig::default(), world.clone(), 1);
+    // Knockback off so the opponent stays put and the picture is stable frame to frame.
+    let mut cfg = GameConfig::default();
+    cfg.lg.knockback = 0.0;
+    let mut session = LocalSession::new(cfg, world.clone(), 1);
     let me = session.game.player(session.me).unwrap().pm.origin;
     let enemy_id = session.game.players[1].id;
     session.teleport(enemy_id, me + Vec3::new(400.0, 0.0, 0.0));
@@ -268,18 +331,37 @@ fn run_headless(opts: &Options) -> Result<(), String> {
         fov: opts.fov,
     };
     let colors = EnemyColors::default();
+    let hud_settings = HudSettings::default();
+    let mut numbers = DamageNumbers::default();
+    let mut total_hits = 0;
     let frames = opts.frames.unwrap_or(120) as u32;
+    // Each frame advances the sim by a fixed virtual 2 ms while firing at the opponent,
+    // so the HUD shows real stats and damage numbers (300 frames = 0.6 s = 12 LG cells).
+    const VIRTUAL_FRAME_US: u64 = 2_000;
+    let fire = UserCmd {
+        pitch,
+        yaw,
+        buttons: buttons::FIRE,
+        ..UserCmd::default()
+    };
     let stats = off.render(
         &mut r,
         frames,
         |i| {
-            (
-                cam,
-                scene_mesh(&session, &cam, true, &colors, &opts.effects, i),
-            )
+            session.advance(
+                VIRTUAL_FRAME_US,
+                |t| UserCmd { tick: t, ..fire },
+                |_, _| vec![],
+            );
+            total_hits += track_hits(&session, &mut numbers);
+            numbers.update(VIRTUAL_FRAME_US as f32 / 1e6);
+            let scene = scene_mesh(&session, &cam, true, &colors, &opts.effects, i);
+            let hud = hud_mesh(&session, &cam, (w, h), &numbers, &hud_settings);
+            (cam, scene, hud)
         },
         CLEAR,
     );
+    println!("SIM hits {total_hits}, HUD {:?}", hud_info(&session));
     if let Some(s) = stats.summary() {
         println!("FRAMESTATS {s} | offscreen (GPU wait per frame)");
     }
@@ -312,6 +394,23 @@ fn run_headless(opts: &Options) -> Result<(), String> {
             return Err(format!(
                 "forced enemy {name} colour not visible ({px_count} px)"
             ));
+        }
+    }
+    let mut hud_checks = vec![
+        ("crosshair", hud_settings.crosshair.color, 20),
+        ("hud text", hud_settings.text_color, 100),
+    ];
+    if !numbers.items.is_empty() {
+        hud_checks.push(("damage numbers", hud_settings.damage_color, 10));
+    } else if frames >= 60 {
+        return Err("expected live damage numbers after firing at the opponent".into());
+    }
+    for (name, c, min_px) in hud_checks {
+        let srgb = offscreen::linear_to_srgb8(c);
+        let px_count = (offscreen::color_fraction(&px, srgb, 2) * total).round() as u64;
+        println!("IMAGE {name} {srgb:?}: {px_count} px");
+        if px_count < min_px {
+            return Err(format!("{name} not visible ({px_count} px)"));
         }
     }
     let fx = &opts.effects;
@@ -363,6 +462,8 @@ struct App {
     grabbed: bool,
     colors: EnemyColors,
     audio: audio::Audio,
+    hud: HudSettings,
+    numbers: DamageNumbers,
     window: Option<Arc<Window>>,
     gfx: Option<Gfx>,
     renderer: Option<Renderer>,
@@ -417,14 +518,10 @@ impl App {
             |t| keys.cmd(t, &look),
             |_, _| vec![],
         );
-        let me = self.session.me;
-        for e in &self.session.events {
-            if let GameEvent::Damage { attacker, .. } = e
-                && *attacker == me
-            {
-                self.audio.play_hit();
-            }
+        for _ in 0..track_hits(&self.session, &mut self.numbers) {
+            self.audio.play_hit();
         }
+        self.numbers.update(elapsed.as_secs_f32());
     }
 
     fn finish(&mut self, el: &ActiveEventLoop) {
@@ -584,6 +681,8 @@ impl ApplicationHandler for App {
                 {
                     let size = (g.config.width, g.config.height);
                     r.set_dynamic(&g.device, &g.queue, &dynamic);
+                    let hud = hud_mesh(&self.session, &cam, size, &self.numbers, &self.hud);
+                    r.set_hud(&g.device, &g.queue, &hud);
                     g.frame(|d, q, v| r.draw(d, q, v, depth, size, &cam, CLEAR));
                 }
                 self.frames += 1;
@@ -654,6 +753,8 @@ fn main() {
         grabbed: false,
         colors: EnemyColors::default(),
         audio,
+        hud: HudSettings::default(),
+        numbers: DamageNumbers::default(),
         opts,
         window: None,
         gfx: None,
