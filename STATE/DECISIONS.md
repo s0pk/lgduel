@@ -241,3 +241,11 @@ Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update th
   every `snapshot_every` ticks as deltas against the client's acked baseline; events accumulate per client
   between snapshots.
 - Real-time loop: FixedStepper + ≤1 ms sleeps (socket polled ≥1 kHz). Timeout 5 s; Disconnect control msg.
+
+## D24 — Clock alignment (2026-10-22)
+- `net::client::NetClient`: handshake with 250 ms retries; per-snapshot server-tick estimate = newest snapshot
+  tick + (time since arrival + RTT/2)/tick. Target client tick = estimate + lead, lead = (RTT/2 + 2·max(RTT
+  deviation, snapshot arrival jitter))/tick + 1 safety tick. Client clock dilates ≤ ±5% toward the target;
+  snaps if off by > 250 ms. Commands are generated for each client tick as the clock crosses it.
+- Measured (MemNet): 50±10 ms → lead 8.8 ticks, server buffer ≤ 6, 0 late cmds/10 s; after switching to
+  150±10 ms → lead 21.6 ticks, 0 late cmds/10 s; 20 s → client 2500 ticks = server 2500 ticks.

@@ -43,7 +43,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] 4.2 Protocol messages: connect/handshake, usercmd packets (seq, redundant last N cmds), snapshots
 - [x] 4.3 Snapshot delta compression vs acked baseline
 - [x] 4.4 Server binary: fixed tick, config TOML, accepts clients, runs sim
-- [ ] 4.5 Clock sync + client tick alignment
+- [x] 4.5 Clock sync + client tick alignment
 - [ ] 4.6 Client prediction + reconciliation (own movement + own LG beam)
 - [ ] 4.7 Entity interpolation with configurable buffer; extrapolation off by default
 - [ ] 4.8 Lag compensation: rewind buffer, anti-lag mode (≤200 ms) and no-anti-lag mode

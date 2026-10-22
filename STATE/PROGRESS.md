@@ -133,3 +133,8 @@
 - `crates/server/src/lib.rs`: `ServerConfig` ([server] + gameplay), `Server<T: Transport>` (poll/tick, challenge handshake, accept with config TOML, reject wrong version/full, ignore bad cookies, InputBuffer per client, last-real-command repeat, delta snapshots per client, timeout/disconnect, operator log, client stats). `main.rs`: CLI (`--config --port --bind --duration-secs --version`), real-time 125 Hz loop.
 - Bug found by test and fixed: startup ticks before a client's first command were counted as "missing" because the fallback default command was stored as last_cmd.
 - Verified: server tests 5 passed (config sections + example file; MemNet handshake → 2 s of inputs → snapshots show 320 u/s walking, 0 missing, RTT > 15 ms; spoofed cookie ignored, wrong version rejected; timeout removes player; 5% loss + jitter with 8× redundancy → 0 missing commands over 10 s, loss estimate 3.4%). Real binary: 2.0 s → exactly 250 ticks, clean exit. check.sh GREEN (now also runs the server for 0.5 s).
+
+## 2026-10-22 — iteration 26: PLAN 4.5 clock sync + tick alignment
+- `crates/net/src/client.rs`: `NetClient<T>` (connect/accept/reject, delta snapshot reception with baselines, arrival-jitter estimate, server-tick estimate, target lead, dilated client clock, `advance()` → ticks due, `send_cmd` with 8× redundancy + snapshot ack, `disconnect`).
+- `crates/server/tests/clock_sync.rs` (NetClient ↔ Server over MemNet): 50±10 ms → 0 late commands in 10 s, max server buffer 6 ticks, RTT 101.7 ms, lead 8.8 ticks; latency → 150±10 ms → 0 late in 10 s after 3 s, RTT 301.1 ms, lead 21.6; 20 s: client 2500 ticks = server 2500; full server → Rejected("server full").
+- Verified: check.sh GREEN.
