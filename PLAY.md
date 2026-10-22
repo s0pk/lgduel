@@ -61,6 +61,11 @@ Changes apply immediately and are saved to `%APPDATA%\LGDuel\settings.toml`.
   (head / body / legs; default yellow / green / cyan so they stand out), crosshair editor, net-graph,
   input display (W A S D / jump / crouch / fire on screen), gun model (none / small / normal).
   There is never screen shake, view kick or blood.
+- **Map theme** (Visuals → Map): `classic` is the original flat look, `grid` adds textures; your own themes
+  (textures from PNG files) are listed too, see [THEMES.md](THEMES.md). Themes only change how *you* see the arena.
+- **Enemy model** (Visuals → Enemies): `classic` (boxes) or `humanoid` (head, torso, arms, swinging legs).
+  *Forced colours* (on by default) draw enemies in the solid colours so they are easiest to see; switch it off to
+  show the model's own skin colours instead and pick them there.
 - **Audio:** hit-sound volume (with a test button).
 - **Player:** your name.
 

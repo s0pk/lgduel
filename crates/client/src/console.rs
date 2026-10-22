@@ -299,6 +299,19 @@ mod tests {
         assert_eq!(s.enemy_colors.head, [1.0, 0.0, 1.0]);
         run(&mut s, "beam zigzag", None);
         assert_eq!(s.effects.beam_style, crate::effects::BeamStyle::Zigzag);
+        run(&mut s, "video.theme grid", None);
+        assert_eq!(s.video.theme, "grid");
+        run(&mut s, "models.enemy humanoid", None);
+        assert_eq!(s.models.enemy, crate::models::ModelKind::Humanoid);
+        run(&mut s, "models.forced_colors false", None);
+        assert!(!s.models.forced_colors);
+        run(&mut s, "set models.skin.legs [0.1, 0.2, 0.3]", None);
+        assert_eq!(s.models.skin.legs, [0.1, 0.2, 0.3]);
+        let (o, _, changed) = run(&mut s, "models.enemy robot", None);
+        assert!(
+            !changed || s.models.enemy == crate::models::ModelKind::Humanoid,
+            "{o:?}"
+        );
         run(&mut s, "name Alice Smith", None);
         assert_eq!(s.name, "Alice Smith");
         assert_eq!(run(&mut s, "fov", None).0, vec!["video.fov = 100.0"]);

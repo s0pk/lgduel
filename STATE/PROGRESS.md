@@ -388,3 +388,7 @@
 ## 2026-10-23 — iteration 70: visuals T5 character models
 - render::push_obox (gun refactored onto it), models.rs, scene_mesh takes `&ModelSettings`, settings `[models]`, Visuals tab (model, forced colours, skin pickers), `--enemy-model/--skins/--enemy-distance`, check.sh humanoid + skin renders.
 - Verified: 6 model tests (hitbox containment, exactly three forced colours / skin has none of them, classic == original, legs move while torso/head don't and yaw turns the model, crouch lowers it, settings round trip); close-up screenshots inspected; check.sh GREEN 115 s; 6675 fps at 1080p with grid + humanoid.
+
+## 2026-10-23 — iteration 71: visuals T6 docs and wrap-up
+- PLAY.md (theme, enemy model, forced colours), CONFIG.md (`video.theme`, `[models]`), docs/PERF.md (grid + humanoid: 6675 fps), console test for the new cvars (incl. an invalid enum value is refused). Visual customisation plan T1–T6 complete (STATE/HANDOFF_VISUALS.md).
+- Verified: check.sh GREEN (see log); determinism golden hash unchanged since T1.

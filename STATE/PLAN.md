@@ -130,4 +130,4 @@ Full instructions: `STATE/HANDOFF_VISUALS.md` (read section 0 first). Client-sid
 - [x] T3 Theme system + built-in themes classic / grid (procedural textures), video.theme setting
 - [x] T4 User themes from folders (theme.toml + PNG), example theme, THEMES.md
 - [x] T5 Built-in character models (classic, humanoid) + forced-colour banding + skins
-- [ ] T6 Docs, settings UI pass, perf re-measure, state
+- [x] T6 Docs, settings UI pass, perf re-measure, state

@@ -9,6 +9,10 @@ bot strafing and the player firing (`--synthetic-input`), 4000 frames.
 | arena_flat, defaults | 4138 | 0.199 ms | 0.578 ms | 1.44 ms |
 | arena_tiers, gun model + input display on | 3933 | 0.211 ms | 0.594 ms | 1.40 ms |
 | same, `dist` build (LTO) | 4113 | 0.200 ms | 0.574 ms | 1.55 ms |
+| arena_tiers, `grid` theme + `humanoid` enemy (textured world pipeline) | 6675 | 0.141 ms | 0.287 ms | 1.27 ms |
+
+(The later rows ran after other measurements; on this machine run-to-run variation is about ±30%. The textured
+world pipeline and the humanoid model cost nothing measurable.)
 
 Target was 500+ FPS at 1080p: met with a large margin (the p99 frame is still ~1700 FPS). The scene is a few
 hundred flat-shaded triangles plus HUD quads in one pipeline each, uploaded per frame; there is nothing to

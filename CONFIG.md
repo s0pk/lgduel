@@ -49,11 +49,12 @@ for one run.
 |---|---|
 | top level | `name` "player", `rendezvous` "" (join-code service; empty = shipped one) |
 | `[mouse]` | `cm_per_360` 30, `dpi` 800, `invert_pitch` false |
-| `[video]` | `fov` 110 (10–130, 4:3 horizontal), `fullscreen` false, `size` [1280, 720], `vsync` false, `fps_cap` (unset = uncapped; e.g. `fps_cap = 240`) |
+| `[video]` | `fov` 110 (10–130, 4:3 horizontal), `fullscreen` false, `size` [1280, 720], `vsync` false, `fps_cap` (unset = uncapped; e.g. `fps_cap = 240`), `theme` "classic" (or "grid", or a folder in `themes/`, see [THEMES.md](THEMES.md)) |
 | `[effects]` | `gun` "none" / "small" / "normal", `beam_style` "none" / "thin" / "thick" / "zigzag", `beam_color`, `sparks` true, `spark_size` 3, `spark_color` |
 | `[hud]` | `damage_numbers` true, `damage_color`, `text_color`, `text_scale` 3, `text_shadow` true, `net_graph` true (F3), `net_graph_color`, `input_display` false |
 | `[hud.crosshair]` | `size` 8, `gap` 4, `thickness` 2, `dot` true, `color` |
-| `[enemy_colors]` | `head` yellow, `upper` green, `lower` cyan (solid, unshaded) |
+| `[enemy_colors]` | `head` yellow, `upper` green, `lower` cyan (solid, unshaded; used while `models.forced_colors` is on) |
+| `[models]` | `enemy` "classic" / "humanoid", `forced_colors` true (off = show the skin), `skin` (`head`, `torso`, `arms`, `legs` colours) |
 | `[audio]` | `volume` 0.7 (hit sound) |
 | `[practice]` | `bot` true, `pattern` "still"/"ad"/"mirror"/"anti"/"hsw"/"hswanti", `skill` "easy"/"medium"/"hard"/"aimbot", `map` |
 | `[host]` | Host-a-game screen: `name`, `port`, `classic`, `lifesteal_percent`, `anti_lag`, `map`, `join_code` |
