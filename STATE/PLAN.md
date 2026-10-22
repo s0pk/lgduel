@@ -62,7 +62,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 
 ## Friend-test release (user priority, 2026-10-22)
 - [x] F.1 `lgduel host`, self-contained Windows release zip (static CRT), PLAY.md guide (LAN / Tailscale / port forward), packaged smoke test
-- [ ] F.2 Publish to GitHub: README (how to play/host), prebuilt Windows zip in Releases
+- [x] F.2 Publish to GitHub: README (how to play/host), prebuilt Windows zip in Releases
 
 ## Phase 6 — Multi-duel server (deps: 4.x)
 - [ ] 6.1 Arena instances / pair isolation (no cross-pair damage or collision)

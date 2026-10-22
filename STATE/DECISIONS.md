@@ -378,3 +378,11 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
   with antivirus scanning new binaries) → bursts of late commands. After warm-up: 0 late / 0 rubber-bands in
   two consecutive fresh-build checks; under 100% CPU load on all cores: ≤ 5 small (5–10u) corrections per
   bot per 60 s, matching ≤ 8 late commands.
+
+## D37 — Publishing (2026-10-22)
+- Public repo https://github.com/s0pk/lgduel (user's choice: public, name `lgduel`). Commit author/committer
+  email rewritten (before first push, user-approved) to the GitHub noreply address
+  133751159+s0pk@users.noreply.github.com; repo-local git config uses it for future commits.
+- Releases: tag `vX.Y.Z`, asset `LGDuel-windows-x64.zip` from `scripts/package.sh` (smoke-tested before upload,
+  and the downloaded asset smoke-tested after). v0.1.0 = first playable test build.
+- `gh` CLI installed via winget (user-approved); user logged in themselves.

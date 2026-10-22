@@ -217,3 +217,9 @@
 - A full check after the rebuild failed (lossy 15 / highping 8 rubber-bands). Investigation: (1) CPU-saturation repro found a real bug — clock snap re-issued ticks → fixed + regression tests; (2) late-command feedback loop added (+test); (3) harness stopped netem before in-flight Disconnects → fixed; (4) remaining failures were startup stalls of freshly built processes → bots measure after 5 s warm-up (threshold scaled accordingly).
 - Verified: two consecutive full checks from a fresh build GREEN (84 s, 77 s), all bots 0 rubber-bands / 0 late commands after warm-up; 60 s match under 100% CPU load passes.
 - Not verified: a run on a second PC / by a second human.
+
+## 2026-10-22 — iteration 39: F.2 publish to GitHub (user request)
+- README.md (features, 3-step play-with-a-friend, offline practice, controls, hosting, build from source, layout, license), MIT LICENSE; package includes them.
+- gh 2.103.0 installed (winget, user-approved); user logged in as s0pk. History rewritten to the noreply email (39 commits, verified no other address remains), repo `s0pk/lgduel` created public and pushed; tag v0.1.0; release "LGDuel v0.1.0 — first playable test build" with `LGDuel-windows-x64.zip` (4,259,676 bytes, built from ec34411).
+- Verified: release asset downloaded from GitHub into a fresh folder, unzipped, VERSION ec34411; packaged `lgduel host` + bot + headless client: both connected, ONLINE CHECK OK (ping 3.9 ms, 125 snapshots/s, hitreg 100%).
+- Note: Windows refuses to start executables from very long working-directory paths (scratchpad) — use short paths for such smoke tests.
