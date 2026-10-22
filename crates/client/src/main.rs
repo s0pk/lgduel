@@ -2037,7 +2037,6 @@ impl ApplicationHandler for App {
         // Application id: desktop files and icons match windows by it (`lgduel.desktop`).
         #[cfg(target_os = "linux")]
         let attrs = {
-            use winit::platform::wayland::WindowAttributesExtWayland;
             use winit::platform::x11::WindowAttributesExtX11;
             WindowAttributesExtX11::with_name(attrs, "lgduel", "LGDuel")
         };
