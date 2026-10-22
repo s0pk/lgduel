@@ -1252,7 +1252,9 @@ dependencies = [
  "lgduel-sim",
  "png",
  "pollster",
+ "serde",
  "skrifa",
+ "toml",
  "wgpu",
  "winit",
 ]

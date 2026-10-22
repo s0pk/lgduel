@@ -4,7 +4,8 @@
 use crate::render::Vertex;
 use lgduel_sim::math::Vec3;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum BeamStyle {
     /// No beam at all (some players prefer an unobstructed view).
     None,
@@ -28,7 +29,8 @@ impl BeamStyle {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct EffectSettings {
     pub beam_style: BeamStyle,
     pub beam_color: [f32; 3],

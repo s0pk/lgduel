@@ -404,3 +404,12 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
   scale). Verified by parsing with skrifa (the reader egui uses).
 - Headless egui: frames carry an advancing clock (window fade-in) and texture deltas of skipped frames are
   kept (`Ui::skip`) — the font atlas from the first frame was otherwise lost (UI drew nothing).
+
+## D40 — Settings persistence (2026-10-22)
+- `client::settings::Settings` (name, mouse, video{fullscreen,size,vsync,fps_cap,fov}, effects, hud+crosshair,
+  enemy colours, audio, practice{bot,pattern,skill}, user servers) serialised as compact TOML at
+  `%APPDATA%\LGDuel\settings.toml` / `~/.config/lgduel/settings.toml` (XDG) / macOS Application Support.
+  Missing keys → defaults, unknown keys ignored, values sanitised; broken file → defaults + warning, file
+  left untouched; writes are atomic (tmp + rename). Created with defaults on the first windowed run.
+- Command-line flags override settings for that run only (not written back). Headless runs and
+  `--no-settings` never touch the file (tests stay hermetic); `--settings PATH` picks another file.

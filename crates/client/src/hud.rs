@@ -6,7 +6,8 @@ use crate::render::Vertex;
 use glam::{Mat4, Vec4};
 use lgduel_sim::math::Vec3;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct CrosshairStyle {
     /// Arm length in pixels (0 = no arms).
     pub size: f32,
@@ -29,7 +30,8 @@ impl Default for CrosshairStyle {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct HudSettings {
     pub crosshair: CrosshairStyle,
     pub text_color: [f32; 3],

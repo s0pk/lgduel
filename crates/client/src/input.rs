@@ -10,7 +10,8 @@ use lgduel_sim::usercmd::{PITCH_LIMIT_DEG, UserCmd, buttons};
 
 const UNITS_PER_TURN: f64 = 4_294_967_296.0;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct MouseSettings {
     pub dpi: f64,
     /// Centimetres of mouse travel for a 360° turn.

@@ -66,7 +66,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 
 ## v0.2 — menus, settings, real maps, public server (user plan approved 2026-10-22; runs before the remaining phases)
 - [x] M1.1 egui integration (egui 0.37 = wgpu 30 / winit 0.30): input routing, overlay render after HUD, Esc menu skeleton (Resume/Settings/Disconnect/Quit), headless render check of the menu
-- [ ] M1.2 `Settings` struct + `%APPDATA%/LGDuel/settings.toml` load/save, CLI overrides, round-trip test
+- [x] M1.2 `Settings` struct + `%APPDATA%/LGDuel/settings.toml` load/save, CLI overrides, round-trip test
 - [ ] M1.3 Settings menu tabs (Mouse, Video, Visuals incl. crosshair editor + enemy colours, Audio, Player), live apply + save
 - [ ] M1.4 Borderless fullscreen (setting + F11 / Alt+Enter)
 - [ ] M2.1 Connectionless Info query (name, map, players/max, hit mode, lifesteal, tick, protocol) + server answer + test

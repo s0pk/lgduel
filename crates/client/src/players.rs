@@ -7,7 +7,8 @@ use lgduel_sim::config::PhysicsConfig;
 use lgduel_sim::math::{Angle, Vec3, angle_vectors};
 use lgduel_sim::world::Aabb;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct EnemyColors {
     pub head: [f32; 3],
     pub upper: [f32; 3],

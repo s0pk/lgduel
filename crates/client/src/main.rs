@@ -24,14 +24,15 @@ mod offscreen;
 mod players;
 mod render;
 mod scene;
+mod settings;
 mod ttf;
 mod ui;
 
-use effects::{BeamStyle, EffectSettings};
+use effects::BeamStyle;
 use frame_stats::FrameStats;
 use gfx::Gfx;
 use hud::{DamageNumbers, HudSettings};
-use input::{Keys, MouseLook, MouseSettings};
+use input::{Keys, MouseLook};
 use lgduel_bot::{AimSkill, Bot, BotConfig, StrafePattern};
 use lgduel_sim::config::GameConfig;
 use lgduel_sim::game::PlayerId;
@@ -43,6 +44,7 @@ use net_session::NetSession;
 use players::EnemyColors;
 use render::{Camera, Renderer};
 use scene::FrameView;
+use settings::Settings;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
@@ -61,65 +63,65 @@ const CLEAR: wgpu::Color = wgpu::Color {
 
 #[derive(Debug, Clone, PartialEq)]
 struct Options {
+    /// Saved player settings (with this run's command-line overrides applied).
+    s: Settings,
+    /// Where settings are loaded from / saved to (None = don't persist).
+    settings_path: Option<std::path::PathBuf>,
     frames: Option<u64>,
-    vsync: bool,
-    fps_cap: Option<u32>,
-    size: (u32, u32),
     headless: bool,
     /// Headless: draw the pause menu over the scene (UI render check).
     menu: bool,
     screenshot: Option<String>,
-    fov: f32,
-    mouse: MouseSettings,
     /// Feed scripted input (hold forward+right, turn right) for unattended runs.
     synthetic_input: bool,
-    effects: EffectSettings,
-    /// 0 = muted.
-    volume: f32,
     sound_test: bool,
-    /// Offline opponent: None = idle target dummy.
+    /// Offline opponent: None = idle target dummy (from settings, CLI can override).
     bot: Option<(StrafePattern, AimSkill)>,
     /// Play online against this server instead of offline.
     connect: Option<String>,
-    name: String,
     /// Headless online run length.
     secs: f64,
-    net_graph: bool,
 }
 
-impl Default for Options {
-    fn default() -> Self {
+/// Offline opponent described by the practice settings.
+fn practice_bot(p: &settings::Practice) -> Option<(StrafePattern, AimSkill)> {
+    p.bot.then(|| {
+        (
+            StrafePattern::parse(&p.pattern).unwrap_or(StrafePattern::RandomAd {
+                min_ms: 150,
+                max_ms: 600,
+            }),
+            AimSkill::preset(&p.skill).unwrap_or(AimSkill::MEDIUM),
+        )
+    })
+}
+
+impl Options {
+    fn with_settings(s: Settings, settings_path: Option<std::path::PathBuf>) -> Self {
         Self {
+            bot: practice_bot(&s.practice),
+            s,
+            settings_path,
             frames: None,
-            vsync: false,
-            fps_cap: None,
-            size: (1280, 720),
             headless: false,
             menu: false,
             screenshot: None,
-            fov: 110.0,
-            mouse: MouseSettings::default(),
             synthetic_input: false,
-            effects: EffectSettings::default(),
-            volume: 0.7,
             sound_test: false,
-            bot: Some((
-                StrafePattern::RandomAd {
-                    min_ms: 150,
-                    max_ms: 600,
-                },
-                AimSkill::MEDIUM,
-            )),
             connect: None,
-            name: "player".into(),
             secs: 5.0,
-            net_graph: true,
         }
     }
 }
 
-fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Options, String> {
-    let mut o = Options::default();
+impl Default for Options {
+    fn default() -> Self {
+        Self::with_settings(Settings::default(), None)
+    }
+}
+
+fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<Options, String> {
+    let mut o = base;
     let mut it = args.into_iter();
     while let Some(a) = it.next() {
         let mut val = |name: &str| it.next().ok_or(format!("{name} needs a value"));
@@ -129,9 +131,9 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Options, String>
         };
         match a.as_str() {
             "--frames" => o.frames = Some(num("--frames", val("--frames")?)?),
-            "--fps-cap" => o.fps_cap = Some(num("--fps-cap", val("--fps-cap")?)? as u32),
+            "--fps-cap" => o.s.video.fps_cap = Some(num("--fps-cap", val("--fps-cap")?)? as u32),
             "--fov" => {
-                o.fov = val("--fov")?
+                o.s.video.fov = val("--fov")?
                     .parse::<f32>()
                     .map_err(|_| "--fov needs a number".to_string())?
                     .clamp(10.0, 130.0)
@@ -139,34 +141,34 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Options, String>
             "--size" => {
                 let v = val("--size")?;
                 let (w, h) = v.split_once('x').ok_or("--size needs WxH")?;
-                o.size = (
+                o.s.video.size = (
                     w.parse().map_err(|_| "--size needs WxH")?,
                     h.parse().map_err(|_| "--size needs WxH")?,
                 );
             }
             "--sens-cm" => {
-                o.mouse.cm_per_360 = val("--sens-cm")?
+                o.s.mouse.cm_per_360 = val("--sens-cm")?
                     .parse::<f64>()
                     .ok()
                     .filter(|v| *v > 0.0)
                     .ok_or("--sens-cm needs a positive number")?
             }
             "--dpi" => {
-                o.mouse.dpi = val("--dpi")?
+                o.s.mouse.dpi = val("--dpi")?
                     .parse::<f64>()
                     .ok()
                     .filter(|v| *v > 0.0)
                     .ok_or("--dpi needs a positive number")?
             }
-            "--invert" => o.mouse.invert_pitch = true,
+            "--invert" => o.s.mouse.invert_pitch = true,
             "--beam" => {
                 let v = val("--beam")?;
-                o.effects.beam_style = BeamStyle::parse(&v)
+                o.s.effects.beam_style = BeamStyle::parse(&v)
                     .ok_or(format!("--beam must be none|thin|thick|zigzag, got {v}"))?
             }
-            "--no-sparks" => o.effects.sparks = false,
-            "--no-net-graph" => o.net_graph = false,
-            "--no-sound" => o.volume = 0.0,
+            "--no-sparks" => o.s.effects.sparks = false,
+            "--no-net-graph" => o.s.hud.net_graph = false,
+            "--no-sound" => o.s.audio.volume = 0.0,
             "--no-bot" => o.bot = None,
             "--bot" => {
                 let v = val("--bot")?;
@@ -192,22 +194,24 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Options, String>
             }
             "--sound-test" => o.sound_test = true,
             "--volume" => {
-                o.volume = val("--volume")?
+                o.s.audio.volume = val("--volume")?
                     .parse::<f32>()
                     .ok()
                     .filter(|v| (0.0..=1.0).contains(v))
                     .ok_or("--volume needs a number in 0..=1")?
             }
             "--spark-size" => {
-                o.effects.spark_size = val("--spark-size")?
+                o.s.effects.spark_size = val("--spark-size")?
                     .parse::<f32>()
                     .ok()
                     .filter(|v| (0.0..=32.0).contains(v))
                     .ok_or("--spark-size needs a number in 0..=32")?
             }
             "--synthetic-input" => o.synthetic_input = true,
+            "--no-settings" => o.settings_path = None,
+            "--settings" => o.settings_path = Some(val("--settings")?.into()),
             "--connect" => o.connect = Some(val("--connect")?),
-            "--name" => o.name = val("--name")?,
+            "--name" => o.s.name = val("--name")?,
             "--secs" => {
                 o.secs = val("--secs")?
                     .parse::<f64>()
@@ -215,7 +219,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Options, String>
                     .filter(|v| *v > 0.0)
                     .ok_or("--secs needs a positive number")?
             }
-            "--vsync" => o.vsync = true,
+            "--vsync" => o.s.video.vsync = true,
             "--headless" => o.headless = true,
             "--menu" => o.menu = true,
             "--screenshot" => o.screenshot = Some(val("--screenshot")?),
@@ -244,7 +248,7 @@ fn load_world() -> World {
 }
 
 fn run_headless(opts: &Options) -> Result<(), String> {
-    let (w, h) = opts.size;
+    let (w, h) = opts.s.video.size;
     let off = offscreen::Offscreen::new(w, h)?;
     println!(
         "GPU {} ({:?}) offscreen {w}x{h}",
@@ -269,7 +273,7 @@ fn run_headless(opts: &Options) -> Result<(), String> {
         eye,
         pitch,
         yaw,
-        fov: opts.fov,
+        fov: opts.s.video.fov,
     };
     let colors = EnemyColors::default();
     let hud_settings = HudSettings::default();
@@ -298,8 +302,16 @@ fn run_headless(opts: &Options) -> Result<(), String> {
             total_hits += scene::track_hits(&fv, &mut numbers);
             numbers.update(VIRTUAL_FRAME_US as f32 / 1e6);
             let g = &session.game;
-            let scene =
-                scene::scene_mesh(&fv, &g.world, &g.cfg, &cam, true, &colors, &opts.effects, i);
+            let scene = scene::scene_mesh(
+                &fv,
+                &g.world,
+                &g.cfg,
+                &cam,
+                true,
+                &colors,
+                &opts.s.effects,
+                i,
+            );
             let hud = scene::hud_mesh(&fv, &cam, (w, h), &numbers, &hud_settings);
             (cam, scene, hud)
         },
@@ -389,7 +401,7 @@ fn run_headless(opts: &Options) -> Result<(), String> {
             return Err(format!("{name} not visible ({px_count} px)"));
         }
     }
-    let fx = &opts.effects;
+    let fx = &opts.s.effects;
     let mut fx_checks = vec![];
     if fx.beam_style != BeamStyle::None {
         fx_checks.push(("beam", fx.beam_color, 50));
@@ -471,8 +483,8 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
     let server = resolve(opts.connect.as_deref().unwrap())?;
     let world = load_world();
     let mut n =
-        NetSession::connect(server, &opts.name, world.clone()).map_err(|e| e.to_string())?;
-    let (w, h) = opts.size;
+        NetSession::connect(server, &opts.s.name, world.clone()).map_err(|e| e.to_string())?;
+    let (w, h) = opts.s.video.size;
     let off = offscreen::Offscreen::new(w, h)?;
     let mut r = Renderer::new(&off.device, offscreen::FORMAT);
     r.set_world(&off.device, &world);
@@ -514,7 +526,7 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
         eye: fv.eye,
         pitch: aim.0,
         yaw: aim.1,
-        fov: opts.fov,
+        fov: opts.s.video.fov,
     };
     let mut seed = 0;
     let stats = off.render(
@@ -522,8 +534,16 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
         10,
         |_| {
             seed += 1;
-            let scene =
-                scene::scene_mesh(&fv, &world, &cfg, &cam, false, &colors, &opts.effects, seed);
+            let scene = scene::scene_mesh(
+                &fv,
+                &world,
+                &cfg,
+                &cam,
+                false,
+                &colors,
+                &opts.s.effects,
+                seed,
+            );
             let hud = scene::hud_mesh(&fv, &cam, (w, h), &DamageNumbers::default(), &hud_settings);
             (cam, scene, hud)
         },
@@ -755,8 +775,8 @@ impl ApplicationHandler for App {
         let attrs = Window::default_attributes()
             .with_title("LGDuel")
             .with_inner_size(winit::dpi::PhysicalSize::new(
-                self.opts.size.0,
-                self.opts.size.1,
+                self.opts.s.video.size.0,
+                self.opts.s.video.size.1,
             ));
         let window = match el.create_window(attrs) {
             Ok(w) => Arc::new(w),
@@ -766,7 +786,7 @@ impl ApplicationHandler for App {
                 return;
             }
         };
-        match Gfx::new(window.clone(), self.opts.vsync) {
+        match Gfx::new(window.clone(), self.opts.s.video.vsync) {
             Ok(g) => {
                 println!(
                     "GPU {} ({:?}), {}x{}, present {:?}",
@@ -860,7 +880,7 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => {
-                if let Some(cap) = self.opts.fps_cap
+                if let Some(cap) = self.opts.s.video.fps_cap
                     && let Some(last) = self.last_frame
                 {
                     let target = Duration::from_secs_f64(1.0 / cap.max(1) as f64);
@@ -881,7 +901,7 @@ impl ApplicationHandler for App {
                     eye: fv.as_ref().map_or(Vec3::new(0.0, 0.0, 64.0), |f| f.eye),
                     pitch: self.look.pitch,
                     yaw: self.look.yaw,
-                    fov: self.opts.fov,
+                    fov: self.opts.s.video.fov,
                 };
                 let dynamic = match (&fv, cfg) {
                     (Some(fv), Some(cfg)) => scene::scene_mesh(
@@ -891,7 +911,7 @@ impl ApplicationHandler for App {
                         &cam,
                         self.keys.fire,
                         &self.colors,
-                        &self.opts.effects,
+                        &self.opts.s.effects,
                         self.frames as u32,
                     ),
                     _ => vec![],
@@ -956,7 +976,35 @@ fn main() {
         }
         return;
     }
-    let opts = match parse_args(argv) {
+    // Settings file: windowed runs load (and create) it; headless runs and
+    // `--no-settings` use defaults so tests never depend on a player's file.
+    let headless = argv.iter().any(|a| a == "--headless");
+    let no_settings = argv.iter().any(|a| a == "--no-settings");
+    let explicit = argv
+        .iter()
+        .position(|a| a == "--settings")
+        .and_then(|i| argv.get(i + 1))
+        .map(std::path::PathBuf::from);
+    let path = if headless || no_settings {
+        None
+    } else {
+        explicit.or_else(settings::default_path)
+    };
+    let base = match &path {
+        Some(p) => {
+            let (s, warning) = settings::load(p);
+            if let Some(w) = warning {
+                eprintln!("lgduel: settings: {w}");
+            } else if !p.exists()
+                && let Err(e) = settings::save(p, &s)
+            {
+                eprintln!("lgduel: could not write {}: {e}", p.display());
+            }
+            Options::with_settings(s, path.clone())
+        }
+        None => Options::default(),
+    };
+    let opts = match parse_args(argv, base) {
         Ok(o) => o,
         Err(e) => {
             eprintln!("lgduel: {e}");
@@ -979,8 +1027,8 @@ fn main() {
     }
     let event_loop = EventLoop::new().expect("event loop");
     event_loop.set_control_flow(ControlFlow::Poll);
-    let audio = if opts.volume > 0.0 {
-        audio::Audio::open(opts.volume)
+    let audio = if opts.s.audio.volume > 0.0 {
+        audio::Audio::open(opts.s.audio.volume)
     } else {
         audio::Audio::silent("muted")
     };
@@ -1005,11 +1053,11 @@ fn main() {
                 eprintln!("lgduel: {e}");
                 std::process::exit(2);
             });
-            let n = NetSession::connect(server, &opts.name, world.clone()).unwrap_or_else(|e| {
+            let n = NetSession::connect(server, &opts.s.name, world.clone()).unwrap_or_else(|e| {
                 eprintln!("lgduel: {e}");
                 std::process::exit(1);
             });
-            println!("ONLINE connecting to {server} as {}", opts.name);
+            println!("ONLINE connecting to {server} as {}", opts.s.name);
             (Session::Net(n), lgduel_sim::math::Angle::ZERO)
         }
         None => {
@@ -1030,12 +1078,12 @@ fn main() {
             (Session::Local { s, bot }, yaw)
         }
     };
-    let look = MouseLook::new(opts.mouse, start_yaw);
+    let look = MouseLook::new(opts.s.mouse, start_yaw);
     println!(
         "MOUSE {} cm/360 @ {} dpi = {:.5} deg/count (raw input, sub-count accumulation)",
-        opts.mouse.cm_per_360,
-        opts.mouse.dpi,
-        opts.mouse.degrees_per_count()
+        opts.s.mouse.cm_per_360,
+        opts.s.mouse.dpi,
+        opts.s.mouse.degrees_per_count()
     );
     let mut app = App {
         world,
@@ -1043,12 +1091,9 @@ fn main() {
         look,
         keys: Keys::default(),
         grabbed: false,
-        colors: EnemyColors::default(),
+        colors: opts.s.enemy_colors,
         audio,
-        hud: HudSettings {
-            net_graph: opts.net_graph,
-            ..HudSettings::default()
-        },
+        hud: opts.s.hud,
         numbers: DamageNumbers::default(),
         opts,
         window: None,
@@ -1076,26 +1121,27 @@ fn main() {
 mod tests {
     use super::*;
 
+    fn parse(s: &str) -> Result<Options, String> {
+        parse_args(args(s), Options::default())
+    }
+
     fn args(s: &str) -> Vec<String> {
         s.split_whitespace().map(String::from).collect()
     }
 
     #[test]
     fn parses_args() {
-        assert_eq!(parse_args(args("")).unwrap(), Options::default());
-        let o = parse_args(args(
-            "--frames 500 --vsync --fps-cap 240 --size 1920x1080 --fov 300",
-        ))
-        .unwrap();
+        assert_eq!(parse("").unwrap(), Options::default());
+        let o = parse("--frames 500 --vsync --fps-cap 240 --size 1920x1080 --fov 300").unwrap();
         assert_eq!(o.frames, Some(500));
-        assert!(o.vsync);
-        assert_eq!(o.fps_cap, Some(240));
-        assert_eq!(o.size, (1920, 1080));
-        assert_eq!(o.fov, 130.0);
-        let o = parse_args(args("--headless --screenshot a.png")).unwrap();
+        assert!(o.s.video.vsync);
+        assert_eq!(o.s.video.fps_cap, Some(240));
+        assert_eq!(o.s.video.size, (1920, 1080));
+        assert_eq!(o.s.video.fov, 130.0);
+        let o = parse("--headless --screenshot a.png").unwrap();
         assert!(o.headless && o.screenshot.as_deref() == Some("a.png"));
-        assert!(parse_args(args("--frames")).is_err());
-        assert!(parse_args(args("--size 10")).is_err());
-        assert!(parse_args(args("--bogus")).is_err());
+        assert!(parse("--frames").is_err());
+        assert!(parse("--size 10").is_err());
+        assert!(parse("--bogus").is_err());
     }
 }
