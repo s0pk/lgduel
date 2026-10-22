@@ -62,6 +62,10 @@ pub struct NetClient<T: Transport> {
     /// Observed spread of snapshot arrival times (µs), for the safety margin.
     arrival_jitter_us: f64,
     pub snaps_received: u64,
+    /// When our ConnectResponse went out (handshake RTT measurement).
+    response_sent_us: Option<u64>,
+    /// RTT measured by the handshake, used until packet acks provide one.
+    handshake_rtt_us: f64,
 }
 
 impl<T: Transport> NetClient<T> {
@@ -86,6 +90,8 @@ impl<T: Transport> NetClient<T> {
             last_update_us: None,
             arrival_jitter_us: 0.0,
             snaps_received: 0,
+            response_sent_us: None,
+            handshake_rtt_us: 0.0,
         }
     }
 
@@ -115,7 +121,7 @@ impl<T: Transport> NetClient<T> {
                 continue;
             }
             if data.first() == Some(&CONNECTIONLESS) {
-                self.connectionless(&data);
+                self.connectionless(now_us, &data);
                 continue;
             }
             if self.player().is_none() {
@@ -147,7 +153,7 @@ impl<T: Transport> NetClient<T> {
         }
     }
 
-    fn connectionless(&mut self, data: &[u8]) {
+    fn connectionless(&mut self, now_us: u64, data: &[u8]) {
         match Connectionless::decode(data) {
             Some(Connectionless::Challenge { nonce, cookie })
                 if self.state == ClientState::Connecting =>
@@ -159,6 +165,7 @@ impl<T: Transport> NetClient<T> {
                     name: self.name.clone(),
                 };
                 let _ = self.transport.send_to(self.server, &r.encode());
+                self.response_sent_us = Some(now_us);
             }
             Some(Connectionless::Accept {
                 player,
@@ -166,6 +173,9 @@ impl<T: Transport> NetClient<T> {
                 config_toml,
             }) if self.state == ClientState::Connecting => {
                 self.tick_us = 1_000_000.0 / tick_rate.max(1) as f64;
+                if let Some(t) = self.response_sent_us {
+                    self.handshake_rtt_us = now_us.saturating_sub(t) as f64;
+                }
                 self.config = GameConfig::from_toml_str(&config_toml).ok();
                 self.state = ClientState::Connected {
                     player: PlayerId(player),
@@ -199,16 +209,25 @@ impl<T: Transport> NetClient<T> {
         std::mem::take(&mut self.fresh)
     }
 
+    /// Smoothed RTT from packet acks, or the handshake measurement before the first ack.
+    pub fn rtt_us(&self) -> f64 {
+        if self.conn.stats.rtt_us > 0.0 {
+            self.conn.stats.rtt_us
+        } else {
+            self.handshake_rtt_us
+        }
+    }
+
     /// Newest snapshot tick seen and the estimated server tick now (fractional).
     pub fn estimated_server_tick(&self, now_us: u64) -> Option<f64> {
         let (t, recv) = self.newest?;
-        let one_way = self.conn.stats.rtt_us / 2.0;
+        let one_way = self.rtt_us() / 2.0;
         Some(t.0 as f64 + (now_us.saturating_sub(recv) as f64 + one_way) / self.tick_us)
     }
 
     /// How many ticks ahead of the server the client aims to be.
     pub fn target_lead_ticks(&self) -> f64 {
-        let one_way = self.conn.stats.rtt_us / 2.0;
+        let one_way = self.rtt_us() / 2.0;
         let margin = 2.0 * self.conn.stats.rtt_var_us.max(self.arrival_jitter_us);
         (one_way + margin) / self.tick_us + BASE_SAFETY_TICKS
     }

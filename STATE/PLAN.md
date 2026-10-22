@@ -44,12 +44,12 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] 4.3 Snapshot delta compression vs acked baseline
 - [x] 4.4 Server binary: fixed tick, config TOML, accepts clients, runs sim
 - [x] 4.5 Clock sync + client tick alignment
-- [ ] 4.6 Client prediction + reconciliation (own movement + own LG beam)
+- [x] 4.6 Client prediction + reconciliation (own movement + own LG beam)
 - [ ] 4.7 Entity interpolation with configurable buffer; extrapolation off by default
 - [ ] 4.8 Lag compensation: rewind buffer, anti-lag mode (≤200 ms) and no-anti-lag mode
 - [ ] 4.9 Bot as network client
 - [ ] 4.10 Headless match test in check.sh: server + 2 bots, 60 s vamp duel, assertions (connect, no panic/desync, damage, exact lifesteal, stats file)
-- [ ] 4.11 Prediction error test (<0.5u at 0% loss) in check.sh
+- [x] 4.11 Prediction error test (<0.5u at 0% loss) in check.sh
 - [ ] 4.12 Real client connects to 127.0.0.1
 
 ## Phase 5 — Netcode hardening (deps: 4.x)

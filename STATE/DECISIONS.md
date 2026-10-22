@@ -249,3 +249,14 @@ Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update th
   snaps if off by > 250 ms. Commands are generated for each client tick as the clock crosses it.
 - Measured (MemNet): 50±10 ms → lead 8.8 ticks, server buffer ≤ 6, 0 late cmds/10 s; after switching to
   150±10 ms → lead 21.6 ticks, 0 late cmds/10 s; 20 s → client 2500 ticks = server 2500 ticks.
+
+## D25 — Prediction (2026-10-22)
+- `net::predict::Predictor`: own PlayerMove predicted by replaying every sent command after the snapshot's
+  `last_cmd` through the same `pmove`; on each newest snapshot the state is rebuilt from the authoritative
+  one (reconciliation). Visual correction kept as an offset decaying at 15/s; corrections > 64u (teleport,
+  respawn) snap. Own LG beam is drawn client-side from the predicted eye + current view (as offline).
+- Error metric: predicted origin after command T vs. authoritative origin in the snapshot whose last_cmd = T.
+- Threshold (PLAN 4.11): mean < 0.5u at 0% loss. Measured: exactly 0.0 (bit-exact) at 0 ms, 50 ms,
+  100±20 ms and 50±10 ms with 5% loss.
+- NetClient seeds RTT from the handshake (ConnectResponse → Accept) until acks exist; without it the first
+  commands were stamped with ~1-tick lead, arrived late, and caused a one-off 271u misprediction at 50 ms.

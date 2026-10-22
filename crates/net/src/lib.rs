@@ -3,6 +3,7 @@
 
 pub mod client;
 pub mod conn;
+pub mod predict;
 pub mod protocol;
 pub mod snapshot;
 pub mod transport;

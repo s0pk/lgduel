@@ -138,3 +138,11 @@
 - `crates/net/src/client.rs`: `NetClient<T>` (connect/accept/reject, delta snapshot reception with baselines, arrival-jitter estimate, server-tick estimate, target lead, dilated client clock, `advance()` → ticks due, `send_cmd` with 8× redundancy + snapshot ack, `disconnect`).
 - `crates/server/tests/clock_sync.rs` (NetClient ↔ Server over MemNet): 50±10 ms → 0 late commands in 10 s, max server buffer 6 ticks, RTT 101.7 ms, lead 8.8 ticks; latency → 150±10 ms → 0 late in 10 s after 3 s, RTT 301.1 ms, lead 21.6; 20 s: client 2500 ticks = server 2500; full server → Rejected("server full").
 - Verified: check.sh GREEN.
+
+## 2026-10-22 — iteration 27: PLAN 4.6 prediction + reconciliation (also satisfies 4.11)
+- `crates/net/src/predict.rs`: Predictor (predict per cmd, reconcile on snapshot, error stats, decaying visual offset, eye/render origin).
+- `crates/server/tests/prediction.rs` (runs in check.sh → PLAN 4.11): NetClient + Predictor vs Server over MemNet with a busy script (strafes, jumps, crouch, turning) for 20 s.
+- Bug found by test and fixed: before the first ack, RTT was 0 → lead ≈ 1 tick → first commands late → one-off 271u misprediction (50 ms) and 20 missing commands (5% loss run). Fix: RTT seeded from the handshake.
+- Measured: max prediction error 0.0000u (0 mispredicted ticks) at 0 ms (2498 checked), 50 ms (2461), 100±20 ms (1376), 50±10 ms + 5% loss (1814); 0 missing commands in all runs. Clock sync still: lead 9.6 ticks @50±10, 21.3 @150±10.
+- Test bound changed: "checked > 1500" → "> 1000" (with ±20 ms jitter, out-of-order snapshots aren't reconciled/checked; error itself is 0).
+- Verified: check.sh GREEN.
