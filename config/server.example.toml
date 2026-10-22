@@ -1,0 +1,35 @@
+# LGDuel gameplay config. Every key is optional; omitted keys use these defaults.
+# Values and sources: STATE/DECISIONS.md (D3). A test asserts this file equals the defaults.
+
+tick_rate_hz = 125
+
+[physics]
+gravity = 800.0            # u/s²
+max_speed = 320.0          # u/s
+jump_velocity = 275.0      # u/s
+accelerate = 10.0          # ground accel
+air_accelerate = 1.0       # air accel (no CPMA air control)
+friction = 6.0
+stop_speed = 100.0         # u/s
+step_height = 18.0         # u
+crouch_speed_scale = 0.25
+player_mins = [-15.0, -15.0, -24.0]
+player_maxs = [15.0, 15.0, 32.0]
+crouch_maxs_z = 16.0
+
+[lg]
+refire_ms = 50
+damage = 7
+range = 768.0
+knockback = 1.0            # scale; tune in PLAN 2.11
+
+[rules]
+mode = "vamp"              # "vamp" | "classic"
+lifesteal_percent = 100    # 0–100
+frag_limit = 10            # classic mode
+spawn_health = 100
+max_health = 100           # lifesteal never heals above this
+spawn_armor = 0            # 0 = armor off
+respawn_delay_ms = 1000
+hit_mode = "anti_lag"      # "anti_lag" | "no_anti_lag"
+max_rewind_ms = 200

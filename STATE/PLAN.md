@@ -7,7 +7,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] 1.1 Cargo workspace: sim, net, server, client (bin `lgduel`), bot, tools; pinned toolchain
 - [x] 1.2 `scripts/check.sh`: fmt, clippy -D warnings, release-dbg build, tests, binaries run, explicit SKIP for future stages
 - [x] 1.3 STATE files, .gitignore, initial commit
-- [ ] 1.4 Shared `sim::config` (serde + TOML) with every gameplay default from DECISIONS.md, load/round-trip test
+- [x] 1.4 Shared `sim::config` (serde + TOML) with every gameplay default from DECISIONS.md, load/round-trip test
 
 ## Phase 2 — Sim core (deps: 1.x)
 - [ ] 2.1 Math foundation: Vec3, deterministic float policy (no FMA-dependent ops, fixed op order), state hash

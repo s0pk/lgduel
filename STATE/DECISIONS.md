@@ -55,3 +55,12 @@ Final values and exact citations get recorded here once verified (PLAN 1.4 / 2.x
 No id Software / Quake Live assets, maps, models, sounds or code. GPL Quake sources are consulted
 only for numeric constants and observable behaviour; the implementation is original. All assets are
 original or CC0/MIT.
+
+## D5 — Config shape (2026-10-22)
+- One `GameConfig` struct in `sim` (parsing a string is pure; file reading stays in server/client).
+  Server-only settings (ports, name, region, rcon) will live in a separate server struct that embeds `GameConfig`.
+- `deny_unknown_fields` everywhere: a typo in a server config is an error, not a silent default.
+- `max_health` = 100 caps lifesteal healing (vamp heal never overheals). Unverified against x76 servers;
+  revisit in 2.12 if the community format allows overheal.
+- `lg.knockback = 1.0` is a placeholder scale; real formula and value are decided in PLAN 2.11.
+- Default `hit_mode = anti_lag`; both modes are first-class settings shown in the server browser later.

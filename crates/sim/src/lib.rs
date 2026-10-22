@@ -2,6 +2,8 @@
 //!
 //! Pure: no I/O, no rendering, no wall clocks.
 
+pub mod config;
+
 /// Default fixed simulation rate in Hz (server-configurable).
 pub const DEFAULT_TICK_RATE_HZ: u32 = 125;
 
