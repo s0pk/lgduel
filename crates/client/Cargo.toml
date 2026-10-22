@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 lgduel-sim = { path = "../sim" }
 lgduel-net = { path = "../net" }
+lgduel-bot = { path = "../bot" }
 wgpu = "30.0.1"
 winit = "0.30.13"
 pollster = "1.0.1"

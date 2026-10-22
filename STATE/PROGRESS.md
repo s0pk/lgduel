@@ -107,3 +107,9 @@
 - Measured: accuracy vs random A/D strafer (20 s): aimbot 100.0%, hard 66.0%, easy 13.5%; vamp 60 s hard (68.6%) beats easy (11.2%) 26W–0W; aimbot vs still target hits every cell; pattern relative speeds mirror 0.11 / anti 1.86 / HSW 0.31 / HSW anti 1.74 v.
 - Test-measurement bugs found and fixed: lateral speed must be measured against the live line between players (anti-mirroring orbits; world-y measure gave 0.84v), and HSW needs a range band (walking through the opponent flipped the line).
 - Verified: check.sh GREEN; bot tests 7 passed.
+
+## 2026-10-22 — iteration 21: PLAN 3.10 offline practice vs bot
+- Client depends on `lgduel_bot`; default opponent is a medium random-A/D bot. Flags `--bot still|ad|mirror|anti|hsw|hswanti`, `--bot-skill easy|medium|hard|aimbot`, `--no-bot` (idle dummy). Exit prints BOT stats.
+- Live windowed run (`--synthetic-input --frames 20000 --no-sound --bot-skill hard`): 583 ticks, bot 50.8% acc, 200 dmg, 2 frags vs the scripted player; 4286 fps avg, p99 1.685 ms (1280×720, RTX 4060).
+- New test `offline_practice_vs_bot_plays_out`: 20 s at uneven ~240 fps → exactly 2500 ticks; bot 269 shots / 105 hits / 7 frags vs a strafing non-shooting player. First threshold (300 shots) was my arithmetic mistake (bot doesn't fire during the 7×1 s respawns); corrected to > 200.
+- Phase 3 (local playable) complete. Verified: check.sh GREEN.

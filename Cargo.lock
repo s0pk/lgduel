@@ -801,6 +801,7 @@ dependencies = [
  "bytemuck",
  "cpal",
  "glam",
+ "lgduel-bot",
  "lgduel-net",
  "lgduel-sim",
  "png",

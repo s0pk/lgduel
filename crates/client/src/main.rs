@@ -24,6 +24,7 @@ use frame_stats::FrameStats;
 use gfx::Gfx;
 use hud::{DamageNumbers, HudInfo, HudSettings};
 use input::{Keys, MouseLook, MouseSettings};
+use lgduel_bot::{AimSkill, Bot, BotConfig, StrafePattern};
 use lgduel_sim::config::GameConfig;
 use lgduel_sim::game::{GameEvent, PlayerId, hitscan};
 use lgduel_sim::math::{Angle, Vec3, angle_vectors, look_angles};
@@ -64,6 +65,8 @@ struct Options {
     /// 0 = muted.
     volume: f32,
     sound_test: bool,
+    /// Offline opponent: None = idle target dummy.
+    bot: Option<(StrafePattern, AimSkill)>,
 }
 
 impl Default for Options {
@@ -81,6 +84,13 @@ impl Default for Options {
             effects: EffectSettings::default(),
             volume: 0.7,
             sound_test: false,
+            bot: Some((
+                StrafePattern::RandomAd {
+                    min_ms: 150,
+                    max_ms: 600,
+                },
+                AimSkill::MEDIUM,
+            )),
         }
     }
 }
@@ -133,6 +143,29 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Options, String>
             }
             "--no-sparks" => o.effects.sparks = false,
             "--no-sound" => o.volume = 0.0,
+            "--no-bot" => o.bot = None,
+            "--bot" => {
+                let v = val("--bot")?;
+                let p = StrafePattern::parse(&v).ok_or(format!(
+                    "--bot must be still|ad|mirror|anti|hsw|hswanti, got {v}"
+                ))?;
+                let skill = o.bot.map_or(AimSkill::MEDIUM, |b| b.1);
+                o.bot = Some((p, skill));
+            }
+            "--bot-skill" => {
+                let v = val("--bot-skill")?;
+                let s = AimSkill::preset(&v).ok_or(format!(
+                    "--bot-skill must be easy|medium|hard|aimbot, got {v}"
+                ))?;
+                let p = o.bot.map_or(
+                    StrafePattern::RandomAd {
+                        min_ms: 150,
+                        max_ms: 600,
+                    },
+                    |b| b.0,
+                );
+                o.bot = Some((p, s));
+            }
             "--sound-test" => o.sound_test = true,
             "--volume" => {
                 o.volume = val("--volume")?
@@ -464,6 +497,8 @@ struct App {
     audio: audio::Audio,
     hud: HudSettings,
     numbers: DamageNumbers,
+    /// Offline opponent and its player id.
+    bot: Option<(Bot, PlayerId)>,
     window: Option<Arc<Window>>,
     gfx: Option<Gfx>,
     renderer: Option<Renderer>,
@@ -513,10 +548,14 @@ impl App {
         }
         let keys = self.keys;
         let look = self.look;
+        let bot = &mut self.bot;
         self.session.advance(
             elapsed.as_micros() as u64,
             |t| keys.cmd(t, &look),
-            |_, _| vec![],
+            |g, _| match bot {
+                Some((b, id)) => vec![(*id, b.think(g, *id))],
+                None => vec![],
+            },
         );
         for _ in 0..track_hits(&self.session, &mut self.numbers) {
             self.audio.play_hit();
@@ -525,6 +564,19 @@ impl App {
     }
 
     fn finish(&mut self, el: &ActiveEventLoop) {
+        if let Some((_, id)) = &self.bot {
+            let b = self.session.game.player(*id).unwrap();
+            println!(
+                "BOT acc {:.1}% dmg {} kills {} | you: dmg dealt {} taken {} W-L {}-{}",
+                b.stats.accuracy_pct(),
+                b.stats.damage_dealt,
+                b.stats.kills,
+                b.stats.damage_taken,
+                b.stats.damage_dealt,
+                b.stats.fights_lost,
+                b.stats.fights_won
+            );
+        }
         let p = self.session.game.player(self.session.me).unwrap();
         println!(
             "LOCAL tick {} origin ({:.1}, {:.1}, {:.1}) speed {:.1} yaw {:.2}",
@@ -737,6 +789,24 @@ fn main() {
     }
     let world = load_world();
     let session = LocalSession::new(GameConfig::default(), world.clone(), 1);
+    let bot = opts.bot.map(|(pattern, aim)| {
+        let id = session
+            .game
+            .players
+            .iter()
+            .find(|p| p.id != session.me)
+            .unwrap()
+            .id;
+        println!("PRACTICE vs bot: pattern {pattern:?}, aim {aim:?}");
+        (
+            Bot::new(BotConfig {
+                pattern,
+                aim,
+                ..BotConfig::default()
+            }),
+            id,
+        )
+    });
     let me = session.game.player(session.me).unwrap();
     let look = MouseLook::new(opts.mouse, me.yaw);
     println!(
@@ -755,6 +825,7 @@ fn main() {
         audio,
         hud: HudSettings::default(),
         numbers: DamageNumbers::default(),
+        bot,
         opts,
         window: None,
         gfx: None,

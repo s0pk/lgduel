@@ -219,6 +219,55 @@ mod tests {
     }
 
     #[test]
+    fn offline_practice_vs_bot_plays_out() {
+        use lgduel_bot::{AimSkill, Bot, BotConfig, StrafePattern};
+        let mut s = session();
+        let bot_id = s.game.players[1].id;
+        let mut bot = Bot::new(BotConfig {
+            pattern: StrafePattern::RandomAd {
+                min_ms: 150,
+                max_ms: 600,
+            },
+            aim: AimSkill::MEDIUM,
+            ..BotConfig::default()
+        });
+        // Local player strafes A/D every 0.5 s and never shoots; frames at an uneven ~240 fps.
+        let mut frame = 0u64;
+        let mut t_us = 0u64;
+        while t_us < 20_000_000 {
+            let dt = 4_000 + (frame % 3) * 170;
+            let strafe = if (t_us / 500_000).is_multiple_of(2) {
+                127
+            } else {
+                -127
+            };
+            s.advance(
+                dt,
+                |t| UserCmd {
+                    tick: t,
+                    right: strafe,
+                    ..UserCmd::default()
+                },
+                |g, _| vec![(bot_id, bot.think(g, bot_id))],
+            );
+            t_us += dt;
+            frame += 1;
+        }
+        let b = s.game.player(bot_id).unwrap().stats;
+        let me = s.game.player(s.me).unwrap().stats;
+        assert_eq!(
+            s.game.tick.0, 2500,
+            "20 s at 125 Hz regardless of frame timing"
+        );
+        // The bot only fires while the target is alive (respawn delay 1 s per frag).
+        assert!(b.shots > 200 && b.hits > 50, "{b:?}");
+        assert!(
+            b.fights_won >= 2 && me.fights_lost == b.fights_won,
+            "{b:?} {me:?}"
+        );
+    }
+
+    #[test]
     fn eye_interpolates_between_ticks() {
         let mut s = session();
         for _ in 0..100 {
