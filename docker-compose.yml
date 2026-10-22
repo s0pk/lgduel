@@ -1,0 +1,11 @@
+# docker compose up -d   → LGDuel server on UDP 27960, restarted on crash/reboot.
+# Edit server.toml next to this file (copied from config/server.example.toml on first run).
+services:
+  lgduel:
+    build: .
+    image: lgduel-server
+    restart: unless-stopped
+    ports:
+      - "27960:27960/udp"
+    volumes:
+      - ./server.toml:/etc/lgduel/server.toml:ro

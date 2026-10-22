@@ -12,6 +12,8 @@ snapshot_every = 1         # send a snapshot every N ticks
 timeout_ms = 5000          # drop silent clients after this
 map = "arena_flat"         # arena_flat | arena_pillars | arena_tiers, or a path to a map .toml
 max_arenas = 8             # separate duels; players beyond 2 per arena wait in a queue
+practice_bot = true        # a player alone in an arena gets a bot until an opponent joins
+practice_bot_after_ms = 2000
 
 [physics]
 gravity = 800.0            # u/s²
