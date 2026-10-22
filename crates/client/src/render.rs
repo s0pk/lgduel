@@ -103,7 +103,41 @@ pub fn world_mesh(w: &World) -> Vec<Vertex> {
     for (b, c) in w.brushes.iter().zip(&w.colors) {
         push_box(&mut v, b, *c);
     }
+    for b in &w.convex {
+        push_convex(&mut v, b);
+    }
     v
+}
+
+/// Fullbright shade for an arbitrary face normal: blends the box face shades
+/// (top 1.0, ±x 0.85, ±y 0.72, bottom 0.55) by the squared normal components.
+pub fn shade_for(n: Vec3) -> f32 {
+    let up = n.z.max(0.0);
+    let down = (-n.z).max(0.0);
+    up * up * FACE_SHADE[0]
+        + down * down * FACE_SHADE[1]
+        + n.x * n.x * FACE_SHADE[2]
+        + n.y * n.y * FACE_SHADE[4]
+}
+
+/// Triangulate every real face of a convex brush (fan from the first vertex).
+pub fn push_convex(out: &mut Vec<Vertex>, b: &lgduel_sim::brush::ConvexBrush) {
+    for (i, p) in b.planes.iter().enumerate() {
+        let poly = b.face(i);
+        if poly.len() < 3 {
+            continue;
+        }
+        let s = shade_for(p.normal);
+        let color = [b.color[0] * s, b.color[1] * s, b.color[2] * s];
+        for k in 1..poly.len() - 1 {
+            for v in [poly[0], poly[k], poly[k + 1]] {
+                out.push(Vertex {
+                    pos: v.to_array(),
+                    color,
+                });
+            }
+        }
+    }
 }
 
 /// Camera in Quake terms.
@@ -407,6 +441,28 @@ pub fn depth_texture(device: &wgpu::Device, w: u32, h: u32) -> wgpu::TextureView
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn convex_ramp_mesh_and_shades() {
+        use lgduel_sim::brush::{ConvexBrush, Rise};
+        let ramp = ConvexBrush::ramp(
+            Vec3::ZERO,
+            Vec3::new(100.0, 50.0, 40.0),
+            Rise::PosX,
+            [1.0, 1.0, 1.0],
+        )
+        .unwrap();
+        let mut v = vec![];
+        push_convex(&mut v, &ramp);
+        // 3 quads (2 triangles each) + 2 triangles = 8 triangles.
+        assert_eq!(v.len(), 8 * 3);
+        assert_eq!(shade_for(Vec3::new(0.0, 0.0, 1.0)), FACE_SHADE[0]);
+        assert_eq!(shade_for(Vec3::new(0.0, 0.0, -1.0)), FACE_SHADE[1]);
+        assert_eq!(shade_for(Vec3::new(1.0, 0.0, 0.0)), FACE_SHADE[2]);
+        assert_eq!(shade_for(Vec3::new(0.0, -1.0, 0.0)), FACE_SHADE[4]);
+        let slope = shade_for(ramp.planes[1].normal);
+        assert!(slope > 0.85 && slope < 1.0, "{slope}");
+    }
 
     #[test]
     fn box_mesh_has_36_vertices_with_face_shades() {

@@ -265,3 +265,7 @@
 - `crates/sim/src/brush.rs` (ConvexBrush, Plane, Rise, ramp/from_planes/vertices/face/contains + tests), `trace_convex` + merged `World::trace`, `World.convex`; `crates/sim/tests/ramps.rs`.
 - Verified: brush tests (ramp has 6 vertices, 5 faces + 2 bevels, face polygons 4/4/4/3/3, all four rise directions, unbounded/empty rejected); ramp tests 6 passed (box rests on 30° slope within 0.3u of analytic height with slope normal; walks up onto platform at top height; walks back down to the floor; cannot climb 55° (max < half height); no sinking at seam positions −14…30; jump off the top clears platform + 30u); determinism golden hash unchanged; check.sh GREEN.
 - Test fixes (my setup errors): platform too short (player walked off its far end); jump timed by tick instead of position.
+
+## 2026-10-22 — iteration 49: M3.2 map format + convex rendering
+- world.rs: `[[ramp]]` (min/max/rise/color → wedge), `[[stairs]]` (steps 1–64 → boxes climbing toward `rise`), `[[convex]]` (raw planes); errors name the entry; spawns rejected if inside a convex solid. render.rs: `push_convex` (fan-triangulated faces from `ConvexBrush::face`), `shade_for` (normal-blended fullbright shade, identical to box shades on axis normals).
+- Verified: map test (floor + 4 stairs + ramp + convex load; tallest step at the −x end reaching max.z; bad rise / steps 0 / spawn inside ramp rejected with reasons); render test (ramp → 8 triangles, shades); client 45 / sim 59 tests; check.sh GREEN.
