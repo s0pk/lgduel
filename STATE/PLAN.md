@@ -80,20 +80,20 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] M4.1 Multi-arena server: N `Game`s, lobby + auto-queue, per-arena snapshots, isolation test
 - [x] M4.2 Lone player gets a practice bot; spectate; lobby/queue Control messages + HUD/menu status
 - [x] M4.3 (= PLAN 5.6) events resent until a snapshot carrying them is acked
-- [ ] M5.1 GitHub Actions: Linux + Windows build, check.sh on Linux (lavapipe), release workflow artifacts
-- [ ] M5.2 Dockerfile + docker-compose + systemd unit + DEPLOY.md (VPS in one command)
+- [ ] M5.1 GitHub Actions: Linux + Windows build, check.sh on Linux (lavapipe), release workflow artifacts — written (85c9941), BLOCKED: GitHub account billing lock stops all Actions jobs (user)
+- [ ] M5.2 Dockerfile + docker-compose + systemd unit + DEPLOY.md (VPS in one command) — written (87c2512), verification in CI `deploy` job, BLOCKED with M5.1
 - [ ] M5.3 Release v0.2.0 (official server in servers.toml once the user provides the VPS address)
 
 ## Phase 6 — Multi-duel server (deps: 4.x)
-- [ ] 6.1 Arena instances / pair isolation (no cross-pair damage or collision)
+- [x] 6.1 Arena instances / pair isolation (no cross-pair damage or collision) — done as M4.1 (tests/arenas.rs)
 - [ ] 6.2 Queue + challenge/accept flow
-- [ ] 6.3 Spectate (follow a pair)
+- [x] 6.3 Spectate (follow a pair) — done as M4.2 (choosing the arena/player: KI-13)
 - [ ] 6.4 Per-player stats: LG acc %, dmg dealt/taken, W/L, fight length; end-of-fight summary; stats file
 - [ ] 6.5 Admin console + RCON; hot-reload of gameplay config values
 
 ## Phase 7 — Hosting (deps: 4.x, 6.x)
 - [x] 7.1 `lgduel host [--config x.toml]` subcommand
-- [ ] 7.2 In-game Host (listen server)
+- [x] 7.2 In-game Host (listen server) — done as M2.4
 - [ ] 7.3 LAN discovery
 - [ ] 7.4 Rendezvous binary: join codes (LG-XXXX), UDP hole punching
 - [ ] 7.5 Relay fallback (same binary); P2P test incl. forced-relay in check.sh
@@ -104,7 +104,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 ## Phase 8 — Visibility & settings (deps: 3.x)
 - [ ] 8.1 Console + cvar system, `exec`/`writeconfig` profiles
 - [ ] 8.2 Settings UI covering every §1 visibility option
-- [ ] 8.3 Crosshair editor
+- [x] 8.3 Crosshair editor — done in M1.3 (Settings → Visuals, live preview)
 - [ ] 8.4 Input display (WASD/jump/crouch)
 - [ ] 8.5 Gun model options (configurable/absent), no screen shake, no blood (assert)
 
@@ -118,7 +118,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [ ] 10.2 Latency notes, binary size, startup time
 
 ## Phase 11 — Packaging & docs
-- [ ] 11.1 README quick start (≤5 steps to duel a friend)
+- [x] 11.1 README quick start (≤5 steps to duel a friend) — README "Play" (3 steps), iteration 55
 - [ ] 11.2 HOSTING.md, CONFIG.md
 - [ ] 11.3 Second map (pillars/height variant) + map format doc
 - [ ] 11.4 Definition-of-done run, write STATE/DONE

@@ -31,3 +31,7 @@
   arena_flat). Fine for match/net tests; real practice on those maps wants waypoint-following bots.
 - KI-13 (2026-10-22): Spectators and queued players always watch the busiest arena and follow its first living
   player; there is no way yet to pick an arena or switch the followed player.
+- KI-14 (2026-10-22): No Linux verification possible right now: GitHub Actions refuses every job ("account is
+  locked due to a billing issue", run 39765708214), and Docker Desktop on the dev PC crashes at start
+  ("initializing Inference manager … remove …\Docker\run\dockerInference: The file cannot be accessed").
+  Both need the user. KI-1 stays open; the v0.2.0 release needs the Linux server tarball (built by CI).
