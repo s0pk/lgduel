@@ -13,12 +13,13 @@ case "$(uname -s)" in
 esac
 NAME="LGDuel-$OS-x64"
 OUT="dist/$NAME"
+T="${CARGO_TARGET_DIR:-target}"
 
 cargo build --release -p lgduel-client -p lgduel-server -p lgduel-bot
 rm -rf "$OUT" "dist/$NAME.zip"
 mkdir -p "$OUT"
 for b in lgduel lgduel-server lgduel-bot; do
-    cp "target/release/$b$EXE" "$OUT/"
+    cp "$T/release/$b$EXE" "$OUT/"
 done
 cp PLAY.md README.md LICENSE "$OUT/"
 cp config/server.example.toml "$OUT/"

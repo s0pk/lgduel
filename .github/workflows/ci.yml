@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  linux:
+    name: Linux check.sh (software Vulkan)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: System packages (ALSA headers, Mesa lavapipe)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config mesa-vulkan-drivers libvulkan1
+      - name: Toolchain (pinned by rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: scripts/check.sh
+        run: ./scripts/check.sh
+      - name: Screenshots and match stats
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-artifacts
+          path: artifacts/
+          if-no-files-found: ignore
+
+  windows:
+    name: Windows build, tests, package
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain (pinned by rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt + clippy
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --profile release-dbg -- -D warnings
+      - name: tests
+        run: cargo test --workspace --profile release-dbg
+      - name: Package (Windows zip; its smoke test needs a GPU, so build only here)
+        run: cargo build --release -p lgduel-client -p lgduel-server -p lgduel-bot
+
+  deploy:
+    name: VPS install script + Docker image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain (pinned by rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the server tarball (same layout as the release)
+        run: |
+          cargo build --release -p lgduel-server -p lgduel-bot
+          OUT=dist/lgduel-server-linux-x64
+          mkdir -p "$OUT"
+          cp target/release/lgduel-server target/release/lgduel-bot "$OUT/"
+          cp DEPLOY.md LICENSE config/server.example.toml deploy/lgduel-server.service "$OUT/"
+          tar -C dist -czf dist/lgduel-server-linux-x64.tar.gz lgduel-server-linux-x64
+      - name: install.sh as a systemd service, then a bot joins it
+        run: |
+          sudo LGDUEL_TARBALL="$PWD/dist/lgduel-server-linux-x64.tar.gz" bash deploy/install.sh
+          systemctl is-active lgduel-server
+          target/release/lgduel-bot --server 127.0.0.1:27960 --name ci-bot --duration-secs 4
+          sudo journalctl -u lgduel-server --no-pager | tee journal.txt
+          grep -q "ci-bot connected" journal.txt
+          grep -q "practice bot joined arena 0" journal.txt
+          # Re-running (update) keeps the config and restarts the service.
+          echo '# edited' | sudo tee -a /etc/lgduel/server.toml
+          sudo LGDUEL_TARBALL="$PWD/dist/lgduel-server-linux-x64.tar.gz" bash deploy/install.sh
+          grep -q '# edited' /etc/lgduel/server.toml
+          systemctl is-active lgduel-server
+      - name: Docker image builds and serves
+        run: |
+          docker build -t lgduel-server .
+          docker run -d --name lgduel -p 27961:27960/udp lgduel-server
+          sleep 2
+          target/release/lgduel-bot --server 127.0.0.1:27961 --name docker-bot --duration-secs 4
+          docker logs lgduel | tee docker.txt
+          grep -q "docker-bot connected" docker.txt
