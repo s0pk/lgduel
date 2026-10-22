@@ -41,8 +41,14 @@ pub struct Row {
     pub address: String,
     /// Shipped entry (can't be removed).
     pub official: bool,
+    /// Found on the local network (not in the list; can't be removed).
+    pub lan: bool,
     pub status: Status,
 }
+
+/// Ports LAN discovery asks on (the default and the next few, for a second
+/// server or a changed Host port).
+pub const LAN_PORTS: [u16; 4] = [27960, 27961, 27962, 27963];
 
 const TIMEOUT: Duration = Duration::from_secs(2);
 const AUTO_REFRESH: Duration = Duration::from_secs(5);
@@ -58,6 +64,8 @@ pub struct Browser {
     resolved: HashMap<String, Result<SocketAddr, String>>,
     sent_at: HashMap<String, Instant>,
     last_refresh: Option<Instant>,
+    /// Ports to discover servers on (broadcast on the LAN + this PC).
+    lan_ports: Vec<u16>,
 }
 
 impl Default for Browser {
@@ -70,7 +78,10 @@ impl Browser {
     pub fn new() -> Self {
         let pinger = UdpTransport::bind("0.0.0.0:0".parse().unwrap())
             .ok()
-            .map(|t| Pinger::new(t, std::process::id() as u64));
+            .map(|t| {
+                let _ = t.set_broadcast(true);
+                Pinger::new(t, std::process::id() as u64)
+            });
         let (lookups_tx, lookups_rx) = std::sync::mpsc::channel();
         Self {
             pinger,
@@ -81,6 +92,16 @@ impl Browser {
             resolved: HashMap::new(),
             sent_at: HashMap::new(),
             last_refresh: None,
+            lan_ports: LAN_PORTS.to_vec(),
+        }
+    }
+
+    /// A browser that discovers on these ports instead of `LAN_PORTS`.
+    #[cfg(test)]
+    pub fn with_lan_ports(ports: &[u16]) -> Self {
+        Self {
+            lan_ports: ports.to_vec(),
+            ..Self::new()
         }
     }
 
@@ -96,6 +117,15 @@ impl Browser {
                 Some(Ok(addr)) => self.query(&e.address, addr),
                 Some(Err(_)) => {}
                 None => self.look_up(&e.address),
+            }
+        }
+        // LAN discovery: broadcast, plus this PC directly (its own broadcasts
+        // don't always come back to it).
+        let now = self.now_us();
+        if let Some(p) = self.pinger.as_mut() {
+            for &port in &self.lan_ports {
+                p.discover(SocketAddr::from(([255, 255, 255, 255], port)), now);
+                p.discover(SocketAddr::from(([127, 0, 0, 1], port)), now);
             }
         }
         self.last_refresh = Some(Instant::now());
@@ -164,10 +194,46 @@ impl Browser {
                     name: e.name.clone(),
                     address: e.address.clone(),
                     official: *official,
+                    lan: false,
                     status,
                 }
             })
+            .chain(self.lan_rows(entries))
             .collect()
+    }
+
+    /// Discovered servers that aren't already in the list. A server reached on
+    /// several addresses (this PC's own: 127.0.0.1 and every network adapter)
+    /// is one row, preferring 127.0.0.1.
+    fn lan_rows(&self, entries: &[(ServerEntry, bool)]) -> Vec<Row> {
+        let Some(p) = self.pinger.as_ref() else {
+            return vec![];
+        };
+        let mut seen: Vec<u64> = entries
+            .iter()
+            .filter_map(|(e, _)| self.resolved.get(&e.address)?.as_ref().ok())
+            .filter_map(|a| p.results.get(a).map(|r| r.info.instance))
+            .collect();
+        let mut found: Vec<&SocketAddr> = p.discovered.iter().collect();
+        found.sort_by_key(|a| !a.ip().is_loopback());
+        let mut rows = Vec::new();
+        for addr in found {
+            let Some(r) = p.results.get(addr) else {
+                continue;
+            };
+            if seen.contains(&r.info.instance) {
+                continue;
+            }
+            seen.push(r.info.instance);
+            rows.push(Row {
+                name: r.info.name.clone(),
+                address: addr.to_string(),
+                official: false,
+                lan: true,
+                status: Status::Online(r.clone()),
+            });
+        }
+        rows
     }
 
     /// Forget a server's resolution (after the address list changed).
@@ -249,5 +315,67 @@ mod tests {
             "{:?}",
             rows[1].status
         );
+    }
+
+    #[test]
+    fn lan_discovery_finds_an_unlisted_server_once() {
+        let mut cfg = lgduel_server::ServerConfig::default();
+        cfg.server.name = "lan test".into();
+        let p = &cfg.game.physics;
+        let world = lgduel_sim::world::World::from_toml_str(
+            lgduel_sim::world::builtin::ARENA_FLAT,
+            (
+                lgduel_sim::math::Vec3::from_array(p.player_mins),
+                lgduel_sim::math::Vec3::from_array(p.player_maxs),
+            ),
+        )
+        .unwrap();
+        // Bound to every interface, like a real host: reachable on 127.0.0.1 and the LAN address.
+        let t = UdpTransport::bind("0.0.0.0:0".parse().unwrap()).unwrap();
+        let port = lgduel_net::transport::Transport::local_addr(&t).port();
+        let mut server = lgduel_server::Server::new(t, cfg, world, 1);
+        let mut b = Browser::with_lan_ports(&[port]);
+        let entries = vec![];
+        b.refresh(&entries);
+        let start = Instant::now();
+        let mut rows = b.rows(&entries);
+        while start.elapsed() < Duration::from_secs(3) && rows.is_empty() {
+            server.poll(start.elapsed().as_micros() as u64);
+            b.update(&entries);
+            rows = b.rows(&entries);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        // Give a broadcast answer from the LAN address time to arrive too.
+        let t = Instant::now();
+        while t.elapsed() < Duration::from_millis(300) {
+            server.poll(start.elapsed().as_micros() as u64);
+            b.update(&entries);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let rows = b.rows(&entries);
+        assert_eq!(rows.len(), 1, "one row for this PC's server: {rows:?}");
+        assert!(rows[0].lan);
+        assert_eq!(rows[0].name, "lan test");
+        assert!(rows[0].address.ends_with(&format!(":{port}")));
+        // Listed already (as 127.0.0.1): no extra LAN row.
+        let listed = vec![(
+            ServerEntry {
+                name: "mine".into(),
+                address: format!("127.0.0.1:{port}"),
+            },
+            false,
+        )];
+        b.refresh(&listed);
+        let t = Instant::now();
+        while t.elapsed() < Duration::from_secs(3)
+            && !matches!(b.rows(&listed)[0].status, Status::Online(_))
+        {
+            server.poll(start.elapsed().as_micros() as u64);
+            b.update(&listed);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let rows = b.rows(&listed);
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert!(!rows[0].lan);
     }
 }

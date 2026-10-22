@@ -93,6 +93,9 @@ pub struct ServerInfo {
     pub lifesteal_percent: u8,
     pub anti_lag: bool,
     pub tick_rate: u16,
+    /// Random per server process: the same server reached on two addresses
+    /// (127.0.0.1 and a LAN address) is one row in the browser.
+    pub instance: u64,
 }
 
 fn truncate(s: &str, max: usize) -> &str {
@@ -182,6 +185,7 @@ impl Connectionless {
                 w.u8(info.classic as u8 | (info.anti_lag as u8) << 1);
                 w.u8(info.lifesteal_percent);
                 w.u16(info.tick_rate);
+                w.u64(info.instance);
             }
         }
         w.finish()
@@ -236,6 +240,7 @@ impl Connectionless {
                 let flags = r.u8()?;
                 let lifesteal_percent = r.u8()?;
                 let tick_rate = r.u16()?;
+                let instance = r.u64()?;
                 Self::InfoResponse {
                     nonce,
                     info: ServerInfo {
@@ -248,6 +253,7 @@ impl Connectionless {
                         lifesteal_percent,
                         anti_lag: flags & 2 != 0,
                         tick_rate,
+                        instance,
                     },
                 }
             }
@@ -672,13 +678,14 @@ mod tests {
         let info = ServerInfo {
             protocol: 2,
             name: "x".repeat(200),
-            map: "arena_tiers".into(),
+            map: "y".repeat(200),
             players: 3,
             max_players: 16,
             classic: false,
             lifesteal_percent: 100,
             anti_lag: true,
             tick_rate: 125,
+            instance: u64::MAX,
         };
         let resp = Connectionless::InfoResponse {
             nonce: 9,
@@ -702,6 +709,7 @@ mod tests {
                 assert_eq!(
                     ServerInfo {
                         name: info.name[..MAX_INFO_TEXT].to_string(),
+                        map: info.map[..MAX_INFO_TEXT].to_string(),
                         ..info
                     },
                     got

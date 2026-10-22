@@ -16,8 +16,12 @@ pub struct Pinger<T: Transport> {
     pub transport: T,
     /// nonce → (address, send time µs)
     pending: HashMap<u64, (SocketAddr, u64)>,
+    /// Nonces of discovery queries: any server may answer, more than once.
+    discovery: std::collections::HashSet<u64>,
     next_nonce: u64,
     pub results: HashMap<SocketAddr, PingResult>,
+    /// Servers that answered a discovery query.
+    pub discovered: std::collections::BTreeSet<SocketAddr>,
 }
 
 impl<T: Transport> Pinger<T> {
@@ -25,9 +29,18 @@ impl<T: Transport> Pinger<T> {
         Self {
             transport,
             pending: HashMap::new(),
+            discovery: Default::default(),
             next_nonce: seed | 1,
             results: HashMap::new(),
+            discovered: Default::default(),
         }
+    }
+
+    /// Send a discovery query to `addr` (a broadcast address, or a port on this
+    /// machine): every server that answers is recorded in `discovered`.
+    pub fn discover(&mut self, addr: SocketAddr, now_us: u64) {
+        self.query(addr, now_us);
+        self.discovery.insert(self.next_nonce);
     }
 
     /// Send an info query to `addr`.
@@ -48,19 +61,29 @@ impl<T: Transport> Pinger<T> {
     pub fn poll(&mut self, now_us: u64, timeout_us: u64) -> Vec<SocketAddr> {
         let mut answered = Vec::new();
         while let Some((from, data)) = self.transport.recv() {
-            if let Some(Connectionless::InfoResponse { nonce, info }) =
-                Connectionless::decode(&data)
-                && let Some((addr, sent)) = self.pending.get(&nonce).copied()
-                && addr == from
-            {
+            let Some(Connectionless::InfoResponse { nonce, info }) = Connectionless::decode(&data)
+            else {
+                continue;
+            };
+            let Some((addr, sent)) = self.pending.get(&nonce).copied() else {
+                continue;
+            };
+            let rtt_ms = now_us.saturating_sub(sent) as f64 / 1000.0;
+            if self.discovery.contains(&nonce) {
+                // Several servers may answer one discovery query: keep it open.
+                self.discovered.insert(from);
+            } else if addr == from {
                 self.pending.remove(&nonce);
-                let rtt_ms = now_us.saturating_sub(sent) as f64 / 1000.0;
-                self.results.insert(addr, PingResult { info, rtt_ms });
-                answered.push(addr);
+            } else {
+                continue;
             }
+            self.results.insert(from, PingResult { info, rtt_ms });
+            answered.push(from);
         }
         self.pending
             .retain(|_, (_, sent)| now_us.saturating_sub(*sent) < timeout_us);
+        let pending = &self.pending;
+        self.discovery.retain(|n| pending.contains_key(n));
         answered
     }
 

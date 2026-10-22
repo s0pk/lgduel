@@ -432,7 +432,7 @@ impl Menu {
                         ui.checkbox(&mut h.anti_lag, "");
                     });
                     ui.label(
-                        "Friends on your network can join right away. Over the internet they need your                          public IP with this UDP port forwarded, or a VPN like Tailscale (see PLAY.md).",
+                        "Friends on your network see this game under Play online. Over the internet they need your public IP with this UDP port forwarded, or a VPN like Tailscale; a dedicated server on a VPS avoids both (see DEPLOY.md).",
                     );
                     if let Some(m) = &self.message {
                         ui.colored_label(egui::Color32::from_rgb(255, 170, 90), m);
@@ -453,7 +453,7 @@ impl Menu {
             Screen::Connecting => {
                 centered(ctx, "Connecting", 360.0, |ui| {
                     ui.vertical_centered(|ui| {
-                        ui.label(format!("Connecting to {}…", self.connecting_to));
+                        ui.label(format!("Connecting to {}...", self.connecting_to));
                         ui.add_space(6.0);
                         if ui.button("Cancel").clicked() {
                             action = Some(Action::CancelConnect);
@@ -518,7 +518,7 @@ fn server_table(ui: &mut egui::Ui, rows: &[Row]) -> Option<Action> {
                     other => {
                         ui.colored_label(dim, &r.name).on_hover_text(&r.address);
                         let what = match other {
-                            Status::Waiting => "…".to_string(),
+                            Status::Waiting => "...".to_string(),
                             Status::NoAnswer => "no answer".to_string(),
                             Status::BadAddress(e) => format!("bad address: {e}"),
                             Status::Online(_) => unreachable!(),
@@ -530,7 +530,9 @@ fn server_table(ui: &mut egui::Ui, rows: &[Row]) -> Option<Action> {
                         ui.label("");
                     }
                 }
-                if r.official {
+                if r.lan {
+                    ui.colored_label(egui::Color32::from_gray(130), "LAN");
+                } else if r.official {
                     ui.label("");
                 } else if ui.small_button("Remove").clicked() {
                     action = Some(Action::RemoveServer(r.address.clone()));

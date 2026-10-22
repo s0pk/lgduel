@@ -35,6 +35,11 @@ impl UdpTransport {
             buf: vec![0; 2048],
         })
     }
+
+    /// Allow sending to broadcast addresses (LAN discovery).
+    pub fn set_broadcast(&self, on: bool) -> io::Result<()> {
+        self.socket.set_broadcast(on)
+    }
 }
 
 impl Transport for UdpTransport {

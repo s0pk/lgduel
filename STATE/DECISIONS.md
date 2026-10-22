@@ -523,3 +523,12 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
 - RCON (protocol v7: `Connectionless::{Rcon, RconReply}`), off unless `rcon_password` is set. Wrong password
   → no reply (no amplification); 5 wrong tries per IP → ignored for 60 s. Replies capped at 1100 bytes.
   Plain-text password over UDP, like the classic Quake rcon: use a long random one.
+
+## D52 — LAN discovery (2026-10-22)
+- On every browser refresh the client sends discovery info queries to 255.255.255.255 and 127.0.0.1 on
+  ports 27960–27963 (`LAN_PORTS`); a discovery nonce stays open for every answer until it times out.
+- Protocol v8: `ServerInfo.instance` (keyed hash of the server secret, stable per process) identifies a server
+  reached on several addresses — a host PC answers on 127.0.0.1 and on every adapter (seen in testing: the
+  broadcast reply came from a 172.31.x Hyper-V/WSL adapter, not the "LAN IP"), so de-duplication by address
+  can't work. One row per instance, 127.0.0.1 preferred, none for servers already listed.
+- LAN rows are tagged "LAN" and can't be removed. UI strings avoid "…" (not in the pixel font).

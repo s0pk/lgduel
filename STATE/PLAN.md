@@ -94,7 +94,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 ## Phase 7 — Hosting (deps: 4.x, 6.x)
 - [x] 7.1 `lgduel host [--config x.toml]` subcommand
 - [x] 7.2 In-game Host (listen server) — done as M2.4
-- [ ] 7.3 LAN discovery
+- [x] 7.3 LAN discovery
 - [ ] 7.4 Rendezvous binary: join codes (LG-XXXX), UDP hole punching
 - [ ] 7.5 Relay fallback (same binary); P2P test incl. forced-relay in check.sh
 - [ ] 7.6 Master server + server browser with filters (anti-lag, vamp %, region, ping, players)

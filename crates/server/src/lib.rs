@@ -666,6 +666,8 @@ missing_cmds = {missing}
             lifesteal_percent: r.lifesteal_percent.min(100) as u8,
             anti_lag: r.hit_mode == HitMode::AntiLag,
             tick_rate: game.cfg.tick_rate_hz.min(u16::MAX as u32) as u16,
+            // Keyed hash of the secret: stable for this process, reveals nothing.
+            instance: cookie(self.secret, &SocketAddr::from(([0, 0, 0, 0], 0)), 0x1D),
         }
     }
 
