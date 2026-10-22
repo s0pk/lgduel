@@ -1,0 +1,51 @@
+# arena_flat — open 2048x2048 duel floor, walls 512 high, ceiling at 1024.
+# Original map, CC0. Units: Quake units. Floor top is z = 0; player origin sits 24 above the floor.
+# Format: [[brush]] solid boxes (min, max, optional color RGB 0..1); [[spawn]] origin + yaw degrees.
+
+name = "arena_flat"
+default_color = [0.55, 0.55, 0.58]
+
+# floor
+[[brush]]
+min = [-1024.0, -1024.0, -32.0]
+max = [1024.0, 1024.0, 0.0]
+color = [0.35, 0.36, 0.40]
+
+# walls (+x, -x, +y, -y)
+[[brush]]
+min = [1024.0, -1056.0, -32.0]
+max = [1056.0, 1056.0, 1024.0]
+
+[[brush]]
+min = [-1056.0, -1056.0, -32.0]
+max = [-1024.0, 1056.0, 1024.0]
+
+[[brush]]
+min = [-1024.0, 1024.0, -32.0]
+max = [1024.0, 1056.0, 1024.0]
+
+[[brush]]
+min = [-1024.0, -1056.0, -32.0]
+max = [1024.0, -1024.0, 1024.0]
+
+# ceiling
+[[brush]]
+min = [-1056.0, -1056.0, 1024.0]
+max = [1056.0, 1056.0, 1056.0]
+color = [0.25, 0.25, 0.28]
+
+[[spawn]]
+origin = [-384.0, 0.0, 24.0]
+yaw = 0.0
+
+[[spawn]]
+origin = [384.0, 0.0, 24.0]
+yaw = 180.0
+
+[[spawn]]
+origin = [0.0, -384.0, 24.0]
+yaw = 90.0
+
+[[spawn]]
+origin = [0.0, 384.0, 24.0]
+yaw = 270.0

@@ -23,3 +23,8 @@
 ## 2026-10-22 — iteration 5: PLAN 2.3 usercmd
 - `sim::usercmd::UserCmd { tick, pitch, yaw, forward, right, buttons }`: exact `Angle(u32)` view, ±127 move axes, JUMP/CROUCH/FIRE bits (jump/crouch replace Quake's upmove). `from_keys` (opposite keys cancel), `sanitized()` for untrusted input (pitch clamp ±89°, no -128, unknown bits cleared).
 - Verified: check.sh GREEN. Tests: key→axis mapping, sanitize of hostile values.
+
+## 2026-10-22 — iteration 6: PLAN 2.4 world + map format
+- `sim::world`: `Aabb` (strict overlap, Minkowski expand), `World { name, brushes, colors, spawns }`, TOML map loader with validation (≥1 brush, ≥2 spawns, min<max, finite, spawns not overlapping solids with the standing hull). Maps embedded via `world::builtin`.
+- `maps/arena_flat.toml`: original CC0 2048×2048 open floor, 512+ walls to a ceiling at 1024, 4 spawns.
+- Verified: check.sh GREEN. Tests: builtin map loads, bad maps rejected (spawn in floor, single spawn, inverted brush, parse error), AABB overlap/expand.

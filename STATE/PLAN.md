@@ -13,7 +13,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] 2.1 Math foundation: Vec3, deterministic float policy (no FMA-dependent ops, fixed op order), state hash
 - [x] 2.2 Fixed-tick loop abstraction (accumulator, tick index; no clocks inside sim)
 - [x] 2.3 Usercmd: view angles (exact, quantized like wire format), forward/right/up move, buttons (jump/crouch/fire)
-- [ ] 2.4 World geometry: AABB brush list + map data file format, loader + tests
+- [x] 2.4 World geometry: AABB brush list + map data file format, loader + tests
 - [ ] 2.5 Trace: swept AABB vs brushes (fraction, normal, startsolid), unit tests
 - [ ] 2.6 pmove ground: friction, accel (Q3-style accelerate), stop speed, ground check
 - [ ] 2.7 pmove air: air accel, gravity, jump (+ hold-jump behaviour per DECISIONS)
