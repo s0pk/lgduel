@@ -90,3 +90,8 @@
 - Headless scene now: opponent at 400u, own beam firing. Measured (1080p): thin beam 3582–8066 px, zigzag 5207–5524 px, thick 10449 px; sparks 21–81 px at size 3, 130 px at size 6, 275 px at size 8; `--beam none` → 0 beam px; `--no-sparks` → 0 spark px.
 - Iterated on spark visibility: first version lost half the streaks inside the target and the check at the 768u range limit was fragile; fixed by reflecting streaks and testing at 400u.
 - Verified: check.sh GREEN (now includes none/no-sparks and zigzag/size runs). Screenshot inspected: beam from lower-right muzzle to opponent chest.
+
+## 2026-10-22 — iteration 18: PLAN 3.7b hit sound
+- `client::audio`: `synth_hit` (two-tone tick, 45 ms), pure `mix()` (overlapping voices, retire, clamp), `Audio` (cpal stream, f32/i16, silent fallback). `LocalSession.events` collects events of all ticks per advance; app plays a hit per own Damage event. Flags `--volume`, `--no-sound`, `--sound-test`.
+- Tooling: edit helper now matches ignoring whitespace/commas (rustfmt reflow broke two scripted edits).
+- Verified: `lgduel --sound-test` → "AUDIO Speakers (Realtek(R) Audio) via S/PDIF @ 48000 Hz, 2 ch … played 5 hit sounds" (audibility needs a human, KI-9). Tests: sound shape (2160 samples @48k, peak 0.9, decays >20×, starts at 0), mixer overlap/retire, silent handle, 100 ms firing at enemy → exactly 2 own Damage events. check.sh GREEN.

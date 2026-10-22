@@ -2,7 +2,7 @@
 //! of render rate, and interpolates the own view between ticks.
 
 use lgduel_sim::config::GameConfig;
-use lgduel_sim::game::{Game, PlayerId};
+use lgduel_sim::game::{Game, GameEvent, PlayerId};
 use lgduel_sim::math::Vec3;
 use lgduel_sim::tick::{FixedStepper, Tick};
 use lgduel_sim::usercmd::UserCmd;
@@ -17,6 +17,8 @@ pub struct LocalSession {
     stepper: FixedStepper,
     /// (player, origin at previous tick, origin at current tick) for render interpolation.
     interp: Vec<(PlayerId, Vec3, Vec3)>,
+    /// Game events from all ticks run by the most recent `advance`.
+    pub events: Vec<GameEvent>,
 }
 
 impl LocalSession {
@@ -38,6 +40,7 @@ impl LocalSession {
             me,
             stepper: FixedStepper::new(rate),
             interp,
+            events: Vec::new(),
         }
     }
 
@@ -50,11 +53,13 @@ impl LocalSession {
         mut others: impl FnMut(&Game, Tick) -> Vec<(PlayerId, UserCmd)>,
     ) -> u32 {
         let (start, n) = self.stepper.advance(elapsed_us);
+        self.events.clear();
         for i in 0..n {
             let tick = Tick(start.0 + i);
             let mut cmds = others(&self.game, tick);
             cmds.push((self.me, cmd_for(tick)));
             self.game.step(&cmds);
+            self.events.extend(self.game.events.iter().cloned());
             self.update_interp();
         }
         n
@@ -181,6 +186,36 @@ mod tests {
             (mid - (a + (b - a) * 0.5)).length() < 1e-3,
             "{a:?} {mid:?} {b:?}"
         );
+    }
+
+    #[test]
+    fn firing_at_enemy_reports_own_damage_events() {
+        use lgduel_sim::game::GameEvent;
+        use lgduel_sim::math::look_angles;
+        use lgduel_sim::usercmd::buttons;
+        let mut s = session();
+        let enemy = s.game.players[1].id;
+        let me_pos = s.game.player(s.me).unwrap().pm.origin;
+        s.teleport(enemy, me_pos + Vec3::new(300.0, 0.0, 0.0));
+        let eye = s.eye();
+        let (pitch, yaw) = look_angles(me_pos + Vec3::new(300.0, 0.0, 8.0) - eye);
+        let fire = |t: Tick| UserCmd {
+            tick: t,
+            pitch,
+            yaw,
+            buttons: buttons::FIRE,
+            ..UserCmd::default()
+        };
+        // One frame spanning 0.1 s: several ticks, several hits, all reported.
+        s.advance(100_000, fire, |_, _| vec![]);
+        let hits = s
+            .events
+            .iter()
+            .filter(|e| matches!(e, GameEvent::Damage { attacker, .. } if *attacker == s.me))
+            .count();
+        assert_eq!(hits, 2, "100 ms of LG at 50 ms refire = 2 cells, both hit");
+        s.advance(8_000, fire, |_, _| vec![]);
+        assert!(s.events.len() <= 2, "events reset each advance");
     }
 
     #[test]

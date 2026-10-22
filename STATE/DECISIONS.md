@@ -172,3 +172,11 @@ Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update th
   hides them; on/off + size (0–32u half-size, default 3). Drawn only when something was hit inside range.
 - Headless check places the opponent at 400u and asserts beam/spark pixels; `--beam none --no-sparks` must
   draw zero beam and zero spark pixels.
+
+## D17 — Audio (2026-10-22)
+- cpal 0.18 output stream (default device/config, f32 or i16). Hit sound synthesised at the device rate:
+  1.9 kHz + 2.85 kHz sines, 1 ms attack, e^-90t decay, 45 ms, peak 0.9 — original, no sample files.
+- Main thread → audio thread via mpsc channel (one message per hit, carrying gain); the callback mixes
+  voices without locks. No device / muted → silent handle, the game still runs.
+- One hit sound per own Damage event (LG cell that hit); `--volume 0..1` (default 0.7), `--no-sound`,
+  `--sound-test` (plays 5 hits on the real device, exit 1 if no output).

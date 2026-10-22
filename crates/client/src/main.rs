@@ -7,6 +7,7 @@
 //! `--headless` renders offscreen (no window), saves a screenshot and checks
 //! that it rendered (non-blank, expected colours present); exit code 1 if not.
 
+mod audio;
 mod effects;
 mod frame_stats;
 mod gfx;
@@ -21,7 +22,7 @@ use frame_stats::FrameStats;
 use gfx::Gfx;
 use input::{Keys, MouseLook, MouseSettings};
 use lgduel_sim::config::GameConfig;
-use lgduel_sim::game::{PlayerId, hitscan};
+use lgduel_sim::game::{GameEvent, PlayerId, hitscan};
 use lgduel_sim::math::{Angle, Vec3, angle_vectors, look_angles};
 use lgduel_sim::usercmd::buttons;
 use lgduel_sim::world::{World, builtin};
@@ -57,6 +58,9 @@ struct Options {
     /// Feed scripted input (hold forward+right, turn right) for unattended runs.
     synthetic_input: bool,
     effects: EffectSettings,
+    /// 0 = muted.
+    volume: f32,
+    sound_test: bool,
 }
 
 impl Default for Options {
@@ -72,6 +76,8 @@ impl Default for Options {
             mouse: MouseSettings::default(),
             synthetic_input: false,
             effects: EffectSettings::default(),
+            volume: 0.7,
+            sound_test: false,
         }
     }
 }
@@ -123,6 +129,15 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Options, String>
                     .ok_or(format!("--beam must be none|thin|thick|zigzag, got {v}"))?
             }
             "--no-sparks" => o.effects.sparks = false,
+            "--no-sound" => o.volume = 0.0,
+            "--sound-test" => o.sound_test = true,
+            "--volume" => {
+                o.volume = val("--volume")?
+                    .parse::<f32>()
+                    .ok()
+                    .filter(|v| (0.0..=1.0).contains(v))
+                    .ok_or("--volume needs a number in 0..=1")?
+            }
             "--spark-size" => {
                 o.effects.spark_size = val("--spark-size")?
                     .parse::<f32>()
@@ -347,6 +362,7 @@ struct App {
     keys: Keys,
     grabbed: bool,
     colors: EnemyColors,
+    audio: audio::Audio,
     window: Option<Arc<Window>>,
     gfx: Option<Gfx>,
     renderer: Option<Renderer>,
@@ -401,6 +417,14 @@ impl App {
             |t| keys.cmd(t, &look),
             |_, _| vec![],
         );
+        let me = self.session.me;
+        for e in &self.session.events {
+            if let GameEvent::Damage { attacker, .. } = e
+                && *attacker == me
+            {
+                self.audio.play_hit();
+            }
+        }
     }
 
     fn finish(&mut self, el: &ActiveEventLoop) {
@@ -593,6 +617,25 @@ fn main() {
     }
     let event_loop = EventLoop::new().expect("event loop");
     event_loop.set_control_flow(ControlFlow::Poll);
+    let audio = if opts.volume > 0.0 {
+        audio::Audio::open(opts.volume)
+    } else {
+        audio::Audio::silent("muted")
+    };
+    println!("AUDIO {}", audio.description);
+    if opts.sound_test {
+        if !audio.is_live() {
+            eprintln!("lgduel: no audio output");
+            std::process::exit(1);
+        }
+        for _ in 0..5 {
+            audio.play_hit();
+            std::thread::sleep(Duration::from_millis(120));
+        }
+        std::thread::sleep(Duration::from_millis(200));
+        println!("SOUND TEST played 5 hit sounds");
+        return;
+    }
     let world = load_world();
     let session = LocalSession::new(GameConfig::default(), world.clone(), 1);
     let me = session.game.player(session.me).unwrap();
@@ -610,6 +653,7 @@ fn main() {
         keys: Keys::default(),
         grabbed: false,
         colors: EnemyColors::default(),
+        audio,
         opts,
         window: None,
         gfx: None,

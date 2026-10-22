@@ -16,3 +16,6 @@
   but a Linux CI box needs a Vulkan software driver (lavapipe/mesa) installed — document in 7.8.
 - KI-8 (2026-10-22): Fullbright flat shading gives few depth cues on large flat floors. Consider a subtle
   floor grid / edge outlines as a visibility option in Phase 8.
+- KI-9 (2026-10-22): Audible output of the hit sound is verified only to the point of "stream opened and
+  samples submitted" (`lgduel --sound-test` on Realtek @ 48 kHz); a human must confirm it sounds right.
+  `--sound-test` is not in check.sh because CI boxes have no audio device.
