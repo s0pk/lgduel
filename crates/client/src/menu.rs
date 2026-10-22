@@ -13,8 +13,16 @@ pub enum Screen {
     Closed,
     /// Esc menu.
     Pause,
-    /// Settings (opened from the pause menu).
+    /// Settings (opened from the pause or main menu).
     Settings,
+    /// Start screen (no game running).
+    Main,
+    /// Practice setup.
+    Practice,
+    /// Play online: server list / direct connect.
+    Online,
+    /// Waiting for a server to accept us.
+    Connecting,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -48,7 +56,7 @@ impl Tab {
 }
 
 /// What the player chose this frame.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     Resume,
     Disconnect,
@@ -57,6 +65,10 @@ pub enum Action {
     TestSound,
     /// The settings screen was closed (time to save).
     SettingsClosed,
+    StartPractice,
+    /// Connect to this address (host[:port]).
+    Connect(String),
+    CancelConnect,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -65,6 +77,14 @@ pub struct Menu {
     pub tab: Tab,
     /// Settings changed since the screen was opened.
     pub dirty: bool,
+    /// Where "Back" from the settings screen goes.
+    pub settings_return: Screen,
+    /// Direct-connect text field.
+    pub connect_text: String,
+    /// Status / error line shown on the main and online screens.
+    pub message: Option<String>,
+    /// What we are connecting to (Connecting screen).
+    pub connecting_to: String,
 }
 
 pub const TITLE: &str = "LGDuel";
@@ -85,6 +105,26 @@ impl Menu {
         self.screen != Screen::Closed
     }
 
+    fn open_settings(&mut self, from: Screen) {
+        self.settings_return = from;
+        self.screen = Screen::Settings;
+        self.dirty = false;
+    }
+
+    /// Esc on a menu screen: one level back (never closes the main menu).
+    pub fn back(&mut self) -> Option<Action> {
+        match self.screen {
+            Screen::Practice | Screen::Online => self.screen = Screen::Main,
+            Screen::Settings => {
+                self.screen = self.settings_return;
+                return Some(Action::SettingsClosed);
+            }
+            Screen::Connecting => return Some(Action::CancelConnect),
+            _ => {}
+        }
+        None
+    }
+
     /// Draw the current screen; may edit `s` (sets `dirty`) and return an action.
     pub fn draw(&mut self, ctx: &egui::Context, s: &mut Settings, online: bool) -> Option<Action> {
         let mut action = None;
@@ -102,8 +142,7 @@ impl Menu {
                                 action = Some(Action::Resume);
                             }
                             if ui.button("Settings").clicked() {
-                                self.screen = Screen::Settings;
-                                self.dirty = false;
+                                self.open_settings(Screen::Pause);
                             }
                             let leave = if online {
                                 "Disconnect"
@@ -153,10 +192,90 @@ impl Menu {
                         }
                         ui.separator();
                         if ui.button("Back").clicked() {
-                            self.screen = Screen::Pause;
+                            self.screen = self.settings_return;
                             action = Some(Action::SettingsClosed);
                         }
                     });
+            }
+            Screen::Main => {
+                centered(ctx, TITLE, 300.0, |ui| {
+                    ui.vertical_centered(|ui| ui.label("Lightning Gun duel trainer"));
+                    ui.add_space(6.0);
+                    ui.vertical_centered_justified(|ui| {
+                        if ui.button("Practice vs bot").clicked() {
+                            self.screen = Screen::Practice;
+                        }
+                        if ui.button("Play online").clicked() {
+                            self.screen = Screen::Online;
+                            self.message = None;
+                        }
+                        if ui.button("Settings").clicked() {
+                            self.open_settings(Screen::Main);
+                        }
+                        if ui.button("Quit").clicked() {
+                            action = Some(Action::Quit);
+                        }
+                        if let Some(m) = &self.message {
+                            ui.add_space(6.0);
+                            ui.colored_label(egui::Color32::from_rgb(255, 170, 90), m);
+                        }
+                    });
+                });
+            }
+            Screen::Practice => {
+                let before = s.practice.clone();
+                centered(ctx, "Practice", 420.0, |ui| {
+                    practice_settings(ui, s);
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Start").clicked() {
+                            action = Some(Action::StartPractice);
+                        }
+                        if ui.button("Back").clicked() {
+                            self.screen = Screen::Main;
+                        }
+                    });
+                });
+                if s.practice != before {
+                    self.dirty = true;
+                }
+            }
+            Screen::Online => {
+                centered(ctx, "Play online", 520.0, |ui| {
+                    ui.label("Direct connect (address or address:port)");
+                    ui.horizontal(|ui| {
+                        let edit = ui.add(
+                            egui::TextEdit::singleline(&mut self.connect_text)
+                                .hint_text("1.2.3.4:27960")
+                                .desired_width(300.0),
+                        );
+                        let enter =
+                            edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        if (ui.button("Connect").clicked() || enter)
+                            && !self.connect_text.trim().is_empty()
+                        {
+                            action = Some(Action::Connect(self.connect_text.trim().to_string()));
+                        }
+                    });
+                    if let Some(m) = &self.message {
+                        ui.colored_label(egui::Color32::from_rgb(255, 170, 90), m);
+                    }
+                    ui.add_space(6.0);
+                    if ui.button("Back").clicked() {
+                        self.screen = Screen::Main;
+                    }
+                });
+            }
+            Screen::Connecting => {
+                centered(ctx, "Connecting", 360.0, |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.label(format!("Connecting to {}…", self.connecting_to));
+                        ui.add_space(6.0);
+                        if ui.button("Cancel").clicked() {
+                            action = Some(Action::CancelConnect);
+                        }
+                    });
+                });
             }
         }
         if action == Some(Action::Resume) {
@@ -164,6 +283,28 @@ impl Menu {
         }
         action
     }
+}
+
+/// A fixed-width window in the middle of the screen.
+fn centered(ctx: &egui::Context, title: &str, width: f32, add: impl FnOnce(&mut egui::Ui)) {
+    egui::Window::new(title)
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+        .fixed_size(egui::vec2(width, 0.0))
+        .show(ctx, add);
+}
+
+fn practice_settings(ui: &mut egui::Ui, s: &mut Settings) {
+    row(ui, "Bot", |ui| {
+        ui.checkbox(&mut s.practice.bot, "");
+    });
+    row(ui, "Movement", |ui| {
+        combo(ui, "pattern", &mut s.practice.pattern, &PATTERNS);
+    });
+    row(ui, "Aim", |ui| {
+        combo(ui, "skill", &mut s.practice.skill, &SKILLS);
+    });
 }
 
 fn row(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui)) {
@@ -307,15 +448,7 @@ fn player_tab(ui: &mut egui::Ui, s: &mut Settings) {
         ui.add(egui::TextEdit::singleline(&mut s.name).char_limit(lgduel_net::protocol::MAX_NAME));
     });
     ui.heading("Practice bot");
-    row(ui, "Bot", |ui| {
-        ui.checkbox(&mut s.practice.bot, "");
-    });
-    row(ui, "Movement", |ui| {
-        combo(ui, "pattern", &mut s.practice.pattern, &PATTERNS);
-    });
-    row(ui, "Aim", |ui| {
-        combo(ui, "skill", &mut s.practice.skill, &SKILLS);
-    });
+    practice_settings(ui, s);
     ui.label("Practice bot changes apply to the next practice session.");
 }
 

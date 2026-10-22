@@ -79,6 +79,8 @@ struct Options {
     bot: Option<(StrafePattern, AimSkill)>,
     /// Play online against this server instead of offline.
     connect: Option<String>,
+    /// Skip the main menu and start a practice session.
+    practice: bool,
     /// Headless online run length.
     secs: f64,
 }
@@ -109,6 +111,7 @@ impl Options {
             synthetic_input: false,
             sound_test: false,
             connect: None,
+            practice: false,
             secs: 5.0,
         }
     }
@@ -211,6 +214,7 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
             "--no-settings" => o.settings_path = None,
             "--settings" => o.settings_path = Some(val("--settings")?.into()),
             "--connect" => o.connect = Some(val("--connect")?),
+            "--practice" => o.practice = true,
             "--name" => o.s.name = val("--name")?,
             "--secs" => {
                 o.secs = val("--secs")?
@@ -227,6 +231,9 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
                 o.menu = Some(match val("--menu")?.as_str() {
                     "pause" => menu::Screen::Pause,
                     "settings" => menu::Screen::Settings,
+                    "main" => menu::Screen::Main,
+                    "practice" => menu::Screen::Practice,
+                    "online" => menu::Screen::Online,
                     other => return Err(format!("--menu must be pause|settings, got {other}")),
                 })
             }
@@ -334,7 +341,7 @@ fn run_headless(opts: &Options) -> Result<(), String> {
         let mut menu = menu::Menu {
             screen,
             tab: menu::Tab::Visuals,
-            dirty: false,
+            ..menu::Menu::default()
         };
         let mut s = opts.s.clone();
         // A few frames: egui sizes windows on the first and fades them in.
@@ -481,8 +488,36 @@ impl Session {
     }
 }
 
+/// Offline practice session per the options (bot from practice settings).
+fn new_practice(opts: &Options, world: &World) -> (Session, lgduel_sim::math::Angle) {
+    let s = LocalSession::new(GameConfig::default(), world.clone(), 1);
+    let bot = opts.bot.map(|(pattern, aim)| {
+        let id = s.game.players.iter().find(|p| p.id != s.me).unwrap().id;
+        println!("PRACTICE vs bot: pattern {pattern:?}, aim {aim:?}");
+        (
+            Bot::new(BotConfig {
+                pattern,
+                aim,
+                ..BotConfig::default()
+            }),
+            id,
+        )
+    });
+    let yaw = s.game.player(s.me).unwrap().yaw;
+    (Session::Local { s, bot }, yaw)
+}
+
 fn resolve(addr: &str) -> Result<std::net::SocketAddr, String> {
     use std::net::ToSocketAddrs;
+    let addr = addr.trim();
+    // "host" or "1.2.3.4" without a port → default port. (IPv6 needs [addr]:port.)
+    let owned;
+    let addr = if !addr.contains(':') {
+        owned = format!("{addr}:27960");
+        owned.as_str()
+    } else {
+        addr
+    };
     addr.to_socket_addrs()
         .map_err(|e| format!("{addr}: {e}"))?
         .next()
@@ -637,7 +672,11 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
 struct App {
     opts: Options,
     world: World,
-    session: Session,
+    /// When the app started (main-menu camera orbit).
+    started: Instant,
+    /// None = main menu.
+    session: Option<Session>,
+    connect_started: Option<Instant>,
     look: MouseLook,
     keys: Keys,
     /// Alt held (for Alt+Enter).
@@ -661,6 +700,7 @@ struct App {
 
 impl App {
     fn set_grab(&mut self, grab: bool) {
+        let grab = grab && self.session.is_some() && !self.menu.is_open();
         let Some(w) = &self.window else { return };
         if grab {
             let ok = w
@@ -734,6 +774,19 @@ impl App {
     }
 
     fn toggle_menu(&mut self) {
+        if self.session.is_none()
+            || matches!(
+                self.menu.screen,
+                menu::Screen::Connecting | menu::Screen::Settings
+            )
+        {
+            match self.menu.back() {
+                Some(menu::Action::SettingsClosed) => self.save_settings(),
+                Some(menu::Action::CancelConnect) => self.leave_session(None, menu::Screen::Online),
+                _ => {}
+            }
+            return;
+        }
         if !self.menu.is_open() {
             self.menu.screen = menu::Screen::Pause;
             self.keys = Keys::default();
@@ -770,7 +823,10 @@ impl App {
         }
         let keys = self.keys;
         let look = self.look;
-        match &mut self.session {
+        let Some(session) = &mut self.session else {
+            return;
+        };
+        match session {
             Session::Local { s, bot } => {
                 s.advance(
                     elapsed.as_micros() as u64,
@@ -783,7 +839,8 @@ impl App {
             }
             Session::Net(n) => n.update(|t| keys.cmd(t, &look)),
         }
-        if let Some(fv) = self.session.frame_view() {
+        self.check_connection();
+        if let Some(fv) = self.session.as_ref().and_then(Session::frame_view) {
             for _ in 0..scene::track_hits(&fv, &mut self.numbers) {
                 self.audio.play_hit();
             }
@@ -792,7 +849,109 @@ impl App {
     }
 
     fn finish(&mut self, el: &ActiveEventLoop) {
-        match &mut self.session {
+        self.end_session();
+        if let Some(s) = self.stats.summary() {
+            let (present, size) = self
+                .gfx
+                .as_ref()
+                .map(|g| {
+                    (
+                        format!("{:?}", g.config.present_mode),
+                        format!("{}x{}", g.config.width, g.config.height),
+                    )
+                })
+                .unwrap_or_default();
+            println!("FRAMESTATS {s} | present mode {present} | {size}");
+        }
+        el.exit();
+    }
+
+    /// Start an offline practice duel with the practice settings.
+    fn start_practice(&mut self) {
+        self.save_settings();
+        self.opts.bot = practice_bot(&self.opts.s.practice);
+        let (session, yaw) = new_practice(&self.opts, &self.world);
+        self.look = MouseLook::new(self.opts.s.mouse, yaw);
+        self.session = Some(session);
+        self.numbers = DamageNumbers::default();
+        self.menu.screen = menu::Screen::Closed;
+        self.set_grab(true);
+    }
+
+    /// Begin connecting to `addr`; the Connecting screen shows until accepted.
+    fn start_online(&mut self, addr: &str) {
+        let result = resolve(addr).and_then(|server| {
+            NetSession::connect(server, &self.opts.s.name, self.world.clone())
+                .map_err(|e| e.to_string())
+        });
+        match result {
+            Ok(n) => {
+                println!("ONLINE connecting to {addr} as {}", self.opts.s.name);
+                self.session = Some(Session::Net(n));
+                self.menu.connecting_to = addr.to_string();
+                self.menu.screen = menu::Screen::Connecting;
+                self.connect_started = Some(Instant::now());
+                self.numbers = DamageNumbers::default();
+            }
+            Err(e) => {
+                self.menu.message = Some(format!("Can't connect: {e}"));
+                self.menu.screen = menu::Screen::Online;
+            }
+        }
+    }
+
+    /// Connecting → playing, or back to the menu on reject / timeout / lost server.
+    fn check_connection(&mut self) {
+        let Some(Session::Net(n)) = &self.session else {
+            return;
+        };
+        let problem = match n.state() {
+            lgduel_net::client::ClientState::Rejected(r) => Some(format!("Server refused: {r}")),
+            lgduel_net::client::ClientState::Disconnected(r) => Some(format!("Disconnected: {r}")),
+            _ if self.menu.screen == menu::Screen::Connecting
+                && self
+                    .connect_started
+                    .is_some_and(|t| t.elapsed() > Duration::from_secs(6)) =>
+            {
+                Some(format!(
+                    "No answer from {} (is the server running and the UDP port open?)",
+                    self.menu.connecting_to
+                ))
+            }
+            _ if n.server_silent(5.0) => Some("Lost connection to the server".to_string()),
+            _ => None,
+        };
+        if let Some(msg) = problem {
+            self.leave_session(Some(msg), menu::Screen::Online);
+            return;
+        }
+        if self.menu.screen == menu::Screen::Connecting && n.frame_view().is_some() {
+            println!("ONLINE joined {}", self.menu.connecting_to);
+            self.menu.screen = menu::Screen::Closed;
+            self.connect_started = None;
+            self.set_grab(true);
+        }
+    }
+
+    /// Stop the current game and return to a menu screen.
+    fn leave_session(&mut self, message: Option<String>, to: menu::Screen) {
+        if let Some(msg) = &message {
+            println!("MENU {msg}");
+        }
+        self.end_session();
+        self.session = None;
+        self.menu.message = message;
+        self.menu.screen = to;
+        self.keys = Keys::default();
+        self.set_grab(false);
+    }
+
+    /// Print the session report and disconnect (if online).
+    fn end_session(&mut self) {
+        let Some(session) = &mut self.session else {
+            return;
+        };
+        match session {
             Session::Local { s, bot } => {
                 if let Some((_, id)) = bot {
                     let b = s.game.player(*id).unwrap();
@@ -825,20 +984,6 @@ impl App {
                 n.disconnect();
             }
         }
-        if let Some(s) = self.stats.summary() {
-            let (present, size) = self
-                .gfx
-                .as_ref()
-                .map(|g| {
-                    (
-                        format!("{:?}", g.config.present_mode),
-                        format!("{}x{}", g.config.width, g.config.height),
-                    )
-                })
-                .unwrap_or_default();
-            println!("FRAMESTATS {s} | present mode {present} | {size}");
-        }
-        el.exit();
     }
 }
 
@@ -980,13 +1125,31 @@ impl ApplicationHandler for App {
                     self.simulate(now - last);
                 }
                 self.last_frame = Some(now);
-                let fv = self.session.frame_view();
-                let (world, cfg) = self.session.world_cfg();
-                let cam = Camera {
-                    eye: fv.as_ref().map_or(Vec3::new(0.0, 0.0, 64.0), |f| f.eye),
-                    pitch: self.look.pitch,
-                    yaw: self.look.yaw,
-                    fov: self.opts.s.video.fov,
+                let fv = self.session.as_ref().and_then(Session::frame_view);
+                let (world, cfg) = match &self.session {
+                    Some(s) => s.world_cfg(),
+                    None => (&self.world, None),
+                };
+                let cam = match &fv {
+                    Some(f) => Camera {
+                        eye: f.eye,
+                        pitch: self.look.pitch,
+                        yaw: self.look.yaw,
+                        fov: self.opts.s.video.fov,
+                    },
+                    // Main menu: slow orbit around the arena.
+                    None => {
+                        let t = self.started.elapsed().as_secs_f64() * 0.08;
+                        let eye =
+                            Vec3::new((t.cos() * 640.0) as f32, (t.sin() * 640.0) as f32, 260.0);
+                        let (pitch, yaw) = look_angles(Vec3::new(0.0, 0.0, 40.0) - eye);
+                        Camera {
+                            eye,
+                            pitch,
+                            yaw,
+                            fov: self.opts.s.video.fov,
+                        }
+                    }
                 };
                 let dynamic = match (&fv, cfg) {
                     (Some(fv), Some(cfg)) => scene::scene_mesh(
@@ -1014,7 +1177,7 @@ impl ApplicationHandler for App {
                     let mut action = None;
                     let ui_out = match (&mut self.ui, &self.window) {
                         (Some(ui), Some(w)) if self.menu.is_open() => {
-                            let online = matches!(self.session, Session::Net(_));
+                            let online = matches!(self.session, Some(Session::Net(_)));
                             let (menu, s) = (&mut self.menu, &mut self.opts.s);
                             Some(ui.run_windowed(w, |ctx| action = menu.draw(ctx, s, online)))
                         }
@@ -1034,7 +1197,15 @@ impl ApplicationHandler for App {
                         Some(menu::Action::Resume) => self.set_grab(true),
                         Some(menu::Action::TestSound) => self.audio.play_hit(),
                         Some(menu::Action::SettingsClosed) => self.save_settings(),
-                        Some(menu::Action::Disconnect) | Some(menu::Action::Quit) => {
+                        Some(menu::Action::Disconnect) => {
+                            self.leave_session(None, menu::Screen::Main)
+                        }
+                        Some(menu::Action::CancelConnect) => {
+                            self.leave_session(None, menu::Screen::Online)
+                        }
+                        Some(menu::Action::StartPractice) => self.start_practice(),
+                        Some(menu::Action::Connect(addr)) => self.start_online(&addr),
+                        Some(menu::Action::Quit) => {
                             self.finish(el);
                             return;
                         }
@@ -1137,36 +1308,17 @@ fn main() {
         return;
     }
     let world = load_world();
-    let (session, start_yaw) = match &opts.connect {
-        Some(addr) => {
-            let server = resolve(addr).unwrap_or_else(|e| {
-                eprintln!("lgduel: {e}");
-                std::process::exit(2);
-            });
-            let n = NetSession::connect(server, &opts.s.name, world.clone()).unwrap_or_else(|e| {
-                eprintln!("lgduel: {e}");
-                std::process::exit(1);
-            });
-            println!("ONLINE connecting to {server} as {}", opts.s.name);
-            (Session::Net(n), lgduel_sim::math::Angle::ZERO)
-        }
-        None => {
-            let s = LocalSession::new(GameConfig::default(), world.clone(), 1);
-            let bot = opts.bot.map(|(pattern, aim)| {
-                let id = s.game.players.iter().find(|p| p.id != s.me).unwrap().id;
-                println!("PRACTICE vs bot: pattern {pattern:?}, aim {aim:?}");
-                (
-                    Bot::new(BotConfig {
-                        pattern,
-                        aim,
-                        ..BotConfig::default()
-                    }),
-                    id,
-                )
-            });
-            let yaw = s.game.player(s.me).unwrap().yaw;
-            (Session::Local { s, bot }, yaw)
-        }
+    let mut first_menu = menu::Menu::default();
+    let mut connect_to = None;
+    let (session, start_yaw) = if let Some(addr) = &opts.connect {
+        connect_to = Some(addr.clone());
+        (None, lgduel_sim::math::Angle::ZERO)
+    } else if opts.practice || opts.synthetic_input {
+        let (s, yaw) = new_practice(&opts, &world);
+        (Some(s), yaw)
+    } else {
+        first_menu.screen = menu::Screen::Main;
+        (None, lgduel_sim::math::Angle::ZERO)
     };
     let look = MouseLook::new(opts.s.mouse, start_yaw);
     println!(
@@ -1178,6 +1330,8 @@ fn main() {
     let mut app = App {
         world,
         session,
+        connect_started: None,
+        started: Instant::now(),
         look,
         keys: Keys::default(),
         alt: false,
@@ -1191,13 +1345,16 @@ fn main() {
         gfx: None,
         renderer: None,
         ui: None,
-        menu: menu::Menu::default(),
+        menu: first_menu,
         depth: None,
         stats: FrameStats::default(),
         last_frame: None,
         frames: 0,
         error: None,
     };
+    if let Some(addr) = connect_to {
+        app.start_online(&addr);
+    }
     if let Err(e) = event_loop.run_app(&mut app) {
         eprintln!("lgduel: event loop: {e}");
         std::process::exit(1);

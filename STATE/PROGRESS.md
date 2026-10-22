@@ -246,3 +246,7 @@
 ## 2026-10-22 — iteration 44: M2.1 info query
 - protocol: `InfoRequest{nonce}` padded to 128 B, `InfoResponse{nonce, ServerInfo{protocol, name≤32, map≤32, players, max, classic, lifesteal %, anti_lag, tick_rate}}` (≤ request size). Server answers from `Server::info()` regardless of protocol version (browser shows incompatibility). `net::browser::Pinger` (multi-server queries, RTT, timeout).
 - Verified: protocol test (round trip, truncation, response ≤ request); `tests/browser.rs` over MemNet 40 ms → info fields correct, RTT 80–82 ms, no answer from an empty address, timed-out query dropped; check.sh GREEN.
+
+## 2026-10-22 — iteration 45: M2.2 main menu state machine
+- menu.rs: screens Main / Practice / Online / Connecting (+ Pause, Settings with return target), actions StartPractice / Connect / CancelConnect, Esc-back; main.rs: `session: Option<Session>`, start_practice / start_online / check_connection / leave_session / end_session, orbit camera, `--practice`, default port in `resolve`; NetSession `server_silent`.
+- Verified (real windowed runs): no args → main menu (3746 fps); `--synthetic-input` → practice; `--connect` to `lgduel host` → "ONLINE joined", net-graph live; connect to a dead port → "MENU No answer from 127.0.0.1:27999 …"; host shutting down mid-game → "MENU Lost connection to the server"; main-menu screenshot inspected; check.sh GREEN (now also renders the main menu).

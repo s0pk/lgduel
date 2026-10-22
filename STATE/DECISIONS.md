@@ -413,3 +413,13 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
   left untouched; writes are atomic (tmp + rename). Created with defaults on the first windowed run.
 - Command-line flags override settings for that run only (not written back). Headless runs and
   `--no-settings` never touch the file (tests stay hermetic); `--settings PATH` picks another file.
+
+## D41 — Main menu / session lifecycle (2026-10-22)
+- `lgduel` with no session-starting flag opens the **main menu** (Practice vs bot, Play online, Settings,
+  Quit) over a slow orbit of the arena. `--practice` (and `--synthetic-input`) start practice directly,
+  `--connect ADDR` starts connecting directly.
+- Online: Connecting screen until the first frame from the server; back to the Online screen with a message
+  on reject, 6 s without an answer, or 5 s without snapshots after joining ("Lost connection"). Addresses
+  without a port get 27960.
+- In game, Esc = pause menu; "Leave practice"/"Disconnect" returns to the main menu (no longer quits).
+  On menu screens Esc goes one level back; the cursor is only grabbed while a session runs with no menu.

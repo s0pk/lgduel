@@ -29,6 +29,8 @@ pub struct NetSession {
     last_us: u64,
     /// Client-vs-server hit verdict agreement for our LG cells.
     pub hitreg: HitReg,
+    /// When the last snapshot arrived (µs since session start).
+    last_snapshot_us: Option<u64>,
     /// Receive times of recent snapshots (for the measured snapshot rate).
     snap_times: std::collections::VecDeque<u64>,
     /// (time, bytes in, bytes out) at the start of the bandwidth window.
@@ -51,6 +53,7 @@ impl NetSession {
             view: None,
             last_us: 0,
             hitreg: HitReg::default(),
+            last_snapshot_us: None,
             snap_times: std::collections::VecDeque::new(),
             bw_mark: (0, 0, 0),
         })
@@ -89,6 +92,7 @@ impl NetSession {
         for snap in self.client.take_snapshots() {
             self.interp.push(snap.tick.0, &snap.players);
             self.hitreg.on_snapshot(me, &snap);
+            self.last_snapshot_us = Some(now);
             self.snap_times.push_back(now);
             events.extend(snap.events.iter().cloned());
             let newest = self.latest.as_ref().is_none_or(|l| snap.tick > l.tick);
@@ -194,6 +198,12 @@ impl NetSession {
             },
             events,
         });
+    }
+
+    /// True if we were receiving snapshots and the server went quiet for `secs`.
+    pub fn server_silent(&self, secs: f64) -> bool {
+        self.last_snapshot_us
+            .is_some_and(|t| self.now_us().saturating_sub(t) as f64 > secs * 1e6)
     }
 
     /// The frame to draw (None until connected and the first snapshot arrived).
