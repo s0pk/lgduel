@@ -88,7 +88,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] 6.1 Arena instances / pair isolation (no cross-pair damage or collision) — done as M4.1 (tests/arenas.rs)
 - [x] 6.2 Queue + challenge/accept flow (queue: M4.1)
 - [x] 6.3 Spectate (follow a pair) — done as M4.2 (choosing the arena/player: KI-13)
-- [ ] 6.4 Per-player stats: LG acc %, dmg dealt/taken, W/L, fight length; end-of-fight summary; stats file
+- [x] 6.4 Per-player stats: LG acc %, dmg dealt/taken, W/L, fight length; end-of-fight summary; stats file
 - [ ] 6.5 Admin console + RCON; hot-reload of gameplay config values
 
 ## Phase 7 — Hosting (deps: 4.x, 6.x)
@@ -111,7 +111,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 ## Phase 9 — Demos & stats (deps: 4.x)
 - [ ] 9.1 Demo recording (inputs + snapshots)
 - [ ] 9.2 Deterministic playback + input overlay; record→playback hash test
-- [ ] 9.3 End-of-fight summary UI
+- [x] 9.3 End-of-fight summary UI — done with 6.4 (iteration 57)
 
 ## Phase 10 — Perf (deps: 3.x, 4.x)
 - [ ] 10.1 Profile client; reach 500+ FPS target at 1080p (document hardware)

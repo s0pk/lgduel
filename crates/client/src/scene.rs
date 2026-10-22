@@ -37,6 +37,8 @@ pub struct FrameView {
     pub spectate: Option<SpectateView>,
     /// One line at the top of the screen (arena / queue / spectating).
     pub status: Option<String>,
+    /// Everyone's running stats (for the end-of-fight summary).
+    pub stats: Vec<(PlayerId, lgduel_sim::game::PlayerStats)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -169,6 +171,7 @@ pub fn hud_mesh(
     size: (u32, u32),
     numbers: &DamageNumbers,
     s: &HudSettings,
+    summary: Option<&crate::fight::FightSummary>,
 ) -> Vec<Vertex> {
     let mut v = Vec::new();
     let screen = (size.0 as f32, size.1 as f32);
@@ -176,6 +179,9 @@ pub fn hud_mesh(
     hud::build(&mut v, screen, &vp, &fv.hud, numbers, s);
     if let Some(t) = &fv.status {
         hud::status_line(&mut v, screen, t, s);
+    }
+    if let Some(f) = summary {
+        hud::centre_block(&mut v, screen, &f.lines(), s);
     }
     v
 }

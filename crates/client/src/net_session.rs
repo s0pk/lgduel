@@ -235,6 +235,7 @@ impl NetSession {
             eye,
             spectate: None,
             status,
+            stats: snap.players.iter().map(|p| (p.id, p.stats)).collect(),
             others,
             hud: HudInfo {
                 health: mine.health,
@@ -305,6 +306,7 @@ impl NetSession {
                 firing: f.buttons & buttons::FIRE != 0,
             }),
             status: self.status_text(),
+            stats: snap.players.iter().map(|p| (p.id, p.stats)).collect(),
         })
     }
 

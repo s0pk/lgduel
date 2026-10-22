@@ -13,6 +13,7 @@
 mod audio;
 mod browser;
 mod effects;
+mod fight;
 mod font;
 mod frame_stats;
 mod gfx;
@@ -88,6 +89,8 @@ struct Options {
     spectate: bool,
     /// Headless `--menu pause-online`: draw the online pause menu with sample players.
     menu_online: bool,
+    /// Headless: draw a sample end-of-fight summary.
+    summary_demo: bool,
     /// Headless online run length.
     secs: f64,
 }
@@ -122,6 +125,7 @@ impl Options {
             host_game: false,
             spectate: false,
             menu_online: false,
+            summary_demo: false,
             secs: 5.0,
         }
     }
@@ -236,6 +240,7 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
             }
             "--host-game" => o.host_game = true,
             "--spectate" => o.spectate = true,
+            "--summary-demo" => o.summary_demo = true,
             "--name" => o.s.name = val("--name")?,
             "--secs" => {
                 o.secs = val("--secs")?
@@ -342,6 +347,14 @@ fn run_headless(opts: &Options) -> Result<(), String> {
     let colors = EnemyColors::default();
     let hud_settings = HudSettings::default();
     let mut numbers = DamageNumbers::default();
+    let demo = opts.summary_demo.then_some(fight::FightSummary {
+        won: true,
+        secs: 12.4,
+        acc: 46.0,
+        opp_acc: 38.0,
+        dealt: 212,
+        taken: 180,
+    });
     let mut total_hits = 0;
     let frames = opts.frames.unwrap_or(120) as u32;
     // Each frame advances the sim by a fixed virtual 2 ms while firing at the opponent,
@@ -376,7 +389,7 @@ fn run_headless(opts: &Options) -> Result<(), String> {
                 &opts.s.effects,
                 i,
             );
-            let hud = scene::hud_mesh(&fv, &cam, (w, h), &numbers, &hud_settings);
+            let hud = scene::hud_mesh(&fv, &cam, (w, h), &numbers, &hud_settings, demo.as_ref());
             (cam, scene, hud)
         },
         CLEAR,
@@ -751,7 +764,14 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
                 &opts.s.effects,
                 seed,
             );
-            let hud = scene::hud_mesh(&fv, &cam, (w, h), &DamageNumbers::default(), &hud_settings);
+            let hud = scene::hud_mesh(
+                &fv,
+                &cam,
+                (w, h),
+                &DamageNumbers::default(),
+                &hud_settings,
+                None,
+            );
             (cam, scene, hud)
         },
         CLEAR,
@@ -849,6 +869,7 @@ struct App {
     audio: audio::Audio,
 
     numbers: DamageNumbers,
+    fights: fight::FightTracker,
     window: Option<Arc<Window>>,
     gfx: Option<Gfx>,
     renderer: Option<Renderer>,
@@ -1007,6 +1028,12 @@ impl App {
             for _ in 0..scene::track_hits(&fv, &mut self.numbers) {
                 self.audio.play_hit();
             }
+            let tick_hz = self
+                .session
+                .as_ref()
+                .and_then(|s| s.world_cfg().1.map(|c| c.tick_rate_hz))
+                .unwrap_or(125);
+            self.fights.update(&fv, tick_hz, elapsed.as_secs_f32());
         }
         self.numbers.update(elapsed.as_secs_f32());
     }
@@ -1367,7 +1394,16 @@ impl ApplicationHandler for App {
                     r.set_dynamic(&g.device, &g.queue, &dynamic);
                     let hud = fv
                         .as_ref()
-                        .map(|fv| scene::hud_mesh(fv, &cam, size, &self.numbers, &self.opts.s.hud))
+                        .map(|fv| {
+                            scene::hud_mesh(
+                                fv,
+                                &cam,
+                                size,
+                                &self.numbers,
+                                &self.opts.s.hud,
+                                self.fights.summary(),
+                            )
+                        })
                         .unwrap_or_default();
                     r.set_hud(&g.device, &g.queue, &hud);
                     let mut action = None;
@@ -1604,6 +1640,7 @@ fn main() {
         audio,
 
         numbers: DamageNumbers::default(),
+        fights: fight::FightTracker::default(),
         opts,
         window: None,
         gfx: None,

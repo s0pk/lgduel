@@ -53,6 +53,8 @@ stage "client offscreen render (1920x1080, screenshot + pixel checks)"
 # Visibility toggles: no-beam and sparks-off must draw zero beam / spark pixels; zigzag style renders.
 "$T/$PROFILE/lgduel" --headless --frames 3 --beam none --no-sparks | grep -E "IMAGE (beam|sparks)|CHECK"
 "$T/$PROFILE/lgduel" --headless --frames 3 --beam zigzag --spark-size 6 | grep -E "IMAGE (beam|sparks)|CHECK"
+# End-of-fight summary panel (sample numbers) over the duel scene.
+"$T/$PROFILE/lgduel" --headless --frames 3 --summary-demo --size 1280x720 --screenshot artifacts/fight_summary.png | grep -E "CHECK"
 # Every built-in map renders with the duel checks passing.
 for m in arena_pillars arena_tiers; do
   "$T/$PROFILE/lgduel" --headless --frames 3 --map "$m" --size 1280x720 --screenshot "artifacts/map_$m.png" | grep -E "^MAP|CHECK"

@@ -266,6 +266,27 @@ pub fn status_line(out: &mut Vec<Vertex>, screen: (f32, f32), text: &str, s: &Hu
     );
 }
 
+/// Lines centred horizontally, starting a little above the crosshair
+/// (end-of-fight summary).
+pub fn centre_block(out: &mut Vec<Vertex>, screen: (f32, f32), lines: &[String], s: &HudSettings) {
+    let sc = s.text_scale * 1.25;
+    let line = (GLYPH_H as f32 + 4.0) * sc;
+    let top = screen.1 * 0.5 - 60.0 - line * lines.len() as f32;
+    for (i, l) in lines.iter().enumerate() {
+        let x = (screen.0 - text_width(l, sc)) * 0.5;
+        label(
+            out,
+            screen,
+            x.max(0.0),
+            top + i as f32 * line,
+            sc,
+            s.text_color,
+            s.text_shadow,
+            l,
+        );
+    }
+}
+
 pub fn build(
     out: &mut Vec<Vertex>,
     screen: (f32, f32),
@@ -290,7 +311,7 @@ pub fn build(
         format!("DMG {} / {}", info.damage_dealt, info.damage_taken),
         format!("W-L {}-{}", info.wins, info.losses),
         match info.fight_secs {
-            Some(t) => format!("FIGHT {t:.1}S"),
+            Some(t) => format!("FIGHT {t:.1} SEC"),
             None => "FIGHT -".to_string(),
         },
     ];

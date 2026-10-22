@@ -140,6 +140,7 @@ impl LocalSession {
             events: self.events.clone(),
             spectate: None,
             status: None,
+            stats: g.players.iter().map(|p| (p.id, p.stats)).collect(),
         }
     }
 

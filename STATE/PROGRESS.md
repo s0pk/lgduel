@@ -316,3 +316,9 @@
 - server: `Client.{challenge, roster_sent}`, `challenge`/`respond`/`tell`, expiry each tick, roster sent on change in 16-entry chunks.
 - client: NetSession toast (4 s), challenge-aware `status_text`, `roster`/`incoming_challenge`/`challenge`/`respond`; menu `PlayerRow`, players grid + Accept/Decline in the online pause menu (window 380 wide when listed); `--menu pause-online` sample render (in check.sh).
 - Verified: arenas test `challenge_accept_decline_and_expiry` (roster of 4 with arenas; challenge visible to both; accept → both in the empty arena 3rd, left-behind pair re-paired; decline → challenger told "BOT1 DECLINED"; unanswered → cleared after 15 s with "CHALLENGE EXPIRED", nobody moved); pause-online screenshot inspected; check.sh GREEN 101 s.
+
+
+## 2026-10-22 — iteration 57: PLAN 6.4 + 9.3 end-of-fight summary
+- client/fight.rs: `FightTracker` keeps everyone's stats at fight start; on a `FightEnd` involving the viewed player (own or spectated) it builds `FightSummary` {won, secs, acc, opp_acc, dealt, taken} from the stat differences, shown 4 s; `FrameView.stats` (local, online, spectator views); `hud::centre_block` draws it above the crosshair; App feeds it every frame. `--summary-demo` renders a sample (in check.sh). HUD fight timer now "FIGHT 4.0 SEC" (in the pixel font "4.0S" read as "4.05").
+- Per-player stats were already complete: HUD LG %, DMG dealt/taken, W-L, fight timer; server stats file with fight_ticks.
+- Verified: fight tests (summary counts only this fight from both sides, ignores other players' fights, disappears after 4 s); summary screenshot inspected (3 centred lines, readable); check.sh GREEN 93 s. PLAN 9.3 ticked with it.
