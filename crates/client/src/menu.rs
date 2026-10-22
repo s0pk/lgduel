@@ -24,6 +24,8 @@ pub enum Screen {
     Online,
     /// Waiting for a server to accept us.
     Connecting,
+    /// Host a game from this PC.
+    Host,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -71,6 +73,7 @@ pub enum Action {
     Connect(String),
     CancelConnect,
     RefreshServers,
+    StartHost,
     AddServer {
         name: String,
         address: String,
@@ -92,6 +95,8 @@ pub struct Menu {
     pub message: Option<String>,
     /// What we are connecting to (Connecting screen).
     pub connecting_to: String,
+    /// Shown in the pause menu while this PC hosts the game.
+    pub hosting_info: Option<String>,
     /// "Add server" form.
     pub add_name: String,
     pub add_address: String,
@@ -124,7 +129,7 @@ impl Menu {
     /// Esc on a menu screen: one level back (never closes the main menu).
     pub fn back(&mut self) -> Option<Action> {
         match self.screen {
-            Screen::Practice | Screen::Online => self.screen = Screen::Main,
+            Screen::Practice | Screen::Online | Screen::Host => self.screen = Screen::Main,
             Screen::Settings => {
                 self.screen = self.settings_return;
                 return Some(Action::SettingsClosed);
@@ -172,6 +177,10 @@ impl Menu {
                                 action = Some(Action::Quit);
                             }
                         });
+                        if let Some(h) = &self.hosting_info {
+                            ui.add_space(6.0);
+                            ui.label(h);
+                        }
                     });
             }
             Screen::Settings => {
@@ -223,6 +232,10 @@ impl Menu {
                         }
                         if ui.button("Play online").clicked() {
                             self.screen = Screen::Online;
+                            self.message = None;
+                        }
+                        if ui.button("Host a game").clicked() {
+                            self.screen = Screen::Host;
                             self.message = None;
                         }
                         if ui.button("Settings").clicked() {
@@ -315,6 +328,48 @@ impl Menu {
                         self.screen = Screen::Main;
                     }
                 });
+            }
+            Screen::Host => {
+                let before = s.host.clone();
+                centered(ctx, "Host a game", 480.0, |ui| {
+                    let h = &mut s.host;
+                    row(ui, "Server name", |ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut h.name)
+                                .char_limit(lgduel_net::protocol::MAX_INFO_TEXT),
+                        );
+                    });
+                    row(ui, "UDP port", |ui| {
+                        ui.add(egui::DragValue::new(&mut h.port).range(1024..=65535));
+                    });
+                    row(ui, "Mode", |ui| {
+                        ui.selectable_value(&mut h.classic, false, "Vamp");
+                        ui.selectable_value(&mut h.classic, true, "Classic");
+                    });
+                    row(ui, "Lifesteal %", |ui| {
+                        ui.add(egui::Slider::new(&mut h.lifesteal_percent, 0..=100));
+                    });
+                    row(ui, "Anti-lag", |ui| {
+                        ui.checkbox(&mut h.anti_lag, "");
+                    });
+                    ui.label(
+                        "Friends on your network can join right away. Over the internet they need your                          public IP with this UDP port forwarded, or a VPN like Tailscale (see PLAY.md).",
+                    );
+                    if let Some(m) = &self.message {
+                        ui.colored_label(egui::Color32::from_rgb(255, 170, 90), m);
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.button("Start hosting").clicked() {
+                            action = Some(Action::StartHost);
+                        }
+                        if ui.button("Back").clicked() {
+                            self.screen = Screen::Main;
+                        }
+                    });
+                });
+                if s.host != before {
+                    self.dirty = true;
+                }
             }
             Screen::Connecting => {
                 centered(ctx, "Connecting", 360.0, |ui| {

@@ -68,6 +68,19 @@ pub fn lan_ip() -> Option<IpAddr> {
 
 /// Load config, bind, and run the server until `duration` (or forever).
 pub fn run(args: &HostArgs) -> Result<(), String> {
+    let cfg = config_from_args(args)?;
+    let never = std::sync::atomic::AtomicBool::new(false);
+    run_config(
+        cfg,
+        args.duration,
+        args.stats_file.as_deref(),
+        &never,
+        |_| {},
+    )
+}
+
+/// The server config described by command-line arguments.
+pub fn config_from_args(args: &HostArgs) -> Result<ServerConfig, String> {
     let mut cfg = match &args.config {
         Some(path) => {
             let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
@@ -81,11 +94,38 @@ pub fn run(args: &HostArgs) -> Result<(), String> {
     if let Some(b) = &args.bind {
         cfg.server.bind = b.clone();
     }
-    let world = load_world(&cfg.server.map.clone(), &cfg)?;
-    let addr = format!("{}:{}", cfg.server.bind, cfg.server.port)
-        .parse()
-        .map_err(|e| format!("bad bind address: {e}"))?;
-    let transport = UdpTransport::bind(addr).map_err(|e| format!("bind {addr}: {e}"))?;
+    Ok(cfg)
+}
+
+/// Run a server with `cfg` until `duration` elapses or `stop` is set.
+/// `on_bound` is told the bound address (or why binding failed) right after
+/// the socket is opened, so a caller on another thread can report errors.
+pub fn run_config(
+    cfg: ServerConfig,
+    duration: Option<f64>,
+    stats_file: Option<&str>,
+    stop: &std::sync::atomic::AtomicBool,
+    on_bound: impl FnOnce(Result<std::net::SocketAddr, String>),
+) -> Result<(), String> {
+    let bound: Result<(World, UdpTransport), String> = (|| {
+        let world = load_world(&cfg.server.map.clone(), &cfg)?;
+        let addr: std::net::SocketAddr = format!("{}:{}", cfg.server.bind, cfg.server.port)
+            .parse()
+            .map_err(|e| format!("bad bind address: {e}"))?;
+        let transport =
+            UdpTransport::bind(addr).map_err(|e| format!("can't use port {}: {e}", addr.port()))?;
+        Ok((world, transport))
+    })();
+    let (world, transport) = match bound {
+        Ok(v) => {
+            on_bound(Ok(v.1.local_addr()));
+            v
+        }
+        Err(e) => {
+            on_bound(Err(e.clone()));
+            return Err(e);
+        }
+    };
     let secret = std::process::id() as u64
         ^ (std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -102,7 +142,7 @@ pub fn run(args: &HostArgs) -> Result<(), String> {
         cfg.game.rules.hit_mode,
         world.name
     );
-    if args.duration.is_none() {
+    if duration.is_none() {
         let port = local.port();
         println!("  players on this PC:      lgduel --connect 127.0.0.1:{port}");
         if let Some(ip) = lan_ip() {
@@ -131,17 +171,15 @@ pub fn run(args: &HostArgs) -> Result<(), String> {
             println!("{line}");
         }
         logged = server.log.len();
-        if args
-            .duration
-            .is_some_and(|d| (now - start).as_secs_f64() >= d)
-        {
+        let stopping = stop.load(std::sync::atomic::Ordering::Relaxed);
+        if stopping || duration.is_some_and(|d| (now - start).as_secs_f64() >= d) {
             println!(
                 "shutting down after {:.1} s, {} ticks, {} clients",
                 (now - start).as_secs_f64(),
                 server.game.tick.0,
                 server.client_count()
             );
-            if let Some(path) = &args.stats_file {
+            if let Some(path) = stats_file {
                 std::fs::write(path, server.stats_toml()).map_err(|e| format!("{path}: {e}"))?;
                 println!("stats written to {path}");
             }

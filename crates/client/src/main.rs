@@ -82,6 +82,8 @@ struct Options {
     connect: Option<String>,
     /// Skip the main menu and start a practice session.
     practice: bool,
+    /// Skip the main menu: host a game with the saved host settings and join it.
+    host_game: bool,
     /// Headless online run length.
     secs: f64,
 }
@@ -113,6 +115,7 @@ impl Options {
             sound_test: false,
             connect: None,
             practice: false,
+            host_game: false,
             secs: 5.0,
         }
     }
@@ -216,6 +219,7 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
             "--settings" => o.settings_path = Some(val("--settings")?.into()),
             "--connect" => o.connect = Some(val("--connect")?),
             "--practice" => o.practice = true,
+            "--host-game" => o.host_game = true,
             "--name" => o.s.name = val("--name")?,
             "--secs" => {
                 o.secs = val("--secs")?
@@ -235,6 +239,7 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
                     "main" => menu::Screen::Main,
                     "practice" => menu::Screen::Practice,
                     "online" => menu::Screen::Online,
+                    "host" => menu::Screen::Host,
                     other => return Err(format!("--menu must be pause|settings, got {other}")),
                 })
             }
@@ -501,6 +506,60 @@ impl Session {
     }
 }
 
+/// A server running on a background thread of this process.
+struct HostHandle {
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl HostHandle {
+    /// Start a server with the host settings; returns once it is listening (or failed).
+    fn start(h: &settings::HostSettings) -> Result<(HostHandle, std::net::SocketAddr), String> {
+        let mut cfg = lgduel_server::ServerConfig::default();
+        cfg.server.name = h.name.clone();
+        cfg.server.port = h.port;
+        cfg.game.rules.mode = if h.classic {
+            lgduel_sim::config::DuelMode::Classic
+        } else {
+            lgduel_sim::config::DuelMode::Vamp
+        };
+        cfg.game.rules.lifesteal_percent = h.lifesteal_percent;
+        cfg.game.rules.hit_mode = if h.anti_lag {
+            lgduel_sim::config::HitMode::AntiLag
+        } else {
+            lgduel_sim::config::HitMode::NoAntiLag
+        };
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let flag = stop.clone();
+        let thread = std::thread::spawn(move || {
+            let _ = lgduel_server::host::run_config(cfg, None, None, &flag, |r| {
+                let _ = tx.send(r);
+            });
+        });
+        match rx.recv_timeout(Duration::from_secs(3)) {
+            Ok(Ok(addr)) => Ok((
+                HostHandle {
+                    stop,
+                    thread: Some(thread),
+                },
+                addr,
+            )),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err("server did not start".into()),
+        }
+    }
+}
+
+impl Drop for HostHandle {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+    }
+}
+
 /// Shipped servers (official) followed by the player's own.
 fn server_entries(s: &Settings) -> Vec<(settings::ServerEntry, bool)> {
     let mut v: Vec<_> = browser::shipped_servers()
@@ -703,6 +762,8 @@ struct App {
     started: Instant,
     /// Server browser (created when the Online screen is first shown).
     browser: Option<browser::Browser>,
+    /// Server running inside this process ("Host a game").
+    host: Option<HostHandle>,
     /// None = main menu.
     session: Option<Session>,
     connect_started: Option<Instant>,
@@ -907,6 +968,29 @@ impl App {
         self.set_grab(true);
     }
 
+    /// Run a server in this process and join it.
+    fn start_host(&mut self) {
+        self.save_settings();
+        self.host = None;
+        match HostHandle::start(&self.opts.s.host) {
+            Ok((handle, addr)) => {
+                let port = addr.port();
+                let lan = lgduel_server::host::lan_ip()
+                    .map_or("your LAN IP".to_string(), |ip| ip.to_string());
+                let info = format!("Hosting: friends connect to {lan}:{port}");
+                println!("HOST {info}");
+                self.host = Some(handle);
+                self.menu.hosting_info = Some(info);
+                self.start_online(&format!("127.0.0.1:{port}"));
+            }
+            Err(e) => {
+                println!("MENU Can't host: {e}");
+                self.menu.message = Some(format!("Can't host: {e}"));
+                self.menu.screen = menu::Screen::Host;
+            }
+        }
+    }
+
     /// Begin connecting to `addr`; the Connecting screen shows until accepted.
     fn start_online(&mut self, addr: &str) {
         let result = resolve(addr).and_then(|server| {
@@ -968,6 +1052,9 @@ impl App {
             println!("MENU {msg}");
         }
         self.end_session();
+        // Leaving also stops a game this PC was hosting.
+        self.host = None;
+        self.menu.hosting_info = None;
         self.session = None;
         self.menu.message = message;
         self.menu.screen = to;
@@ -1244,6 +1331,7 @@ impl ApplicationHandler for App {
                         }
                         Some(menu::Action::StartPractice) => self.start_practice(),
                         Some(menu::Action::Connect(addr)) => self.start_online(&addr),
+                        Some(menu::Action::StartHost) => self.start_host(),
                         Some(menu::Action::RefreshServers) => {
                             if let Some(b) = &mut self.browser {
                                 b.refresh(&entries);
@@ -1398,6 +1486,7 @@ fn main() {
         connect_started: None,
         started: Instant::now(),
         browser: None,
+        host: None,
         look,
         keys: Keys::default(),
         alt: false,
@@ -1420,6 +1509,8 @@ fn main() {
     };
     if let Some(addr) = connect_to {
         app.start_online(&addr);
+    } else if app.opts.host_game {
+        app.start_host();
     }
     if let Err(e) = event_loop.run_app(&mut app) {
         eprintln!("lgduel: event loop: {e}");

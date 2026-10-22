@@ -70,6 +70,30 @@ impl Default for Practice {
     }
 }
 
+/// "Host a game" options.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HostSettings {
+    pub name: String,
+    pub port: u16,
+    /// Classic first-to-N instead of vamp.
+    pub classic: bool,
+    pub lifesteal_percent: u32,
+    pub anti_lag: bool,
+}
+
+impl Default for HostSettings {
+    fn default() -> Self {
+        Self {
+            name: "LGDuel server".into(),
+            port: 27960,
+            classic: false,
+            lifesteal_percent: 100,
+            anti_lag: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerEntry {
     pub name: String,
@@ -90,6 +114,7 @@ pub struct Settings {
     pub practice: Practice,
     /// Servers the player added (the official list ships separately).
     pub servers: Vec<ServerEntry>,
+    pub host: HostSettings,
 }
 
 impl Default for Settings {
@@ -104,6 +129,7 @@ impl Default for Settings {
             audio: Audio::default(),
             practice: Practice::default(),
             servers: Vec::new(),
+            host: HostSettings::default(),
         }
     }
 }
@@ -140,6 +166,17 @@ impl Settings {
         if self.name.trim().is_empty() {
             self.name = "player".into();
         }
+        self.host.lifesteal_percent = self.host.lifesteal_percent.min(100);
+        if self.host.port == 0 {
+            self.host.port = 27960;
+        }
+        self.host.name = self
+            .host
+            .name
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(lgduel_net::protocol::MAX_INFO_TEXT)
+            .collect();
     }
 
     pub fn to_toml(&self) -> String {

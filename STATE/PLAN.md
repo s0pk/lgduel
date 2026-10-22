@@ -72,7 +72,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] M2.1 Connectionless Info query (name, map, players/max, hit mode, lifesteal, tick, protocol) + server answer + test
 - [x] M2.2 Main menu state machine: Practice (pattern/skill/map) / Play online / Host / Settings / Quit; back to menu on disconnect/error
 - [x] M2.3 Server browser: shipped `servers.toml` + user entries + direct connect, live ping/info, refresh
-- [ ] M2.4 In-app Host: stoppable server thread + auto-join, show LAN address
+- [x] M2.4 In-app Host: stoppable server thread + auto-join, show LAN address
 - [ ] M3.1 Convex brushes in sim (planes + bounds), Quake-style brush trace with hull offsets + bevels; box path bit-identical (golden hash)
 - [ ] M3.2 Map format: [[ramp]], [[stairs]], [[convex]]; renderer builds convex faces
 - [ ] M3.3 Maps arena_pillars + arena_tiers; map name + content hash in Accept; map selection (server config, practice)

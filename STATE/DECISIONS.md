@@ -431,3 +431,11 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
   Join (disabled for other protocol versions); "…", "no answer" (2 s), "bad address".
 - Hostnames resolve on background threads (a slow/unknown DNS name must never freeze the UI; found by a
   test whose ping was inflated by an inline lookup).
+
+## D43 — Hosting from the menu (2026-10-22)
+- `lgduel_server::host::run_config(cfg, duration, stats_file, stop, on_bound)`: shared by `lgduel-server`,
+  `lgduel host` and the in-game host; `on_bound` reports the bound address or the bind error to the caller.
+- Client `HostHandle` runs it on a background thread (dropped = stop flag + join). "Host a game" screen with
+  saved `HostSettings` (name, UDP port, vamp/classic, lifesteal %, anti-lag) → start server → auto-join
+  127.0.0.1:port; pause menu shows "Hosting: friends connect to <LAN IP>:<port>"; leaving stops the server.
+  `--host-game` does the same from the command line.

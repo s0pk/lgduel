@@ -255,3 +255,8 @@
 - `config/servers.toml`, `client/src/browser.rs` (Browser: background lookups, Pinger, rows/status), Online screen table + Refresh + Add/Remove + direct connect; per-screen fixed window widths.
 - Bug found by test: inline DNS resolution in refresh blocked (and inflated pings) → background threads.
 - Verified: browser tests (shipped list parses; real UDP server answers with max 16 and RTT < 100 ms; unresolvable name → bad address); Online screen rendered against a live `lgduel host` ("LGDuel Server 6 ms 0/16 arena_flat Vamp 100% On Join") and inspected; check.sh GREEN (renders main/online/pause/settings screens).
+
+## 2026-10-22 — iteration 47: M2.4 in-app host
+- server host.rs: `config_from_args`, stoppable `run_config` with bind callback; client: `HostSettings`, Host screen, `HostHandle`, `start_host`, hosting info in pause menu, `--host-game`, `--menu host`.
+- Verified (real runs): `--host-game` → "HOST Hosting: friends connect to 192.168.1.45:27975", self-joined; external `lgduel-bot` joined as player 1 and fought (2 kills, 200 dmg); port already in use → "MENU Can't host: can't use port 27976: … (os error 10048)"; Host screen screenshot inspected; check.sh GREEN. M2 (launcher) complete.
+- Test-harness slip: a trailing `&` backgrounded my whole `&&` chain (variables unset) — first run invalid, rerun with separate lines.
