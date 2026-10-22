@@ -823,6 +823,8 @@ version = "0.1.0"
 dependencies = [
  "lgduel-net",
  "lgduel-sim",
+ "serde",
+ "toml",
 ]
 
 [[package]]

@@ -27,7 +27,9 @@ cargo test -q -p lgduel-sim --profile "$PROFILE" --test determinism -- --nocaptu
 
 stage "binaries run"
 "target/$PROFILE/lgduel" --version >/dev/null && echo "ok: lgduel --version"
-for bin in lgduel-server lgduel-bot lgduel-tools; do
+"target/$PROFILE/lgduel-server" --version >/dev/null && echo "ok: lgduel-server --version"
+"target/$PROFILE/lgduel-server" --bind 127.0.0.1 --port 0 --duration-secs 0.5 | tail -1
+for bin in lgduel-bot lgduel-tools; do
     "target/$PROFILE/$bin" >/dev/null
     echo "ok: $bin"
 done

@@ -128,3 +128,8 @@
 - Tooling: bash heredoc containing Python triple quotes failed to parse in the Bash tool; switched that edit to the Edit tool (no changes had been applied).
 - Measured: 1500-tick fight, every 5th snapshot lost → every delivered delta reproduced the exact snapshot; 118,056 B vs 285,535 B full (41%); unchanged state 25 B; wrong/missing baseline rejected.
 - Verified: net tests 27 passed; check.sh GREEN.
+
+## 2026-10-22 — iteration 25: PLAN 4.4 server binary
+- `crates/server/src/lib.rs`: `ServerConfig` ([server] + gameplay), `Server<T: Transport>` (poll/tick, challenge handshake, accept with config TOML, reject wrong version/full, ignore bad cookies, InputBuffer per client, last-real-command repeat, delta snapshots per client, timeout/disconnect, operator log, client stats). `main.rs`: CLI (`--config --port --bind --duration-secs --version`), real-time 125 Hz loop.
+- Bug found by test and fixed: startup ticks before a client's first command were counted as "missing" because the fallback default command was stored as last_cmd.
+- Verified: server tests 5 passed (config sections + example file; MemNet handshake → 2 s of inputs → snapshots show 320 u/s walking, 0 missing, RTT > 15 ms; spoofed cookie ignored, wrong version rejected; timeout removes player; 5% loss + jitter with 8× redundancy → 0 missing commands over 10 s, loss estimate 3.4%). Real binary: 2.0 s → exactly 250 ticks, clean exit. check.sh GREEN (now also runs the server for 0.5 s).

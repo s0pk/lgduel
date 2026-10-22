@@ -12,6 +12,12 @@ workspace = true
 [dependencies]
 lgduel-sim = { path = "../sim" }
 lgduel-net = { path = "../net" }
+serde = { version = "1.0.229", features = ["derive"] }
+toml = "1.1.8"
+
+[lib]
+name = "lgduel_server"
+path = "src/lib.rs"
 
 [[bin]]
 name = "lgduel-server"

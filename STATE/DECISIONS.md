@@ -231,3 +231,13 @@ Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update th
   acked tick has left its history).
 - Measured: active 2-player fight with 20% snapshot loss → 41% of full size (118 KB vs 286 KB over 1500
   snapshots ≈ 79 B/snapshot ≈ 9.8 KB/s at 125 Hz); unchanged state 25 B.
+
+## D23 — Server (2026-10-22)
+- `lgduel_server` lib (generic over Transport) + `lgduel-server` bin. Config = one TOML: `[server]` (name,
+  bind, port, max_clients, snapshot_every, timeout_ms, map) + gameplay sections (GameConfig); the example
+  config parses to the defaults (tested).
+- Tick: consume each client's command for exactly this tick from its InputBuffer; if missing, repeat the
+  client's last *real* command (startup ticks before the first command don't count as missing). Snapshots
+  every `snapshot_every` ticks as deltas against the client's acked baseline; events accumulate per client
+  between snapshots.
+- Real-time loop: FixedStepper + ≤1 ms sleeps (socket polled ≥1 kHz). Timeout 5 s; Disconnect control msg.
