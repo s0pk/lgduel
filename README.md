@@ -13,53 +13,40 @@ A standalone **Lightning-Gun duel trainer** in the style of the classic arena-sh
   beam styles incl. none, impact sparks, hit sound, damage numbers, net-graph.
 - **Practice bots** that strafe like players (random A/D, mirroring, anti-mirroring, half-sideways) with
   tunable reaction time and aim.
+- **Menus and settings in game**, a server browser, hosting from the menu, borderless fullscreen.
+- **Maps with height** — ramps, stairs and platforms (`arena_flat`, `arena_pillars`, `arena_tiers`).
+- **Dedicated servers** run many duels at once with a queue, a practice bot for lone players and
+  spectating; one command installs one on a Linux VPS ([DEPLOY.md](DEPLOY.md)).
 
-> Early test build: no menus yet — settings are command-line options. Windows build provided; Linux/macOS
-> build from source.
+Windows build provided; Linux/macOS: build from source.
 
-## Play with a friend in 3 steps
+## Play
 
-1. **Download** `LGDuel-windows-x64.zip` from [Releases](../../releases) and unzip it (both players).
-2. **One player hosts:** open a terminal in the folder and run
+1. **Download** `LGDuel-windows-x64.zip` from [Releases](../../releases), unzip it, run `lgduel.exe`.
+2. **Practice** duels a bot offline. **Play online** lists servers: click **Join**. **Host a game**
+   runs a server on your PC for friends.
+3. **Esc** opens the menu (settings, spectate, disconnect). **F11** toggles fullscreen.
 
-   ```
-   lgduel.exe host
-   ```
-
-   It prints the command the friend should use. Allow it through the Windows firewall if asked.
-3. **Both connect** (the host in a second terminal):
-
-   ```
-   lgduel.exe --connect 127.0.0.1:27960 --name host          # host
-   lgduel.exe --connect <host address>:27960 --name friend   # friend
-   ```
-
-   `<host address>` is the host's LAN IP (same network), Tailscale/ZeroTier IP (easiest over the
-   internet), or public IP with **UDP port 27960 forwarded** on the host's router.
-
-Full guide (connection options, all settings, what to report): **[PLAY.md](PLAY.md)**.
-
-## Practice offline
-
-```
-lgduel.exe                                   # duel a bot (random A/D strafer, medium aim)
-lgduel.exe --bot mirror --bot-skill hard     # patterns: still ad mirror anti hsw hswanti
-                                             # skills:   easy medium hard aimbot
-```
+Full guide (online play, hosting, all settings, what to report): **[PLAY.md](PLAY.md)**.
 
 ## Controls
 
-Mouse look (raw input; click to capture, **Esc** to release) · **WASD** move · **Space** jump (hold to hop) ·
-**Ctrl/C** crouch · **Left mouse** fire · **F3** net-graph.
+Mouse look (raw input) · **WASD** move · **Space** jump (hold to hop) · **Ctrl/C** crouch ·
+**Left mouse** fire · **Esc** menu · **F3** net-graph · **F11** / **Alt+Enter** fullscreen.
 
-Common options: `--sens-cm 30 --dpi 800` (sensitivity as cm/360), `--fov 110`, `--size 1920x1080`,
-`--beam none|thin|thick|zigzag`, `--no-sparks`, `--volume 0.5`, `--vsync`, `--fps-cap 240`.
+Command-line options override the settings for one run, e.g. `--sens-cm 30 --dpi 800`, `--fov 110`,
+`--practice --map arena_tiers --bot mirror --bot-skill hard`, `--connect HOST:PORT`, `--fullscreen`.
 
-## Hosting options
+## Running a server
 
-`lgduel.exe host --port N --config server.toml` — copy `server.example.toml` and edit rules: vamp/classic,
-`lifesteal_percent`, `hit_mode = "anti_lag" | "no_anti_lag"`, `max_rewind_ms`, tick rate, physics, LG damage/range.
-`lgduel-server.exe` is the same server as a separate binary; `lgduel-bot.exe --server HOST:PORT` adds a bot to a server.
+- **On a VPS (recommended for playing over the internet):** see [DEPLOY.md](DEPLOY.md) — open UDP 27960,
+  run one install command, add the address in Play online.
+- **On your PC:** Host a game in the menu, or `lgduel.exe host [--config server.toml] [--map arena_tiers]`.
+  `lgduel-server.exe` is the same server as a separate binary; `lgduel-bot.exe --server HOST:PORT` adds a bot.
+
+Rules live in a config file (copy `server.example.toml`): vamp/classic, `lifesteal_percent`,
+`hit_mode = "anti_lag" | "no_anti_lag"`, `max_rewind_ms`, `max_arenas`, `practice_bot`, map, tick rate,
+physics, LG damage/range.
 
 ## Build from source
 
@@ -72,8 +59,10 @@ target/release/lgduel --connect 127.0.0.1:27960
 ```
 
 `./scripts/check.sh` runs formatting, lints, all tests, a determinism replay, a network-conditions matrix,
-three 60-second bot-vs-bot server matches (clean / lossy / high-ping) and offscreen render checks.
-`./scripts/package.sh` builds the release zip.
+three 60-second bot-vs-bot server matches (clean / lossy / high-ping, one per map), online client smoke
+tests (playing and spectating) and offscreen render checks. CI runs it on Linux with a software Vulkan
+driver (`.github/workflows/ci.yml`); `./scripts/linux-check.sh` does the same locally in Docker.
+`./scripts/package.sh` builds the release zip; pushing a `v*` tag publishes a release.
 
 ## Project layout
 
