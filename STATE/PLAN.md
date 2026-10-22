@@ -54,7 +54,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 
 ## Phase 5 — Netcode hardening (deps: 4.x)
 - [x] 5.1 Netem layer in tools (latency, loss, jitter, reorder) usable in-process
-- [ ] 5.2 Matrix tests: 0/50/100/200 ms × 0–5% loss × ±20 ms jitter; thresholds documented
+- [x] 5.2 Matrix tests: 0/50/100/200 ms × 0–5% loss × ±20 ms jitter; thresholds documented
 - [ ] 5.3 Hit-reg agreement metric (client-predicted hit vs server hit), anti-lag on/off
 - [ ] 5.4 Rubber-band detector; one lossy + one high-ping run in check.sh
 - [ ] 5.5 Net-graph: ping, loss, jitter, tick rate, snapshot rate

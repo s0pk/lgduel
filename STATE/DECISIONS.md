@@ -315,3 +315,15 @@ Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update th
 - `lgduel --connect HOST:PORT [--name N]` (windowed); `lgduel --headless --connect … --secs N` = online
   smoke check (renders the remote opponent offscreen, asserts forced colours). check.sh stage via
   `lgduel-tools client-smoke`.
+
+## D31 — Netem matrix thresholds (2026-10-22)
+Matrix: one-way latency {0, 50, 100, 200 ms} × loss {0, 1, 2.5, 5 %} per direction × jitter ±20 ms (0 ms row
+without jitter), 12 s measured after 3 s warm-up, MemNet. Asserted per cell:
+- own-movement prediction mean < 0.5u with ≥ 500 checks (desync);
+- missing (late/lost) commands ≤ 0.5% of client-ticks;
+- remote-player interpolation starvation ≤ 1% of frames;
+- largest remote jump per 1 ms frame ≤ 0.7u on clean links (0 ms, 0%), ≤ 2.56u (one tick of walking) otherwise.
+Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u); missing ≤ 0.033%; starved
+≤ 0.31% (only the 0 ms rows with loss and 100 ms/5% exceed 0.02%); max jump 0.32u in 10 cells, ≤ 2.56u worst.
+- Fix found by the matrix: spread estimate now includes late out-of-order snapshot arrivals (the ones the
+  buffer must cover). Interpolation test went to 0.00% starved / 0.320u in all 3 of its conditions.

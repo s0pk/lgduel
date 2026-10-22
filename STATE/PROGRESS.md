@@ -185,3 +185,9 @@
 - In-process: `lgduel_net::transport::MemNet` — deterministic µs clock, latency, ±jitter (reorders), loss; tests memnet_latency_and_order, memnet_loss_rate_and_determinism (5% ±1%), memnet_jitter_reorders.
 - Real sockets: `lgduel-tools netem` UDP proxy (per-client upstream, both directions, profiles clean/lossy/highping); test proxies_with_delay; used by the headless match (lossy run dropped ~2% as configured).
 - No code change; verified by the existing tests in check.sh (GREEN at e5260b6).
+
+## 2026-10-22 — iteration 34: PLAN 5.2 netem matrix
+- `crates/server/tests/netem_matrix.rs`: 16 cells, per-cell metrics table (RTT, prediction mean/max/checks, missing %, interp delay, starved %, max jump), thresholds asserted (D31); check.sh "netem matrix" stage live (was SKIP), prints the table; runs in ~0.3 s.
+- Product fix found by the matrix: `NetClient` arrival-spread now counts every snapshot arrival, not only those arriving as newest → interpolation test improved to 0.00% starved / max 0.320u in all 3 conditions (was 0.03% / 1.04u in the 100±20 ms + 2% case).
+- Test bug found and fixed: the matrix only called `interp.sample` after warm-up, so the adaptive delay (which adapts inside `sample`) hadn't converged on the 200 ms rows → spurious 3.5u jumps right after warm-up.
+- Results table recorded in DECISIONS D31. Verified: check.sh GREEN.

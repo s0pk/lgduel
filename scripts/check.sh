@@ -40,8 +40,8 @@ stage "headless match: server + 2 bots, 60 s vamp duel × {clean, lossy 2% 30±1
 stage "online client smoke: real lgduel --headless --connect vs server + bot"
 "target/$PROFILE/lgduel-tools" client-smoke --secs 5 --out artifacts
 
-stage "netem matrix"
-echo "SKIP: not implemented yet (PLAN Phase 5)"
+stage "netem matrix: {0,50,100,200} ms × {0,1,2.5,5}% loss × ±20 ms jitter (MemNet, thresholds asserted)"
+cargo test -q -p lgduel-server --profile "$PROFILE" --test netem_matrix -- --nocapture 2>&1 | grep -E "^\||test result"
 
 stage "p2p rendezvous"
 echo "SKIP: not implemented yet (PLAN Phase 7)"

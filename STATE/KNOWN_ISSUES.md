@@ -2,8 +2,8 @@
 
 - KI-1 (2026-10-22): Dev machine is Windows; DoD requires check.sh green on Linux. No Linux run yet.
   Add a Linux verification path (WSL / Docker / CI) by PLAN 7.8 at the latest.
-- KI-2 (2026-10-22): check.sh stages netem matrix / p2p print `SKIP`
-  until their phases land (5, 7). Absent, not passing. (Offscreen render live since iteration 14, headless match since iteration 31.)
+- KI-2 (2026-10-22): check.sh stage p2p prints `SKIP`
+  until Phase 7 lands. Absent, not passing. (Offscreen render live since it. 14, headless match since it. 31, netem matrix since it. 34.)
 - KI-3 (2026-10-22): cargo is installed at ~/.cargo/bin but may not be on PATH in fresh shells
   until a new login session. Prefix `export PATH="$HOME/.cargo/bin:$PATH"` if `cargo` is not found.
 - KI-4 (2026-10-22): Physics constants not yet verified against Quake Live server cvars (pmove_StepHeight

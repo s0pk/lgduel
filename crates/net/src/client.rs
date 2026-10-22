@@ -68,7 +68,7 @@ pub struct NetClient<T: Transport> {
     response_sent_us: Option<u64>,
     /// RTT measured by the handshake, used until packet acks provide one.
     handshake_rtt_us: f64,
-    /// Recent (receive time − tick × tick length) offsets of newest snapshots.
+    /// Recent (receive time − tick × tick length) offsets of all snapshot arrivals.
     arrival_offsets: VecDeque<(u64, f64)>,
     /// Smoothed snapshot clock (ticks) and the time it was last advanced.
     snap_clock: Option<(f64, u64)>,
@@ -208,15 +208,19 @@ impl<T: Transport> NetClient<T> {
                 self.arrival_jitter_us += (dev - self.arrival_jitter_us) * 0.1;
             }
             self.newest = Some((snap.tick, now_us));
-            let offset = now_us as f64 - snap.tick.0 as f64 * self.tick_us;
-            self.arrival_offsets.push_back((now_us, offset));
-            while self
-                .arrival_offsets
-                .front()
-                .is_some_and(|(t, _)| now_us.saturating_sub(*t) > 2_000_000)
-            {
-                self.arrival_offsets.pop_front();
-            }
+        }
+        // Every arrival (including late, out-of-order ones) feeds the spread
+        // estimate: late snapshots are exactly what the interpolation buffer
+        // must cover. The clock baseline is the minimum, so late ones can't
+        // drag it.
+        let offset = now_us as f64 - snap.tick.0 as f64 * self.tick_us;
+        self.arrival_offsets.push_back((now_us, offset));
+        while self
+            .arrival_offsets
+            .front()
+            .is_some_and(|(t, _)| now_us.saturating_sub(*t) > 2_000_000)
+        {
+            self.arrival_offsets.pop_front();
         }
         self.snapshots.push(snap.clone());
         self.fresh.push(snap);
