@@ -113,3 +113,11 @@ Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update th
   (`healed` ≤ `lifesteal_earned`).
 - No player-vs-player collision yet (players pass through each other) — KI-6.
 - Respawn delay rounds up to whole ticks; spawn = point farthest from living opponents.
+
+## D10 — Rules & isolation (2026-10-22)
+- A *fight* runs from the tick all players are alive to the next frag; `FightEnd{winner, loser, ticks}`
+  is emitted in both modes and feeds W/L + fight-length stats.
+- Vamp (default): no frag limit; the winner is reset to spawn health/armor (`reset_winner_health`, default
+  true) so every fight starts even. Classic: frags count to `frag_limit` → `MatchEnd`, scores reset.
+- **Pair isolation = one `Game` instance per duel arena.** The server will host many `Game`s (one per
+  pair) plus lobby/spectators, so cross-pair damage/collision is impossible by construction (Phase 6).

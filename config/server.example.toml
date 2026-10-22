@@ -35,5 +35,6 @@ spawn_health = 100
 max_health = 100           # lifesteal never heals above this
 spawn_armor = 0            # 0 = armor off
 respawn_delay_ms = 1000
+reset_winner_health = true # winner back to spawn_health after a frag
 hit_mode = "anti_lag"      # "anti_lag" | "no_anti_lag"
 max_rewind_ms = 200

@@ -49,3 +49,7 @@
 - `sim::game`: `Game` (config, world, tick, players, per-tick events), `Player` (pmove, view, health/armor, alive/respawn, weapon timer, lifesteal remainder, stats), `GameEvent` (Fire/Damage/Kill/Respawn), `hitscan()`, `Game::state_hash()`.
 - Done together: hitscan alone has no observable effect without damage.
 - Verified: check.sh GREEN; sim lib tests 51 passed. Game tests: 21 cells in 1.008 s with only 6/7-tick gaps; hit at 700u (100→93), miss at 900u; wall blocks; vamp 100% heals exactly dealt up to the cap; 33% lifesteal over 500 ticks earned == floor(dealt·33/100); 0% heals nothing; kill → dead untargetable → respawn exactly 125 ticks later at full health; knockback along beam; armor 30 dmg → 90 hp / 80 armor; hitscan nearest/occluded/behind.
+
+## 2026-10-22 — iteration 11: PLAN 2.13 rules
+- Fight lifecycle in `Game`: `fight_start` set when ≥2 players all alive; kill → `FightEnd{winner,loser,ticks}`; stats fights_won/fights_lost/fight_ticks; `frags` score; classic `MatchEnd` at frag_limit with score reset; vamp resets winner to spawn health (new `rules.reset_winner_health`, default true). State hash covers new fields.
+- Verified: check.sh GREEN. New tests: vamp fight lifecycle (fight start at tick 0, FightEnd with ticks, no MatchEnd, winner back to 100, W/L + fight ticks on both players, next fight starts after respawn); classic frag limit 2 → exactly one MatchEnd and scores reset.

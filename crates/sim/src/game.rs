@@ -1,7 +1,7 @@
 //! Game state: players, Lightning Gun combat, damage, lifesteal, respawn.
 //! Advanced one fixed tick at a time from per-player `UserCmd`s.
 
-use crate::config::GameConfig;
+use crate::config::{DuelMode, GameConfig};
 use crate::math::{Angle, StateHasher, Vec3, angle_vectors};
 use crate::pmove::{PlayerMove, pmove};
 use crate::tick::Tick;
@@ -33,6 +33,10 @@ pub struct PlayerStats {
     pub lifesteal_earned: u32,
     pub kills: u32,
     pub deaths: u32,
+    pub fights_won: u32,
+    pub fights_lost: u32,
+    /// Sum of the lengths of all fights this player finished, in ticks.
+    pub fight_ticks: u32,
 }
 
 impl PlayerStats {
@@ -63,6 +67,8 @@ pub struct Player {
     pub lifesteal_rem: u32,
     /// Last buttons (for input display / demos).
     pub buttons: u8,
+    /// Score in the current match (classic: frags toward the limit).
+    pub frags: u32,
     pub stats: PlayerStats,
 }
 
@@ -91,6 +97,16 @@ pub enum GameEvent {
     Respawn {
         player: PlayerId,
         origin: Vec3,
+    },
+    /// A fight ended with a frag. `ticks` = time from both players alive to the kill.
+    FightEnd {
+        winner: PlayerId,
+        loser: PlayerId,
+        ticks: u32,
+    },
+    /// Classic mode: someone reached the frag limit; scores reset.
+    MatchEnd {
+        winner: PlayerId,
     },
 }
 
@@ -137,6 +153,8 @@ pub struct Game {
     pub players: Vec<Player>,
     /// Events from the most recent `step`.
     pub events: Vec<GameEvent>,
+    /// Tick the current fight started (all players alive), if one is running.
+    pub fight_start: Option<Tick>,
 }
 
 impl Game {
@@ -147,6 +165,7 @@ impl Game {
             tick: Tick(0),
             players: Vec::new(),
             events: Vec::new(),
+            fight_start: None,
         }
     }
 
@@ -177,6 +196,7 @@ impl Game {
             weapon_time_us: 0,
             lifesteal_rem: 0,
             buttons: 0,
+            frags: 0,
             stats: PlayerStats::default(),
         };
         self.spawn(&mut p);
@@ -258,6 +278,12 @@ impl Game {
                 self.spawn(&mut p);
                 self.players[i] = p;
             }
+        }
+        if self.fight_start.is_none()
+            && self.players.len() >= 2
+            && self.players.iter().all(|p| p.alive)
+        {
+            self.fight_start = Some(tick);
         }
 
         for i in 0..self.players.len() {
@@ -392,18 +418,48 @@ impl Game {
             v.stats.deaths += 1;
             v.pm.velocity = Vec3::ZERO;
         }
-        if killer != victim
-            && let Some(k) = self.player_mut(killer)
-        {
-            k.stats.kills += 1;
-        }
         self.events.push(GameEvent::Kill { killer, victim });
+        if killer == victim {
+            return;
+        }
+        let ticks = self.fight_start.take().map_or(0, |s| self.tick.0 - s.0);
+        let reset = self.cfg.rules.reset_winner_health;
+        let spawn_health = self.cfg.rules.spawn_health as i32;
+        let spawn_armor = self.cfg.rules.spawn_armor as i32;
+        let mut frags = 0;
+        if let Some(k) = self.player_mut(killer) {
+            k.stats.kills += 1;
+            k.stats.fights_won += 1;
+            k.stats.fight_ticks += ticks;
+            k.frags += 1;
+            frags = k.frags;
+            if reset && k.alive {
+                k.health = spawn_health;
+                k.armor = spawn_armor;
+            }
+        }
+        if let Some(v) = self.player_mut(victim) {
+            v.stats.fights_lost += 1;
+            v.stats.fight_ticks += ticks;
+        }
+        self.events.push(GameEvent::FightEnd {
+            winner: killer,
+            loser: victim,
+            ticks,
+        });
+        if self.cfg.rules.mode == DuelMode::Classic && frags >= self.cfg.rules.frag_limit {
+            self.events.push(GameEvent::MatchEnd { winner: killer });
+            for p in &mut self.players {
+                p.frags = 0;
+            }
+        }
     }
 
     /// Hash of all simulation state (determinism checks, desync detection).
     pub fn state_hash(&self) -> u64 {
         let mut h = StateHasher::new();
         h.u32(self.tick.0);
+        h.u32(self.fight_start.map_or(u32::MAX, |t| t.0));
         for p in &self.players {
             h.u32(p.id.0 as u32);
             h.vec3(p.pm.origin);
@@ -423,6 +479,7 @@ impl Game {
             h.u32(p.respawn_tick.map_or(u32::MAX, |t| t.0));
             h.u32(p.weapon_time_us as u32);
             h.u32(p.lifesteal_rem);
+            h.u32(p.frags);
             let s = &p.stats;
             for v in [
                 s.shots,
@@ -433,6 +490,9 @@ impl Game {
                 s.lifesteal_earned,
                 s.kills,
                 s.deaths,
+                s.fights_won,
+                s.fights_lost,
+                s.fight_ticks,
             ] {
                 h.u32(v);
             }
@@ -683,5 +743,86 @@ mod tests {
             None
         );
         assert_eq!(hitscan(&w, Vec3::ZERO, -x, 768.0, &[near]).target, None);
+    }
+    /// a shoots b (who stands still) until b dies; returns ticks stepped.
+    fn shoot_until_kill(g: &mut Game, a: PlayerId, b: PlayerId) -> Vec<GameEvent> {
+        let mut all = vec![];
+        for _ in 0..2000 {
+            let fire = g.player(b).unwrap().alive;
+            let c = aim(g, a, b, fire);
+            g.step(&[(a, c)]);
+            all.extend(g.events.clone());
+            if all.iter().any(|e| matches!(e, GameEvent::FightEnd { .. })) {
+                break;
+            }
+        }
+        all
+    }
+
+    #[test]
+    fn vamp_fight_lifecycle() {
+        let mut cfg = GameConfig::default();
+        cfg.lg.knockback = 0.0;
+        let (mut g, a, b) = game_with(cfg);
+        face_off(&mut g, a, b, 300.0);
+        g.step(&[]);
+        assert_eq!(g.fight_start, Some(Tick(0)));
+        g.player_mut(a).unwrap().health = 40;
+        let ev = shoot_until_kill(&mut g, a, b);
+        let ticks = ev
+            .iter()
+            .find_map(|e| match e {
+                GameEvent::FightEnd {
+                    winner,
+                    loser,
+                    ticks,
+                } if *winner == a && *loser == b => Some(*ticks),
+                _ => None,
+            })
+            .expect("fight end");
+        assert!(ticks > 0);
+        assert!(
+            !ev.iter().any(|e| matches!(e, GameEvent::MatchEnd { .. })),
+            "vamp has no frag limit"
+        );
+        let pa = g.player(a).unwrap();
+        assert_eq!(pa.health, 100, "winner reset to spawn health");
+        assert_eq!((pa.stats.fights_won, pa.stats.fight_ticks), (1, ticks));
+        let pb = g.player(b).unwrap();
+        assert_eq!((pb.stats.fights_lost, pb.stats.fight_ticks), (1, ticks));
+        assert_eq!(g.fight_start, None);
+        // Next fight starts when b is back.
+        for _ in 0..130 {
+            g.step(&[]);
+        }
+        assert!(g.fight_start.is_some());
+    }
+
+    #[test]
+    fn classic_frag_limit_ends_match() {
+        let mut cfg = GameConfig::default();
+        cfg.rules.mode = DuelMode::Classic;
+        cfg.rules.lifesteal_percent = 0;
+        cfg.rules.frag_limit = 2;
+        cfg.rules.respawn_delay_ms = 0;
+        cfg.lg.knockback = 0.0;
+        let (mut g, a, b) = game_with(cfg);
+        let mut match_ends = 0;
+        for round in 0..2 {
+            face_off(&mut g, a, b, 300.0);
+            g.player_mut(b).unwrap().health = 5;
+            let ev = shoot_until_kill(&mut g, a, b);
+            match_ends += ev
+                .iter()
+                .filter(|e| matches!(e, GameEvent::MatchEnd { winner } if *winner == a))
+                .count();
+            if round == 0 {
+                assert_eq!(g.player(a).unwrap().frags, 1);
+            }
+            g.step(&[]); // respawn
+        }
+        assert_eq!(match_ends, 1);
+        assert_eq!(g.player(a).unwrap().frags, 0, "scores reset after match");
+        assert_eq!(g.player(a).unwrap().stats.kills, 2);
     }
 }

@@ -105,6 +105,8 @@ pub struct RulesConfig {
     /// Armor on spawn (0 = armor disabled).
     pub spawn_armor: u32,
     pub respawn_delay_ms: u32,
+    /// After a frag the winner is reset to spawn health so the next fight starts even.
+    pub reset_winner_health: bool,
     pub hit_mode: HitMode,
     /// Max rewind for anti-lag, ms.
     pub max_rewind_ms: u32,
@@ -165,6 +167,7 @@ impl Default for RulesConfig {
             max_health: 100,
             spawn_armor: 0,
             respawn_delay_ms: 1000,
+            reset_winner_health: true,
             hit_mode: HitMode::AntiLag,
             max_rewind_ms: 200,
         }
