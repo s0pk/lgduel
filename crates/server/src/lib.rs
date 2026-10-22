@@ -290,8 +290,28 @@ missing_cmds = {missing}
         let _ = self.transport.send_to(to, &m.encode());
     }
 
+    /// Public description for the server browser.
+    pub fn info(&self) -> lgduel_net::protocol::ServerInfo {
+        let r = &self.game.cfg.rules;
+        lgduel_net::protocol::ServerInfo {
+            protocol: PROTOCOL_VERSION,
+            name: self.settings.name.clone(),
+            map: self.game.world.name.clone(),
+            players: self.clients.len().min(255) as u8,
+            max_players: self.settings.max_clients,
+            classic: r.mode == lgduel_sim::config::DuelMode::Classic,
+            lifesteal_percent: r.lifesteal_percent.min(100) as u8,
+            anti_lag: r.hit_mode == HitMode::AntiLag,
+            tick_rate: self.game.cfg.tick_rate_hz.min(u16::MAX as u32) as u16,
+        }
+    }
+
     fn connectionless(&mut self, now_us: u64, from: SocketAddr, m: Connectionless) {
         match m {
+            Connectionless::InfoRequest { nonce } => {
+                let info = self.info();
+                self.reply(from, Connectionless::InfoResponse { nonce, info });
+            }
             Connectionless::ConnectRequest { version, nonce } => {
                 if version != PROTOCOL_VERSION {
                     let reason = format!("protocol {version} != server {PROTOCOL_VERSION}");

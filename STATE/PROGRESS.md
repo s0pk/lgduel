@@ -242,3 +242,7 @@
 ## 2026-10-22 — iteration 43: M1.4 fullscreen
 - Window created borderless-fullscreen when `video.fullscreen`; F11 and Alt+Enter toggle (saved immediately); Video-tab checkbox applies live; `--fullscreen` / `--windowed`.
 - Verified: `lgduel --no-settings --fullscreen --synthetic-input --frames 1500` → surface 1920×1080 (native, window size setting 1280×720), 4377 fps avg, p99 0.595 ms; check.sh GREEN. M1 (UI + settings + fullscreen) complete.
+
+## 2026-10-22 — iteration 44: M2.1 info query
+- protocol: `InfoRequest{nonce}` padded to 128 B, `InfoResponse{nonce, ServerInfo{protocol, name≤32, map≤32, players, max, classic, lifesteal %, anti_lag, tick_rate}}` (≤ request size). Server answers from `Server::info()` regardless of protocol version (browser shows incompatibility). `net::browser::Pinger` (multi-server queries, RTT, timeout).
+- Verified: protocol test (round trip, truncation, response ≤ request); `tests/browser.rs` over MemNet 40 ms → info fields correct, RTT 80–82 ms, no answer from an empty address, timed-out query dropped; check.sh GREEN.

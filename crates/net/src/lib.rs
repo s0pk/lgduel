@@ -1,6 +1,7 @@
 //! Network protocol, snapshot delta compression, prediction/reconciliation,
 //! interpolation and lag compensation. Transport-agnostic.
 
+pub mod browser;
 pub mod client;
 pub mod conn;
 pub mod hitreg;

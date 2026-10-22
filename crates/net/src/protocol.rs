@@ -48,6 +48,42 @@ pub enum Connectionless {
     Reject {
         reason: String,
     },
+    /// Server-browser query (padded to `INFO_REQUEST_SIZE`: never smaller than the answer).
+    InfoRequest {
+        nonce: u64,
+    },
+    InfoResponse {
+        nonce: u64,
+        info: ServerInfo,
+    },
+}
+
+/// Request size: at least as large as any `InfoResponse` (no amplification).
+pub const INFO_REQUEST_SIZE: usize = 128;
+/// Max bytes of the server name / map name in `ServerInfo`.
+pub const MAX_INFO_TEXT: usize = 32;
+
+/// What the server browser shows about a server.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ServerInfo {
+    pub protocol: u16,
+    pub name: String,
+    pub map: String,
+    pub players: u8,
+    pub max_players: u8,
+    /// true = classic first-to-N, false = vamp.
+    pub classic: bool,
+    pub lifesteal_percent: u8,
+    pub anti_lag: bool,
+    pub tick_rate: u16,
+}
+
+fn truncate(s: &str, max: usize) -> &str {
+    let mut end = s.len().min(max);
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
 }
 
 impl Connectionless {
@@ -93,6 +129,24 @@ impl Connectionless {
                 w.u8(5);
                 w.bytes(reason.as_bytes());
             }
+            Self::InfoRequest { nonce } => {
+                w.u8(6);
+                w.u64(*nonce);
+                let pad = INFO_REQUEST_SIZE.saturating_sub(w.buf.len());
+                w.raw(&vec![0; pad]);
+            }
+            Self::InfoResponse { nonce, info } => {
+                w.u8(7);
+                w.u64(*nonce);
+                w.u16(info.protocol);
+                w.bytes(truncate(&info.name, MAX_INFO_TEXT).as_bytes());
+                w.bytes(truncate(&info.map, MAX_INFO_TEXT).as_bytes());
+                w.u8(info.players);
+                w.u8(info.max_players);
+                w.u8(info.classic as u8 | (info.anti_lag as u8) << 1);
+                w.u8(info.lifesteal_percent);
+                w.u16(info.tick_rate);
+            }
         }
         w.finish()
     }
@@ -133,6 +187,32 @@ impl Connectionless {
             5 => Self::Reject {
                 reason: text(&mut r)?,
             },
+            6 => Self::InfoRequest { nonce: r.u64()? },
+            7 => {
+                let nonce = r.u64()?;
+                let protocol = r.u16()?;
+                let name = text(&mut r)?;
+                let map = text(&mut r)?;
+                let players = r.u8()?;
+                let max_players = r.u8()?;
+                let flags = r.u8()?;
+                let lifesteal_percent = r.u8()?;
+                let tick_rate = r.u16()?;
+                Self::InfoResponse {
+                    nonce,
+                    info: ServerInfo {
+                        protocol,
+                        name: truncate(&name, MAX_INFO_TEXT).to_string(),
+                        map: truncate(&map, MAX_INFO_TEXT).to_string(),
+                        players,
+                        max_players,
+                        classic: flags & 1 != 0,
+                        lifesteal_percent,
+                        anti_lag: flags & 2 != 0,
+                        tick_rate,
+                    },
+                }
+            }
             _ => return None,
         })
     }
@@ -383,6 +463,54 @@ mod tests {
         }
         assert_eq!(Connectionless::decode(&[0xFF, 99]), None);
         assert_eq!(Connectionless::decode(&[0x4C, 1]), None);
+    }
+
+    #[test]
+    fn info_round_trip_and_no_amplification() {
+        let info = ServerInfo {
+            protocol: 2,
+            name: "x".repeat(200),
+            map: "arena_tiers".into(),
+            players: 3,
+            max_players: 16,
+            classic: false,
+            lifesteal_percent: 100,
+            anti_lag: true,
+            tick_rate: 125,
+        };
+        let resp = Connectionless::InfoResponse {
+            nonce: 9,
+            info: info.clone(),
+        }
+        .encode();
+        let req = Connectionless::InfoRequest { nonce: 9 }.encode();
+        assert_eq!(req.len(), INFO_REQUEST_SIZE);
+        assert!(
+            resp.len() <= req.len(),
+            "response {} > request {}",
+            resp.len(),
+            req.len()
+        );
+        match Connectionless::decode(&resp) {
+            Some(Connectionless::InfoResponse {
+                nonce: 9,
+                info: got,
+            }) => {
+                assert_eq!(got.name.len(), MAX_INFO_TEXT);
+                assert_eq!(
+                    ServerInfo {
+                        name: info.name[..MAX_INFO_TEXT].to_string(),
+                        ..info
+                    },
+                    got
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(
+            Connectionless::decode(&req),
+            Some(Connectionless::InfoRequest { nonce: 9 })
+        );
     }
 
     #[test]
