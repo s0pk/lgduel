@@ -557,3 +557,14 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
 - Protocol v9: `ServerInfo.region` (≤ 12 chars, server setting `region`). Browser filters (saved in settings):
   mode, anti-lag, max ping, region substring, hide empty / full; rows that don't answer are always shown;
   "N hidden by the filters" line. Public rows tagged PUBLIC, deduped with listed/LAN rows by instance.
+
+## D55 — Console, cvars, profiles (2026-10-23)
+- Cvars are the settings file's own keys (dotted paths of `Settings` serialised to TOML, any depth; the
+  player's server list is not a cvar), so there is one source of truth and no separate cvar registry to
+  keep in sync. `set` edits the TOML table and re-parses through `Settings::from_toml` (sanitise), refusing
+  unknown keys and wrong value types; "KEY VALUE" works like Quake; a few aliases (sensitivity, dpi, fov,
+  volume, beam, name).
+- Profiles: `writeconfig NAME` writes `set KEY VALUE` lines to NAME.cfg next to settings.toml; `exec NAME`
+  runs a file (comments // and #, nesting ≤ 4). Names restricted to [A-Za-z0-9_-] (no paths).
+- UI: ` toggles an opaque top console (egui Area; egui 0.37 panels need a parent Ui); it counts as an open
+  menu (mouse released). Console lines can connect/join/practice/disconnect/quit.

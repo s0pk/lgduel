@@ -12,6 +12,7 @@
 
 mod audio;
 mod browser;
+mod console;
 mod effects;
 mod fight;
 mod font;
@@ -95,6 +96,8 @@ struct Options {
     menu_online: bool,
     /// Headless: draw a sample end-of-fight summary.
     summary_demo: bool,
+    /// Headless `--menu console`: the console with a few commands run.
+    menu_console: bool,
     /// Headless online run length.
     secs: f64,
 }
@@ -132,6 +135,7 @@ impl Options {
             force_relay: false,
             menu_online: false,
             summary_demo: false,
+            menu_console: false,
             secs: 5.0,
         }
     }
@@ -268,6 +272,10 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
                     "pause-online" => {
                         o.menu_online = true;
                         menu::Screen::Pause
+                    }
+                    "console" => {
+                        o.menu_console = true;
+                        menu::Screen::Closed
                     }
                     "settings" => menu::Screen::Settings,
                     "main" => menu::Screen::Main,
@@ -450,6 +458,15 @@ fn run_headless(opts: &Options) -> Result<(), String> {
         }
         let rows = b.rows(&entries);
         menu.has_rendezvous = rendezvous_of(&s).is_some();
+        if opts.menu_console {
+            menu.console.open = true;
+            for line in ["help", "sensitivity 41.5", "fov 500", "cvars crosshair"] {
+                menu.console.print(&format!("] {line}"));
+                for l in console::run(&mut s, line, None).0 {
+                    menu.console.print(&l);
+                }
+            }
+        }
         if opts.menu_online {
             menu.spectating = Some(false);
             menu.invite = Some((3, "dave".into()));
@@ -963,6 +980,8 @@ struct App {
     last_frame: Option<Instant>,
     frames: u64,
     error: Option<String>,
+    /// `quit` typed in the console (handled at the end of the frame).
+    quit_requested: bool,
 }
 
 impl App {
@@ -1065,6 +1084,63 @@ impl App {
         }
     }
 
+    fn toggle_console(&mut self) {
+        let c = &mut self.menu.console;
+        c.open = !c.open;
+        if c.open {
+            if c.lines.is_empty() {
+                c.print("LGDuel console - help lists commands, cvars lists settings");
+            }
+            self.keys = Keys::default();
+            self.set_grab(false);
+        } else {
+            self.save_settings();
+            self.set_grab(true);
+        }
+    }
+
+    /// Run a console line: settings change live (and are saved), some commands act.
+    fn console_line(&mut self, line: &str) {
+        let dir = self
+            .opts
+            .settings_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_path_buf());
+        self.menu.console.print(&format!("] {line}"));
+        let (out, action, changed) = console::run(&mut self.opts.s, line, dir.as_deref());
+        for l in out {
+            self.menu.console.print(&l);
+        }
+        if changed {
+            self.menu.dirty = true;
+            self.apply_settings();
+        }
+        let acted = action.is_some();
+        match action {
+            Some(console::ConsoleAction::Connect(a)) => {
+                self.leave_session(None, menu::Screen::Closed);
+                self.start_online(&a);
+            }
+            Some(console::ConsoleAction::Join(code)) => {
+                self.leave_session(None, menu::Screen::Closed);
+                self.start_code(&code);
+            }
+            Some(console::ConsoleAction::Practice) => {
+                self.leave_session(None, menu::Screen::Closed);
+                self.start_practice();
+            }
+            Some(console::ConsoleAction::Disconnect) => {
+                self.leave_session(None, menu::Screen::Main)
+            }
+            Some(console::ConsoleAction::Quit) => self.quit_requested = true,
+            None => {}
+        }
+        if acted {
+            self.menu.console.open = false;
+        }
+    }
+
     fn key(&mut self, code: KeyCode, down: bool) {
         match code {
             KeyCode::KeyW => self.keys.forward = down,
@@ -1073,7 +1149,9 @@ impl App {
             KeyCode::KeyD => self.keys.right = down,
             KeyCode::Space => self.keys.jump = down,
             KeyCode::ControlLeft | KeyCode::KeyC => self.keys.crouch = down,
+            KeyCode::Escape if down && self.menu.console.open => self.toggle_console(),
             KeyCode::Escape if down => self.toggle_menu(),
+            KeyCode::Backquote if down => self.toggle_console(),
             KeyCode::F3 if down => self.opts.s.hud.net_graph = !self.opts.s.hud.net_graph,
             KeyCode::F11 if down => self.toggle_fullscreen(),
             KeyCode::Enter | KeyCode::NumpadEnter if down && self.alt => self.toggle_fullscreen(),
@@ -1397,7 +1475,7 @@ impl ApplicationHandler for App {
         {
             let consumed = ui.on_window_event(w, &event);
             let esc = matches!(&event, WindowEvent::KeyboardInput { event: k, .. }
-                if k.physical_key == PhysicalKey::Code(KeyCode::Escape));
+                if matches!(k.physical_key, PhysicalKey::Code(KeyCode::Escape | KeyCode::Backquote)));
             let game_input = matches!(
                 event,
                 WindowEvent::KeyboardInput { .. } | WindowEvent::MouseInput { .. }
@@ -1611,6 +1689,13 @@ impl ApplicationHandler for App {
                         Some(menu::Action::StartPractice) => self.start_practice(),
                         Some(menu::Action::Connect(addr)) => self.start_online(&addr),
                         Some(menu::Action::JoinCode(code)) => self.start_code(&code),
+                        Some(menu::Action::ConsoleLine(line)) => {
+                            self.console_line(&line);
+                            if self.quit_requested {
+                                self.finish(el);
+                                return;
+                            }
+                        }
                         Some(menu::Action::StartHost) => self.start_host(),
                         Some(menu::Action::RefreshServers) => {
                             if let Some(b) = &mut self.browser {
@@ -1787,6 +1872,7 @@ fn main() {
         last_frame: None,
         frames: 0,
         error: None,
+        quit_requested: false,
     };
     if let Some(code) = app.opts.join.clone() {
         app.start_code(&code);

@@ -49,6 +49,7 @@ server on a small VPS avoids all of this, see [DEPLOY.md](DEPLOY.md).
 | Esc | menu (releases the mouse) |
 | F3 | net-graph on/off |
 | F11 or Alt+Enter | fullscreen on/off |
+| ` (key left of 1) | console |
 
 ## Settings
 
@@ -63,6 +64,17 @@ Changes apply immediately and are saved to `%APPDATA%\LGDuel\settings.toml`.
 
 Command-line options still work and override the file for that run, e.g.
 `lgduel.exe --sens-cm 55 --dpi 800`, `--fov 110`, `--map arena_tiers --practice`, `--connect 1.2.3.4:27960`.
+
+## Console and profiles
+
+**`** opens the console. Every setting is a console variable named like in `settings.toml`:
+`mouse.cm_per_360 30`, `video.fov 110`, `hud.crosshair.size 10`, `effects.beam_style zigzag`
+(short names: `sensitivity`, `dpi`, `fov`, `volume`, `beam`, `name`). `cvars` lists them all,
+`cvars crosshair` filters. Changes apply immediately and are saved.
+
+`writeconfig NAME` saves all your settings as `NAME.cfg` next to `settings.toml`; `exec NAME` loads it
+again. Profiles are plain text (`set KEY VALUE` lines), so you can keep several setups and share them.
+The console also does `connect ADDRESS`, `join CODE`, `practice`, `disconnect` and `quit`.
 
 ## Server rules (hosting)
 

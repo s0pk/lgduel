@@ -90,6 +90,8 @@ pub enum Action {
         from: u8,
         accept: bool,
     },
+    /// A line typed into the console.
+    ConsoleLine(String),
 }
 
 /// One row of the in-game player list.
@@ -131,6 +133,8 @@ pub struct Menu {
     pub connect_detail: Option<String>,
     /// A rendezvous service is available (shipped or set by the player).
     pub has_rendezvous: bool,
+    /// Drop-down console (` key).
+    pub console: crate::console::Console,
 }
 
 pub const TITLE: &str = "LGDuel";
@@ -152,8 +156,9 @@ const MAPS: [&str; 3] = [
 ];
 
 impl Menu {
+    /// A menu screen or the console is up (mouse released, keys to the UI).
     pub fn is_open(&self) -> bool {
-        self.screen != Screen::Closed
+        self.screen != Screen::Closed || self.console.open
     }
 
     fn open_settings(&mut self, from: Screen) {
@@ -534,6 +539,9 @@ impl Menu {
         if action == Some(Action::Resume) {
             self.screen = Screen::Closed;
         }
+        if self.console.open {
+            action = self.draw_console(ctx).or(action);
+        }
         action
     }
 }
@@ -643,6 +651,51 @@ fn server_table(ui: &mut egui::Ui, rows: &[Row]) -> Option<Action> {
             }
         });
     action
+}
+
+impl Menu {
+    /// Quake-style console across the top 40% of the screen.
+    fn draw_console(&mut self, ctx: &egui::Context) -> Option<Action> {
+        let mut action = None;
+        let screen = ctx.content_rect();
+        let height = screen.height() * 0.4;
+        egui::Area::new(egui::Id::unique("lgduel console"))
+            .anchor(egui::Align2::LEFT_TOP, egui::Vec2::ZERO)
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                egui::Frame::new()
+                    .fill(egui::Color32::from_gray(27))
+                    .inner_margin(8.0)
+                    .show(ui, |ui| {
+                        ui.set_width(screen.width() - 16.0);
+                        ui.set_height(height);
+                        egui::ScrollArea::vertical()
+                            .stick_to_bottom(true)
+                            .max_height(height - 40.0)
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                for l in &self.console.lines {
+                                    ui.monospace(l);
+                                }
+                            });
+                        // The ` that toggled the console arrives as text too.
+                        self.console.input.retain(|c| c != '`' && c != '~');
+                        let edit = ui.add(
+                            egui::TextEdit::singleline(&mut self.console.input)
+                                .hint_text("help")
+                                .desired_width(f32::INFINITY),
+                        );
+                        edit.request_focus();
+                        if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                            let line = std::mem::take(&mut self.console.input);
+                            if !line.trim().is_empty() {
+                                action = Some(Action::ConsoleLine(line));
+                            }
+                        }
+                    });
+            });
+        action
+    }
 }
 
 /// A fixed-width window in the middle of the screen.

@@ -102,7 +102,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [ ] 7.8 Release builds for Windows/Linux/macOS (CI notes / cross-check); Linux check.sh run (KI-1)
 
 ## Phase 8 — Visibility & settings (deps: 3.x)
-- [ ] 8.1 Console + cvar system, `exec`/`writeconfig` profiles
+- [x] 8.1 Console + cvar system, `exec`/`writeconfig` profiles
 - [ ] 8.2 Settings UI covering every §1 visibility option
 - [x] 8.3 Crosshair editor — done in M1.3 (Settings → Visuals, live preview)
 - [ ] 8.4 Input display (WASD/jump/crouch)
