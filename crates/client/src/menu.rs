@@ -798,6 +798,7 @@ fn video_tab(ui: &mut egui::Ui, s: &mut Settings) {
     row(ui, "Field of view", |ui| {
         ui.add(egui::Slider::new(&mut s.video.fov, 10.0..=130.0).step_by(1.0));
     });
+    color_row(ui, "Menu accent colour", &mut s.ui.accent);
     row(ui, "Menu size", |ui| {
         ui.add(egui::Slider::new(&mut s.video.ui_scale, 0.75..=2.0).step_by(0.05));
     });
@@ -994,6 +995,21 @@ fn audio_tab(ui: &mut egui::Ui, s: &mut Settings) -> bool {
     let mut test = false;
     row(ui, "Volume", |ui| {
         ui.add(egui::Slider::new(&mut s.audio.volume, 0.0..=1.0));
+    });
+    row(ui, "Hit sound level", |ui| {
+        ui.add(egui::Slider::new(&mut s.audio.hit_volume, 0.0..=1.0));
+    });
+    row(ui, "Pitch by damage", |ui| {
+        ui.checkbox(
+            &mut s.audio.hit_pitch_by_damage,
+            "hit sound gets higher with bigger hits",
+        );
+    });
+    row(ui, "Frag / fight sounds", |ui| {
+        ui.checkbox(&mut s.audio.kill_sound, "");
+    });
+    row(ui, "Menu sounds", |ui| {
+        ui.checkbox(&mut s.audio.ui_sounds, "click and challenge ping");
     });
     if ui.button("Test hit sound").clicked() {
         test = true;

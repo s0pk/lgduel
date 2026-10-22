@@ -1,5 +1,6 @@
-//! Hit sound: synthesised at startup (original, no sample files), mixed on the
-//! audio thread. Missing audio hardware is not an error: the game runs silent.
+//! Sounds: all synthesised at startup from sines (original, no sample files),
+//! mixed on the audio thread. Missing audio hardware is not an error: the game
+//! runs silent.
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -27,30 +28,110 @@ pub fn synth_hit(sample_rate: u32) -> Vec<f32> {
     v
 }
 
-/// A sound being played: position in the sample, gain.
+/// The sounds the game can play.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sound {
+    /// Your beam hit (the original sound).
+    Hit,
+    /// You scored a frag.
+    Kill,
+    FightWon,
+    FightLost,
+    UiClick,
+    /// Someone challenged you.
+    Challenge,
+}
+
+impl Sound {
+    pub const ALL: [Sound; 6] = [
+        Sound::Hit,
+        Sound::Kill,
+        Sound::FightWon,
+        Sound::FightLost,
+        Sound::UiClick,
+        Sound::Challenge,
+    ];
+
+    fn index(self) -> usize {
+        self as usize
+    }
+}
+
+/// Sine notes `(frequency Hz, length ms)` one after another, each with a 1 ms
+/// attack and exponential decay `decay` per second; peak-normalised to 0.8.
+fn tones(rate: u32, notes: &[(f32, f32)], decay: f32) -> Vec<f32> {
+    let mut v = Vec::new();
+    for &(freq, ms) in notes {
+        let n = (rate as f32 * ms / 1000.0) as usize;
+        let attack = (rate as f32 * 0.001).max(1.0);
+        v.extend((0..n).map(|i| {
+            let t = i as f32 / rate as f32;
+            let env = (i as f32 / attack).min(1.0) * (-t * decay).exp();
+            (std::f32::consts::TAU * freq * t).sin() * env
+        }));
+    }
+    let peak = v.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+    if peak > 0.0 {
+        for s in &mut v {
+            *s *= 0.8 / peak;
+        }
+    }
+    v
+}
+
+/// The samples of `sound` at `rate` Hz (mono).
+pub fn synth(sound: Sound, rate: u32) -> Vec<f32> {
+    match sound {
+        Sound::Hit => synth_hit(rate),
+        Sound::Kill => tones(rate, &[(880.0, 60.0), (1320.0, 110.0)], 22.0),
+        Sound::FightWon => tones(rate, &[(523.0, 90.0), (659.0, 90.0), (784.0, 160.0)], 14.0),
+        Sound::FightLost => tones(rate, &[(392.0, 130.0), (294.0, 220.0)], 12.0),
+        Sound::UiClick => tones(rate, &[(1200.0, 14.0)], 120.0),
+        Sound::Challenge => tones(rate, &[(988.0, 70.0), (1318.0, 140.0)], 18.0),
+    }
+}
+
+/// A sound being played: which sample, read position (fractional: pitch), speed, gain.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Voice {
-    pub pos: usize,
+    pub sound: usize,
+    pub pos: f32,
+    /// Samples advanced per output frame (1.0 = normal pitch).
+    pub step: f32,
     pub gain: f32,
 }
 
-/// Mix active voices of `sample` into an interleaved buffer with `channels`
-/// channels; finished voices are removed. Output is clamped to [-1, 1].
-pub fn mix(voices: &mut Vec<Voice>, sample: &[f32], out: &mut [f32], channels: usize) {
+/// What the game thread asks the audio thread to play.
+#[derive(Debug, Clone, Copy)]
+struct Play {
+    sound: Sound,
+    gain: f32,
+    pitch: f32,
+}
+
+/// Mix active voices into an interleaved buffer with `channels` channels
+/// (`samples[voice.sound]` is each voice's sample); finished voices are
+/// removed. Output is clamped to [-1, 1].
+pub fn mix(voices: &mut Vec<Voice>, samples: &[Vec<f32>], out: &mut [f32], channels: usize) {
     out.fill(0.0);
     let frames = out.len() / channels.max(1);
     for v in voices.iter_mut() {
+        let sample = &samples[v.sound];
         for f in 0..frames {
-            let Some(s) = sample.get(v.pos + f) else {
+            let p = v.pos + v.step * f as f32;
+            let i = p as usize;
+            let Some(a) = sample.get(i) else {
                 break;
             };
+            let b = sample.get(i + 1).copied().unwrap_or(0.0);
+            let s = a + (b - a) * (p - i as f32);
             for c in 0..channels {
                 out[f * channels + c] += s * v.gain;
             }
         }
-        v.pos += frames;
+        v.pos += v.step * frames as f32;
     }
-    voices.retain(|v| v.pos < sample.len());
+    voices.retain(|v| (v.pos as usize) < samples[v.sound].len());
     for s in out.iter_mut() {
         *s = s.clamp(-1.0, 1.0);
     }
@@ -58,7 +139,7 @@ pub fn mix(voices: &mut Vec<Voice>, sample: &[f32], out: &mut [f32], channels: u
 
 /// Handle to the audio output. Dropping it stops the stream.
 pub struct Audio {
-    tx: Option<Sender<f32>>,
+    tx: Option<Sender<Play>>,
     _stream: Option<cpal::Stream>,
     pub volume: f32,
     pub description: String,
@@ -89,19 +170,19 @@ impl Audio {
         let config = supported.config();
         let channels = config.channels as usize;
         let rate = config.sample_rate;
-        let sample = synth_hit(rate);
-        let (tx, rx) = channel::<f32>();
+        let samples: Vec<Vec<f32>> = Sound::ALL.iter().map(|s| synth(*s, rate)).collect();
+        let (tx, rx) = channel::<Play>();
         let err = |e| eprintln!("audio stream error: {e}");
         let stream = match supported.sample_format() {
             cpal::SampleFormat::F32 => device.build_output_stream::<f32, _, _>(
                 config,
-                mixer(rx, sample, channels, |s| s),
+                mixer(rx, samples, channels, |s| s),
                 err,
                 None,
             ),
             cpal::SampleFormat::I16 => device.build_output_stream::<i16, _, _>(
                 config,
-                mixer(rx, sample, channels, |s| (s * i16::MAX as f32) as i16),
+                mixer(rx, samples, channels, |s| (s * i16::MAX as f32) as i16),
                 err,
                 None,
             ),
@@ -122,10 +203,19 @@ impl Audio {
     }
 
     pub fn play_hit(&self) {
+        self.play(Sound::Hit, 1.0, 1.0);
+    }
+
+    /// Play `sound` at `gain` (times the master volume) and `pitch` (1.0 = normal).
+    pub fn play(&self, sound: Sound, gain: f32, pitch: f32) {
         if let Some(tx) = &self.tx
             && self.volume > 0.0
         {
-            let _ = tx.send(self.volume);
+            let _ = tx.send(Play {
+                sound,
+                gain: self.volume * gain,
+                pitch: pitch.clamp(0.5, 2.0),
+            });
         }
     }
 
@@ -134,21 +224,26 @@ impl Audio {
     }
 }
 
-/// Audio-thread callback: take new hits from the channel, mix, convert.
+/// Audio-thread callback: take new sounds from the channel, mix, convert.
 fn mixer<T: Copy + Default>(
-    rx: Receiver<f32>,
-    sample: Vec<f32>,
+    rx: Receiver<Play>,
+    samples: Vec<Vec<f32>>,
     channels: usize,
     convert: impl Fn(f32) -> T + Send + 'static,
 ) -> impl FnMut(&mut [T], &cpal::OutputCallbackInfo) + Send + 'static {
     let mut voices: Vec<Voice> = Vec::new();
     let mut buf: Vec<f32> = Vec::new();
     move |out: &mut [T], _| {
-        while let Ok(gain) = rx.try_recv() {
-            voices.push(Voice { pos: 0, gain });
+        while let Ok(p) = rx.try_recv() {
+            voices.push(Voice {
+                sound: p.sound.index(),
+                pos: 0.0,
+                step: p.pitch,
+                gain: p.gain,
+            });
         }
         buf.resize(out.len(), 0.0);
-        mix(&mut voices, &sample, &mut buf, channels);
+        mix(&mut voices, &samples, &mut buf, channels);
         for (o, s) in out.iter_mut().zip(&buf) {
             *o = convert(*s);
         }
@@ -170,26 +265,83 @@ mod tests {
         assert_eq!(s[0], 0.0, "starts silent (no click)");
     }
 
+    fn voice(pos: f32) -> Voice {
+        Voice {
+            sound: 0,
+            pos,
+            step: 1.0,
+            gain: 1.0,
+        }
+    }
+
     #[test]
     fn mixing_overlaps_and_retires_voices() {
-        let sample = vec![0.5f32; 10];
-        let mut voices = vec![Voice { pos: 0, gain: 1.0 }, Voice { pos: 6, gain: 1.0 }];
+        let samples = vec![vec![0.5f32; 10]];
+        let mut voices = vec![voice(0.0), voice(6.0)];
         let mut out = vec![0.0f32; 8]; // 4 frames stereo
-        mix(&mut voices, &sample, &mut out, 2);
+        mix(&mut voices, &samples, &mut out, 2);
         assert_eq!(out, vec![1.0; 8]); // both voices overlap, summed (and clamped at 1)
-        assert_eq!(voices, vec![Voice { pos: 4, gain: 1.0 }]); // second ran out after 4 frames
-        mix(&mut voices, &sample, &mut out, 2);
+        assert_eq!(voices, vec![voice(4.0)]); // second ran out after 4 frames
+        mix(&mut voices, &samples, &mut out, 2);
         assert_eq!(&out[..], &[0.5; 8]);
-        mix(&mut voices, &sample, &mut out, 2);
+        mix(&mut voices, &samples, &mut out, 2);
         assert_eq!(&out[..4], &[0.5; 4]);
         assert_eq!(&out[4..], &[0.0; 4]);
         assert!(voices.is_empty());
     }
 
     #[test]
+    fn pitch_changes_playback_speed() {
+        let ramp: Vec<f32> = (0..100).map(|i| i as f32 / 100.0).collect();
+        let samples = vec![ramp];
+        let mut fast = vec![Voice {
+            step: 2.0,
+            ..voice(0.0)
+        }];
+        let mut out = vec![0.0f32; 4];
+        mix(&mut fast, &samples, &mut out, 1);
+        assert_eq!(
+            out,
+            vec![0.0, 0.02, 0.04, 0.06],
+            "twice as fast: every second sample"
+        );
+        // Interpolates between samples at fractional steps.
+        let mut half = vec![Voice {
+            step: 0.5,
+            ..voice(0.0)
+        }];
+        mix(&mut half, &samples, &mut out, 1);
+        assert!(
+            (out[1] - 0.005).abs() < 1e-6 && (out[2] - 0.01).abs() < 1e-6,
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn every_sound_is_finite_short_audible_and_deterministic() {
+        for s in Sound::ALL {
+            let a = synth(s, 48_000);
+            assert_eq!(a, synth(s, 48_000), "{s:?}");
+            assert!(
+                !a.is_empty() && a.len() < 48_000 * 6 / 10,
+                "{s:?}: {} samples",
+                a.len()
+            );
+            assert!(a.iter().all(|v| v.is_finite() && v.abs() <= 1.0), "{s:?}");
+            let peak = a.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+            assert!(peak > 0.5, "{s:?} is nearly silent: {peak}");
+            assert_eq!(a[0], 0.0, "{s:?} starts silent (no click)");
+        }
+        // Distinct sounds.
+        assert_ne!(synth(Sound::Kill, 48_000), synth(Sound::Challenge, 48_000));
+        assert!(synth(Sound::FightWon, 48_000).len() > synth(Sound::UiClick, 48_000).len() * 10);
+    }
+
+    #[test]
     fn silent_handle_is_noop() {
         let a = Audio::silent("test");
         a.play_hit();
+        a.play(Sound::Kill, 1.0, 1.5);
         assert!(!a.is_live());
     }
 }

@@ -75,10 +75,31 @@ pub struct MapOverride {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+pub struct Edges {
+    pub color: [f32; 3],
+    /// World units; 0 = no outlines.
+    pub width: f32,
+}
+
+impl Default for Edges {
+    fn default() -> Self {
+        Self {
+            color: [0.0, 0.0, 0.0],
+            width: 0.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Theme {
     pub name: String,
-    /// Clear colour (linear).
+    /// Clear colour (linear); with `sky_top` the colour at the horizon / bottom.
     pub sky: [f32; 3],
+    /// Top of a sky gradient (none = a flat `sky`).
+    pub sky_top: Option<[f32; 3]>,
+    /// Outlines along the edges of every solid (width 0 = off).
+    pub edges: Edges,
     pub defaults: Defaults,
     pub materials: BTreeMap<String, Material>,
     /// Per-map overrides, keyed by map name.
@@ -90,6 +111,8 @@ impl Default for Theme {
         Self {
             name: CLASSIC.into(),
             sky: CLASSIC_SKY,
+            sky_top: None,
+            edges: Edges::default(),
             defaults: Defaults::default(),
             materials: BTreeMap::new(),
             maps: BTreeMap::new(),
@@ -126,8 +149,83 @@ color = [1.0, 1.0, 1.0]
 scale = 256.0
 "#;
 
+const MIDNIGHT_TOML: &str = r#"
+name = "midnight"
+sky = [0.10, 0.14, 0.28]
+sky_top = [0.01, 0.01, 0.05]
+[edges]
+color = [0.35, 0.65, 1.0]
+width = 1.5
+[materials.floor]
+texture = "tiles"
+color = [0.22, 0.27, 0.42]
+scale = 128.0
+[materials.ramp]
+texture = "tiles"
+color = [0.28, 0.34, 0.52]
+scale = 128.0
+[materials.wall]
+texture = "concrete"
+color = [0.20, 0.24, 0.38]
+scale = 256.0
+[materials.ceiling]
+texture = "panel"
+color = [0.12, 0.15, 0.26]
+scale = 256.0
+"#;
+
+const PAPER_TOML: &str = r#"
+name = "paper"
+sky = [0.80, 0.80, 0.78]
+sky_top = [0.62, 0.68, 0.80]
+[edges]
+color = [0.08, 0.08, 0.10]
+width = 1.5
+[materials.floor]
+texture = "concrete"
+color = [0.62, 0.62, 0.60]
+scale = 128.0
+[materials.ramp]
+texture = "concrete"
+color = [0.68, 0.68, 0.66]
+scale = 128.0
+[materials.wall]
+texture = "concrete"
+color = [0.74, 0.74, 0.72]
+scale = 256.0
+[materials.ceiling]
+texture = "panel"
+color = [0.66, 0.66, 0.66]
+scale = 256.0
+"#;
+
+const EMBER_TOML: &str = r#"
+name = "ember"
+sky = [0.35, 0.12, 0.05]
+sky_top = [0.04, 0.02, 0.02]
+[edges]
+color = [1.0, 0.5, 0.1]
+width = 1.5
+[materials.floor]
+texture = "tiles"
+color = [0.40, 0.24, 0.18]
+scale = 128.0
+[materials.ramp]
+texture = "tiles"
+color = [0.48, 0.28, 0.20]
+scale = 128.0
+[materials.wall]
+texture = "concrete"
+color = [0.36, 0.20, 0.15]
+scale = 256.0
+[materials.ceiling]
+texture = "panel"
+color = [0.22, 0.12, 0.10]
+scale = 256.0
+"#;
+
 /// Names of the themes built into the game.
-pub const BUILTIN: [&str; 2] = [CLASSIC, "grid"];
+pub const BUILTIN: [&str; 5] = [CLASSIC, "grid", "midnight", "paper", "ember"];
 
 impl Theme {
     pub fn classic() -> Theme {
@@ -139,6 +237,9 @@ impl Theme {
         match name {
             CLASSIC => Some(Theme::classic()),
             "grid" => Some(toml::from_str(GRID_TOML).expect("built-in grid theme parses")),
+            "midnight" => Some(toml::from_str(MIDNIGHT_TOML).expect("built-in theme parses")),
+            "paper" => Some(toml::from_str(PAPER_TOML).expect("built-in theme parses")),
+            "ember" => Some(toml::from_str(EMBER_TOML).expect("built-in theme parses")),
             _ => None,
         }
     }
@@ -332,6 +433,14 @@ impl WorldStyle for ThemeStyle {
 
     fn textures(&self) -> &TextureSet {
         &self.textures
+    }
+
+    fn sky_gradient(&self) -> Option<([f32; 3], [f32; 3])> {
+        self.theme.sky_top.map(|top| (top, self.theme.sky))
+    }
+
+    fn edges(&self) -> Option<([f32; 3], f32)> {
+        (self.theme.edges.width > 0.0).then_some((self.theme.edges.color, self.theme.edges.width))
     }
 
     fn look(&self, map: &str, s: Surface) -> Look {
@@ -754,6 +863,46 @@ color = [0.0, 0.9, 0.0]
         assert_eq!(d[0], Path::new("/data/lgduel/themes"));
         assert_eq!(d.len(), 3, "no exe: data dir + two system dirs");
         assert!(linux_theme_dirs(None, None, None).len() == 2);
+    }
+
+    #[test]
+    fn every_builtin_theme_builds_cleanly_with_its_own_look() {
+        for name in BUILTIN {
+            let s = ThemeStyle::builtin(name);
+            assert!(s.problems.is_empty(), "{name}: {:?}", s.problems);
+            assert_eq!(s.name(), name);
+        }
+        // Classic has neither gradient nor outlines; the new themes have both.
+        let c = ThemeStyle::builtin("classic");
+        assert!(c.sky_gradient().is_none() && c.edges().is_none());
+        for name in ["midnight", "paper", "ember"] {
+            let s = ThemeStyle::builtin(name);
+            assert!(s.sky_gradient().is_some() && s.edges().is_some(), "{name}");
+            // Untagged floors, walls, ceilings and ramps are all textured.
+            for (n, convex) in [
+                (UP, false),
+                (SIDE, false),
+                (DOWN, false),
+                (Vec3::new(-0.4, 0.0, 0.9), true),
+            ] {
+                assert!(s.look("m", surface(None, n, convex)).layer > 0, "{name}");
+            }
+        }
+        // Floors stay low-chroma and mid/dark so enemies are the most saturated thing.
+        for name in ["midnight", "paper", "ember", "grid"] {
+            let s = ThemeStyle::builtin(name);
+            let c = s.look("m", surface(None, UP, false)).color;
+            let tinted = if name == "grid" {
+                [0.4f32, 0.5, 0.6]
+            } else {
+                c
+            };
+            let (mx, mn) = (
+                tinted.iter().cloned().fold(0.0, f32::max),
+                tinted.iter().cloned().fold(1.0, f32::min),
+            );
+            assert!(mx - mn < 0.30, "{name} floor is too colourful: {c:?}");
+        }
     }
 
     #[test]

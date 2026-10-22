@@ -218,6 +218,98 @@ pub trait WorldStyle {
     fn key(&self) -> u64;
     fn textures(&self) -> &crate::textures::TextureSet;
     fn look(&self, map: &str, s: Surface) -> Look;
+    /// Sky gradient (top colour, bottom colour), if the style has one.
+    fn sky_gradient(&self) -> Option<([f32; 3], [f32; 3])> {
+        None
+    }
+    /// Outlines along every solid's edges: (colour, width in world units).
+    fn edges(&self) -> Option<([f32; 3], f32)> {
+        None
+    }
+}
+
+/// Most vertices of edge outlines added to one world.
+pub const MAX_EDGE_VERTICES: usize = 200_000;
+
+/// A thin box along the segment `a`..`b`.
+fn push_edge(out: &mut Vec<Vertex>, a: Vec3, b: Vec3, width: f32, color: [f32; 3]) {
+    let d = b - a;
+    let len = d.length();
+    if len < 1e-3 {
+        return;
+    }
+    let f = d * (1.0 / len);
+    let helper = if f.z.abs() < 0.9 {
+        Vec3::new(0.0, 0.0, 1.0)
+    } else {
+        Vec3::new(1.0, 0.0, 0.0)
+    };
+    let r = f.cross(helper).normalize();
+    let u = f.cross(r);
+    let h = width * 0.5;
+    push_obox(
+        out,
+        (a + b) * 0.5,
+        (f, r, u),
+        Vec3::new(len * 0.5 + h, h, h),
+        color,
+        false,
+    );
+}
+
+/// Outline geometry for every box (12 edges) and every real face of every convex
+/// solid (shared edges once), capped at `MAX_EDGE_VERTICES`.
+pub fn edge_mesh(w: &World, color: [f32; 3], width: f32) -> Vec<WorldVertex> {
+    let mut flat: Vec<Vertex> = Vec::new();
+    for b in &w.brushes {
+        let (n, x) = (b.min, b.max);
+        let c = |i: usize| {
+            Vec3::new(
+                if i & 1 == 0 { n.x } else { x.x },
+                if i & 2 == 0 { n.y } else { x.y },
+                if i & 4 == 0 { n.z } else { x.z },
+            )
+        };
+        for i in 0..8usize {
+            for bit in [1usize, 2, 4] {
+                if i & bit == 0 {
+                    push_edge(&mut flat, c(i), c(i | bit), width, color);
+                }
+            }
+        }
+        if flat.len() >= MAX_EDGE_VERTICES {
+            break;
+        }
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    let key = |p: Vec3| {
+        (
+            (p.x * 8.0).round() as i64,
+            (p.y * 8.0).round() as i64,
+            (p.z * 8.0).round() as i64,
+        )
+    };
+    for b in &w.convex {
+        for i in 0..b.planes.len() {
+            let poly = b.face(i);
+            for k in 0..poly.len() {
+                let (p, q) = (poly[k], poly[(k + 1) % poly.len()]);
+                let (kp, kq) = (key(p), key(q));
+                if poly.len() >= 3 && seen.insert((kp.min(kq), kp.max(kq))) {
+                    push_edge(&mut flat, p, q, width, color);
+                }
+            }
+        }
+    }
+    flat.truncate(MAX_EDGE_VERTICES / 36 * 36);
+    flat.into_iter()
+        .map(|v| WorldVertex {
+            pos: v.pos,
+            uv: [0.0, 0.0],
+            color: v.color,
+            layer: 0,
+        })
+        .collect()
 }
 
 /// The original flat look: map colours, per-face brightness, no texture
@@ -437,6 +529,8 @@ pub struct Renderer {
     tex_bgl: wgpu::BindGroupLayout,
     tex_bind: Option<wgpu::BindGroup>,
     world_vb: Option<(wgpu::Buffer, u32)>,
+    /// Full-screen sky gradient (6 vertices in screen space), if the style has one.
+    sky_vb: Option<wgpu::Buffer>,
     /// (map content hash, style key) of the uploaded world.
     world_key: Option<(u64, u64)>,
     dyn_vb: wgpu::Buffer,
@@ -645,6 +739,7 @@ impl Renderer {
             tex_bgl,
             tex_bind: None,
             world_vb: None,
+            sky_vb: None,
             world_key: None,
             dyn_vb,
             dyn_capacity,
@@ -674,7 +769,31 @@ impl Renderer {
             return;
         }
         self.world_key = Some(key);
-        let verts = world_mesh_textured(w, style);
+        let mut verts = world_mesh_textured(w, style);
+        if let Some((color, width)) = style.edges()
+            && width > 0.0
+        {
+            verts.extend(edge_mesh(w, color, width));
+        }
+        self.sky_vb = style.sky_gradient().map(|(top, bottom)| {
+            let v = |x: f32, y: f32, color: [f32; 3]| Vertex {
+                pos: [x, y, 0.0],
+                color,
+            };
+            let quad = [
+                v(-1.0, 1.0, top),
+                v(-1.0, -1.0, bottom),
+                v(1.0, -1.0, bottom),
+                v(-1.0, 1.0, top),
+                v(1.0, -1.0, bottom),
+                v(1.0, 1.0, top),
+            ];
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("sky"),
+                contents: bytemuck::cast_slice(&quad),
+                usage: wgpu::BufferUsages::VERTEX,
+            })
+        });
         let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("world"),
             contents: bytemuck::cast_slice(&verts),
@@ -768,6 +887,12 @@ impl Renderer {
                 }),
                 ..Default::default()
             });
+            if let Some(sky) = &self.sky_vb {
+                pass.set_pipeline(&self.hud_pipeline);
+                pass.set_bind_group(0, &self.bind_group, &[]);
+                pass.set_vertex_buffer(0, sky.slice(..));
+                pass.draw(0..6, 0..1);
+            }
             if let (Some((vb, n)), Some(tex)) = (&self.world_vb, &self.tex_bind) {
                 pass.set_pipeline(&self.world_pipeline);
                 pass.set_bind_group(0, &self.bind_group, &[]);
@@ -854,6 +979,47 @@ mod tests {
                 assert_eq!(b.layer, 0);
             }
         }
+    }
+
+    #[test]
+    fn edge_outlines_cover_every_box_and_ramp_edge_once() {
+        let w = World {
+            name: "t".into(),
+            brushes: vec![
+                Aabb::new(Vec3::ZERO, Vec3::new(10.0, 10.0, 10.0)),
+                Aabb::new(Vec3::new(20.0, 0.0, 0.0), Vec3::new(30.0, 10.0, 10.0)),
+            ],
+            colors: vec![[0.5; 3]; 2],
+            materials: Vec::new(),
+            convex: vec![],
+            spawns: vec![],
+        };
+        let e = edge_mesh(&w, [1.0, 0.0, 0.0], 1.0);
+        assert_eq!(e.len(), 2 * 12 * 36);
+        assert!(e.iter().all(|v| v.color == [1.0, 0.0, 0.0] && v.layer == 0));
+        // A wedge has 9 edges (2 triangles + 3 quads share them), each drawn once.
+        use lgduel_sim::brush::{ConvexBrush, Rise};
+        let ramp = ConvexBrush::ramp(
+            Vec3::ZERO,
+            Vec3::new(100.0, 50.0, 40.0),
+            Rise::PosX,
+            [1.0; 3],
+        )
+        .unwrap();
+        let wr = World {
+            brushes: vec![],
+            colors: vec![],
+            convex: vec![ramp],
+            ..w.clone()
+        };
+        assert_eq!(edge_mesh(&wr, [1.0; 3], 1.0).len(), 9 * 36);
+        // Capped for huge maps.
+        let many = World {
+            brushes: vec![Aabb::new(Vec3::ZERO, Vec3::new(1.0, 1.0, 1.0)); 3000],
+            colors: vec![[0.5; 3]; 3000],
+            ..w
+        };
+        assert!(edge_mesh(&many, [1.0; 3], 1.0).len() <= MAX_EDGE_VERTICES + 12 * 36);
     }
 
     #[test]

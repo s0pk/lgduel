@@ -76,6 +76,10 @@ stage "client offscreen render (1920x1080, screenshot + pixel checks)"
 for x in cross dot circle tshape; do
   "$T/$PROFILE/lgduel" --headless --frames 3 --crosshair "$x" --crosshair-outline --no-sparks --size 1280x720 --screenshot "artifacts/crosshair_$x.png" | grep -E "CHECK"
 done
+# The other built-in themes (outlines, gradient sky).
+for t in midnight paper ember; do
+  "$T/$PROFILE/lgduel" --headless --frames 3 --theme "$t" --map arena_tiers --size 1280x720 --screenshot "artifacts/theme_$t.png" | grep -E "CHECK"
+done
 # Every built-in map renders with the duel checks passing.
 for m in arena_pillars arena_tiers; do
   "$T/$PROFILE/lgduel" --headless --frames 3 --map "$m" --size 1280x720 --screenshot "artifacts/map_$m.png" | grep -E "^MAP|CHECK"

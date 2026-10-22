@@ -397,6 +397,19 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
                     ))?;
             }
             "--crosshair-outline" => o.s.hud.crosshair.outline = true,
+            "--accent" => {
+                let v = val("--accent")?;
+                let hex = v.trim_start_matches('#');
+                let n = (hex.len() == 6)
+                    .then(|| u32::from_str_radix(hex, 16).ok())
+                    .flatten()
+                    .ok_or("--accent needs a colour like #ff8800")?;
+                o.s.ui.accent = [
+                    ((n >> 16) & 255) as f32 / 255.0,
+                    ((n >> 8) & 255) as f32 / 255.0,
+                    (n & 255) as f32 / 255.0,
+                ];
+            }
             "--auto-hud" => o.s.hud.auto_scale = true,
             "--theme-dir" => o.theme_dir = Some(val("--theme-dir")?.into()),
             "--make-example-theme" => {
@@ -859,6 +872,7 @@ fn run_headless(opts: &Options) -> Result<(), String> {
     if let Some(screen) = opts.menu {
         let mut ui = ui::Ui::new(&off.device, offscreen::FORMAT, None);
         ui.set_ui_scale(opts.s.video.ui_scale);
+        ui.set_accent(opts.s.ui.accent);
         let mut menu = menu::Menu {
             screen,
             tab: menu::Tab::Visuals,
@@ -981,8 +995,7 @@ fn run_headless(opts: &Options) -> Result<(), String> {
         }
     }
     if opts.menu.is_some() {
-        let fill = egui::Visuals::dark().window_fill;
-        let rgb = [fill.r(), fill.g(), fill.b()];
+        let rgb = ui::MENU_PANEL;
         let px_count = (offscreen::color_fraction(&px, rgb, 2) * total).round() as u64;
         println!("IMAGE menu panel {rgb:?}: {px_count} px");
         if px_count < 5_000 {
@@ -1474,6 +1487,8 @@ struct App {
     recording_started: bool,
     /// The end of the demo being played was reported.
     demo_reported: bool,
+    /// A challenge was pending last frame (the ping plays once when one arrives).
+    was_challenged: bool,
 }
 
 impl App {
@@ -1790,15 +1805,49 @@ impl App {
         }
         self.check_connection();
         if let Some(fv) = self.session.as_ref().and_then(Session::frame_view) {
-            for _ in 0..scene::track_hits(&fv, &mut self.numbers) {
-                self.audio.play_hit();
+            let hits = scene::track_hits(&fv, &mut self.numbers);
+            for _ in 0..hits {
+                let a = &self.opts.s.audio;
+                let pitch = if a.hit_pitch_by_damage {
+                    1.0 + self.numbers.items.last().map_or(0, |d| d.amount.min(70)) as f32 / 140.0
+                } else {
+                    1.0
+                };
+                self.audio.play(audio::Sound::Hit, a.hit_volume, pitch);
+            }
+            if self.opts.s.audio.kill_sound {
+                for e in &fv.events {
+                    if let lgduel_sim::game::GameEvent::Kill { killer, .. } = e
+                        && *killer == fv.me
+                    {
+                        self.audio.play(audio::Sound::Kill, 1.0, 1.0);
+                    }
+                }
             }
             let tick_hz = self
                 .session
                 .as_ref()
                 .and_then(|s| s.world_cfg().1.map(|c| c.tick_rate_hz))
                 .unwrap_or(125);
+            let had_summary = self.fights.summary().is_some();
             self.fights.update(&fv, tick_hz, elapsed.as_secs_f32());
+            if self.opts.s.audio.kill_sound
+                && !had_summary
+                && let Some(f) = self.fights.summary()
+            {
+                let s = if f.won {
+                    audio::Sound::FightWon
+                } else {
+                    audio::Sound::FightLost
+                };
+                self.audio.play(s, 1.0, 1.0);
+            }
+            let challenged =
+                matches!(&self.session, Some(Session::Net(n)) if n.incoming_challenge().is_some());
+            if challenged && !self.was_challenged && self.opts.s.audio.ui_sounds {
+                self.audio.play(audio::Sound::Challenge, 1.0, 1.0);
+            }
+            self.was_challenged = challenged;
         }
         self.numbers.update(elapsed.as_secs_f32());
     }
@@ -2340,6 +2389,7 @@ impl ApplicationHandler for App {
                             };
                             let (menu, s) = (&mut self.menu, &mut self.opts.s);
                             ui.set_ui_scale(s.video.ui_scale);
+                            ui.set_accent(s.ui.accent);
                             Some(
                                 ui.run_windowed(w, |ctx| action = menu.draw(ctx, s, online, &rows)),
                             )
@@ -2356,6 +2406,12 @@ impl ApplicationHandler for App {
                     });
                     if self.menu.dirty {
                         self.apply_settings();
+                    }
+                    if action.is_some()
+                        && self.opts.s.audio.ui_sounds
+                        && !matches!(action, Some(menu::Action::ConsoleLine(_)))
+                    {
+                        self.audio.play(audio::Sound::UiClick, 1.0, 1.0);
                     }
                     match action {
                         Some(menu::Action::Resume) => self.set_grab(true),
@@ -2548,8 +2604,15 @@ fn main() {
             audio.play_hit();
             std::thread::sleep(Duration::from_millis(120));
         }
+        for s in audio::Sound::ALL {
+            audio.play(s, 1.0, 1.0);
+            std::thread::sleep(Duration::from_millis(450));
+        }
         std::thread::sleep(Duration::from_millis(200));
-        println!("SOUND TEST played 5 hit sounds");
+        println!(
+            "SOUND TEST played 5 hit sounds and all {} sounds",
+            audio::Sound::ALL.len()
+        );
         return;
     }
     let world = load_world(&opts.s.practice.map);
@@ -2615,6 +2678,7 @@ fn main() {
         recording: opts_record.map(std::path::PathBuf::from),
         recording_started: false,
         demo_reported: false,
+        was_challenged: false,
     };
     app.menu.themes = theme::available(&theme_dirs(&app.opts));
     for p in &app.style.problems {

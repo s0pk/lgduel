@@ -42,16 +42,47 @@ impl Default for Video {
     }
 }
 
+/// Menu look.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UiSettings {
+    /// Accent colour of the menus (selections, hover), linear 0..1.
+    pub accent: [f32; 3],
+}
+
+impl Default for UiSettings {
+    fn default() -> Self {
+        // The default beam blue.
+        Self {
+            accent: [0.35, 0.6, 0.95],
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Audio {
     /// 0 = muted, 1 = full.
     pub volume: f32,
+    /// Hit sound level (times `volume`).
+    pub hit_volume: f32,
+    /// Hit sound pitch rises with the damage of the hit.
+    pub hit_pitch_by_damage: bool,
+    /// Frag and fight won/lost sounds.
+    pub kill_sound: bool,
+    /// Menu click and incoming-challenge sounds.
+    pub ui_sounds: bool,
 }
 
 impl Default for Audio {
     fn default() -> Self {
-        Self { volume: 0.7 }
+        Self {
+            volume: 0.7,
+            hit_volume: 1.0,
+            hit_pitch_by_damage: false,
+            kill_sound: false,
+            ui_sounds: false,
+        }
     }
 }
 
@@ -126,6 +157,7 @@ pub struct Settings {
     pub hud: HudSettings,
     pub enemy_colors: EnemyColors,
     pub models: crate::models::ModelSettings,
+    pub ui: UiSettings,
     pub audio: Audio,
     pub practice: Practice,
     /// Servers the player added (the official list ships separately).
@@ -200,6 +232,7 @@ impl Default for Settings {
             hud: HudSettings::default(),
             enemy_colors: EnemyColors::default(),
             models: crate::models::ModelSettings::default(),
+            ui: UiSettings::default(),
             audio: Audio::default(),
             practice: Practice::default(),
             servers: Vec::new(),
@@ -227,6 +260,13 @@ impl Settings {
             self.video.size.1.clamp(240, 16384),
         );
         self.video.fps_cap = self.video.fps_cap.filter(|c| *c >= 30);
+        for c in &mut self.ui.accent {
+            *c = if c.is_finite() {
+                c.clamp(0.0, 1.0)
+            } else {
+                0.5
+            };
+        }
         self.video.ui_scale = if self.video.ui_scale.is_finite() {
             self.video.ui_scale.clamp(0.75, 2.0)
         } else {
@@ -236,6 +276,11 @@ impl Settings {
             self.audio.volume.clamp(0.0, 1.0)
         } else {
             0.7
+        };
+        self.audio.hit_volume = if self.audio.hit_volume.is_finite() {
+            self.audio.hit_volume.clamp(0.0, 1.0)
+        } else {
+            1.0
         };
         self.effects.spark_size = self.effects.spark_size.clamp(0.0, 32.0);
         self.name = self

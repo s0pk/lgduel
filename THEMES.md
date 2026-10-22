@@ -2,7 +2,7 @@
 
 A theme changes how the arena **looks** on your PC only: textures, colours and the sky. It never reaches the
 server, never affects collision or spawns, and doesn't change what other players see. The default theme,
-`classic`, is the original flat-shaded look; `grid` is a built-in textured theme.
+`classic`, is the original flat-shaded look; `grid`, `midnight` (dark blue, light outlines), `paper` (light grey, dark outlines) and `ember` (dark red, orange outlines) are built-in textured themes.
 
 Pick one in **Settings → Visuals → Map → Theme**, with `--theme NAME`, or in the console (`` ` ``):
 `video.theme grid`. The change applies immediately.
@@ -27,7 +27,12 @@ Folder layout:
 ## theme.toml
 
 ```toml
-sky = [0.10, 0.10, 0.16]          # background colour, linear 0..1
+sky = [0.10, 0.10, 0.16]          # background colour, linear 0..1 (the bottom, with sky_top)
+sky_top = [0.0, 0.0, 0.05]        # optional: gradient up to this colour (only seen on maps with open sky)
+
+[edges]                           # optional outlines along the edges of every solid
+color = [0.35, 0.65, 1.0]
+width = 1.5                       # world units; 0 = off
 
 [defaults]                        # which material an untagged surface uses
 floor = "floor"                   # faces pointing up

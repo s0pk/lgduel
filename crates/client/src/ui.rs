@@ -13,16 +13,65 @@ pub struct Ui {
     /// Texture updates from frames that were run but not painted (e.g. the
     /// font atlas from a warm-up frame); applied at the next paint.
     pending_textures: egui::TexturesDelta,
+    accent: [f32; 3],
+}
+
+/// Fill colour of menu windows. The headless menu check counts pixels of exactly
+/// this colour, so the style and the check share the constant.
+pub const MENU_PANEL: [u8; 3] = [27, 27, 27];
+
+/// The menu look: dark panels, rounded corners, roomy buttons, one accent colour
+/// (`accent`, linear 0..1) for selections and hover.
+pub fn apply_style(ctx: &egui::Context, accent: [f32; 3]) {
+    let to8 = |c: f32| (c.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let a = egui::Color32::from_rgb(to8(accent[0]), to8(accent[1]), to8(accent[2]));
+    let dim = |c: egui::Color32, k: f32| {
+        egui::Color32::from_rgb(
+            (c.r() as f32 * k) as u8,
+            (c.g() as f32 * k) as u8,
+            (c.b() as f32 * k) as u8,
+        )
+    };
+    let mut v = egui::Visuals::dark();
+    v.window_fill = egui::Color32::from_rgb(MENU_PANEL[0], MENU_PANEL[1], MENU_PANEL[2]);
+    v.panel_fill = v.window_fill;
+    v.selection.bg_fill = dim(a, 0.55);
+    v.selection.stroke = egui::Stroke::new(1.0, a);
+    v.hyperlink_color = a;
+    v.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, a);
+    v.widgets.hovered.weak_bg_fill = dim(a, 0.30);
+    v.widgets.active.weak_bg_fill = dim(a, 0.45);
+    let r = egui::CornerRadius::same(6);
+    v.window_corner_radius = r;
+    v.widgets.noninteractive.corner_radius = r;
+    v.widgets.inactive.corner_radius = r;
+    v.widgets.hovered.corner_radius = r;
+    v.widgets.active.corner_radius = r;
+    ctx.set_theme(egui::Theme::Dark);
+    ctx.set_visuals_of(egui::Theme::Dark, v);
+    ctx.style_mut_of(egui::Theme::Dark, |s| {
+        s.spacing.button_padding = egui::vec2(10.0, 5.0);
+        s.spacing.item_spacing = egui::vec2(8.0, 7.0);
+    });
 }
 
 impl Ui {
+    /// Change the accent colour (re-styles only when it changed).
+    pub fn set_accent(&mut self, accent: [f32; 3]) {
+        if self.accent != accent {
+            self.accent = accent;
+            apply_style(&self.ctx, accent);
+        }
+    }
+
     pub fn new(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
         window: Option<&Window>,
     ) -> Self {
         let ctx = egui::Context::default();
-        ctx.set_visuals(egui::Visuals::dark());
+        let accent = crate::settings::UiSettings::default().accent;
+        apply_style(&ctx, accent);
         crate::ttf::install(&ctx);
         let winit = window.map(|w| {
             egui_winit::State::new(
@@ -40,6 +89,7 @@ impl Ui {
             winit,
             headless_time: 0.0,
             pending_textures: egui::TexturesDelta::default(),
+            accent,
         }
     }
 
