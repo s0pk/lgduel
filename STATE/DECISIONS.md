@@ -85,3 +85,16 @@ original or CC0/MIT.
 - `auto_hop = true` default (Quake Live lets you hold jump to bunny hop); Q3 behaviour available via config.
 - Jump sets vertical velocity to jump_velocity (no additive/ramp jumps, no double jump; VQL-style).
 - Open question: Quake Live may use step height 22 rather than Q3's 18 — verify (KI-4).
+
+## D8 — Golden movement numbers (2026-10-22, 125 Hz, default config)
+Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update these deliberately.
+- Standing jump: apex 50.342u above rest, airtime 92 ticks (736 ms). Ideal parabola 47.27u / 86 ticks;
+  the excess comes from velocity snapping (round-to-nearest), matching the known 125 Hz Q3 behaviour.
+- Ground accel 0 → 320: 19 ticks (152 ms).
+- Circle jump (12 ticks optimal ground turn + jump): takeoff 378.3 u/s.
+- Perfect strafe jumping, 6 s from 320: 1145.7 u/s (speed² grows ~1632 per tick with air accel 1,
+  i.e. matches the closed form; humans get far less because of non-optimal angles).
+- Strafe-aim ratios fall out of `cmd_scale` (diagonal speed = straight speed): 0.000 / 2.000 / 0.294 / 1.706 v
+  (wiki: 0.00 / 2.00 / 0.29 / 1.71). The HSW 0.001 deviation is velocity snapping on the diagonal.
+- Web search for Quake Live pmove cvar defaults (step height, jump velocity, LG damage/knockback) found no
+  authoritative source; values stay configurable, KI-4 remains open.

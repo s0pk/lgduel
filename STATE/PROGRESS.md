@@ -38,3 +38,9 @@
 - `sim::pmove`: `PlayerMove` state (origin, velocity, ground normal, ducked, jump_held), `pmove()` per tick: duck check (stand only with room), ground probe 0.25u, walk move (friction w/ stop speed, cmd scale so diagonal = straight, ground-projected axes, crouch speed cap), air move (air accel), trapezoidal gravity, clip-plane slide move, step-up to step_height, velocity snap. Config gained view_height 26 / crouch_view_height 12, auto_hop, snap_velocity.
 - Bug found by test and fixed: residual +1 u/s vertical velocity after landing (see DECISIONS D7).
 - Verified: check.sh GREEN. sim tests 41 passed; pmove tests: stand still exactly, fall + land at z=24.125 with vz=0, ground accel → exactly 320, diagonal ≤ 321, friction stops 320→0 within 1 s, crouch walk = 80, can't stand under low ceiling, wall block + slide, step 16u yes / 24u no, jump re-press without auto_hop, auto hop keeps hopping, crouch eye 14u lower.
+
+## 2026-10-22 — iteration 9: PLAN 2.9 + 2.10 golden movement & strafe-aim ratios
+- `crates/sim/tests/movement_golden.rs`: standing jump apex/airtime, ground accel time, strafe jumping with an optimal-angle controller (speed never drops between hops), circle jump, and the four strafe-aim relative speeds measured from steady-state pmove velocities.
+- Measured (pinned): jump apex 50.342u / 92 ticks; accel to 320 in 19 ticks; circle-jump takeoff 378.34 u/s; strafe-jump hops 494→643→729→826→905→998→1069→1142, 1145.74 u/s after 6 s; ratios mirroring 0.0000v, anti 2.0000v, HSW mirroring 0.2937v, HSW anti 1.7062v.
+- Researched QL cvar defaults (3 web searches): no authoritative values found; KI-4 stays open.
+- Verified: check.sh GREEN, 5 golden tests pass.
