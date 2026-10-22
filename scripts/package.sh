@@ -20,7 +20,7 @@ mkdir -p "$OUT"
 for b in lgduel lgduel-server lgduel-bot; do
     cp "target/release/$b$EXE" "$OUT/"
 done
-cp PLAY.md "$OUT/"
+cp PLAY.md README.md LICENSE "$OUT/"
 cp config/server.example.toml "$OUT/"
 git rev-parse --short HEAD > "$OUT/VERSION.txt" 2>/dev/null || echo unknown > "$OUT/VERSION.txt"
 
