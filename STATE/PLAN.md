@@ -97,7 +97,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] 7.3 LAN discovery
 - [x] 7.4 Rendezvous binary: join codes (LG-XXXX), UDP hole punching
 - [x] 7.5 Relay fallback (same binary); P2P test incl. forced-relay in check.sh
-- [ ] 7.6 Master server + server browser with filters (anti-lag, vamp %, region, ping, players)
+- [x] 7.6 Master server + server browser with filters (anti-lag, vamp %, region, ping, players)
 - [ ] 7.7 Dockerfile + docker-compose.yml
 - [ ] 7.8 Release builds for Windows/Linux/macOS (CI notes / cross-check); Linux check.sh run (KI-1)
 

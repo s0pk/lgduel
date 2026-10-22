@@ -440,6 +440,7 @@ fn run_headless(opts: &Options) -> Result<(), String> {
         let mut b = browser::Browser::new();
         if screen == menu::Screen::Online {
             // Give listed servers half a second to answer.
+            b.set_master(rendezvous_of(&s));
             b.refresh(&entries);
             let t = Instant::now();
             while t.elapsed() < Duration::from_millis(500) {
@@ -1523,6 +1524,7 @@ impl ApplicationHandler for App {
                     let entries = server_entries(&self.opts.s);
                     let rows = if self.menu.screen == menu::Screen::Online {
                         let b = self.browser.get_or_insert_with(browser::Browser::new);
+                        b.set_master(rendezvous_of(&self.opts.s));
                         b.update(&entries);
                         b.rows(&entries)
                     } else {

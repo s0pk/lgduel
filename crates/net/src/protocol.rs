@@ -96,7 +96,11 @@ pub struct ServerInfo {
     /// Random per server process: the same server reached on two addresses
     /// (127.0.0.1 and a LAN address) is one row in the browser.
     pub instance: u64,
+    /// Server's region label (≤ `MAX_REGION` chars), "" if not set.
+    pub region: String,
 }
+
+pub const MAX_REGION: usize = 12;
 
 fn truncate(s: &str, max: usize) -> &str {
     let mut end = s.len().min(max);
@@ -186,6 +190,7 @@ impl Connectionless {
                 w.u8(info.lifesteal_percent);
                 w.u16(info.tick_rate);
                 w.u64(info.instance);
+                w.bytes(truncate(&info.region, MAX_REGION).as_bytes());
             }
         }
         w.finish()
@@ -241,6 +246,7 @@ impl Connectionless {
                 let lifesteal_percent = r.u8()?;
                 let tick_rate = r.u16()?;
                 let instance = r.u64()?;
+                let region = text(&mut r)?;
                 Self::InfoResponse {
                     nonce,
                     info: ServerInfo {
@@ -254,6 +260,7 @@ impl Connectionless {
                         anti_lag: flags & 2 != 0,
                         tick_rate,
                         instance,
+                        region: truncate(&region, MAX_REGION).to_string(),
                     },
                 }
             }
@@ -686,6 +693,7 @@ mod tests {
             anti_lag: true,
             tick_rate: 125,
             instance: u64::MAX,
+            region: "z".repeat(50),
         };
         let resp = Connectionless::InfoResponse {
             nonce: 9,
@@ -710,6 +718,7 @@ mod tests {
                     ServerInfo {
                         name: info.name[..MAX_INFO_TEXT].to_string(),
                         map: info.map[..MAX_INFO_TEXT].to_string(),
+                        region: info.region[..MAX_REGION].to_string(),
                         ..info
                     },
                     got

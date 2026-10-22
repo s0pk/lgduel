@@ -547,3 +547,13 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
 - MemNet NAT simulation (port-restricted cone, symmetric) tests both paths; check.sh `p2p-smoke` runs the real
   binaries on 127.0.0.1 (bot direct, client forced through the relay). Settings: `rendezvous` (player) or the
   shipped `config/servers.toml` `rendezvous` (empty until the user's VPS exists); Host screen "Join code".
+
+## D54 — Master list in the relay service; browser filters (2026-10-23)
+- The rendezvous service is also the master server: `Register{listed: true}` (server setting `public`, needs
+  `rendezvous`) puts the host in the public list; it drops out 30 s after its last registration.
+- `ListRequest` → `ListChallenge{cookie}` (keyed hash of the requester's address) → `ListRequest{cookie}` →
+  `List` (≤ 100 addresses): the only big answer goes to a proven address. Loopback entries (a server on the
+  relay's own VPS registering via 127.0.0.1) are rewritten by the browser to the master's address.
+- Protocol v9: `ServerInfo.region` (≤ 12 chars, server setting `region`). Browser filters (saved in settings):
+  mode, anti-lag, max ping, region substring, hide empty / full; rows that don't answer are always shown;
+  "N hidden by the filters" line. Public rows tagged PUBLIC, deduped with listed/LAN rows by instance.

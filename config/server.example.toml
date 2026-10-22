@@ -15,6 +15,9 @@ max_arenas = 8             # separate duels; players beyond 2 per arena wait in 
 practice_bot = true        # a player alone in an arena gets a bot until an opponent joins
 practice_bot_after_ms = 2000
 rcon_password = ""         # set one to use `lgduel-server rcon` remotely; empty = off
+rendezvous = ""            # join-code / master service, e.g. "127.0.0.1" on the relay's own VPS
+public = false             # with rendezvous: appear in everyone's server list
+region = ""                # shown and filterable in the browser, e.g. "EU"
 
 [physics]
 gravity = 800.0            # u/s²

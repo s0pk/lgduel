@@ -353,8 +353,25 @@ impl Menu {
                 }
             }
             Screen::Online => {
-                centered(ctx, "Play online", 820.0, |ui| {
-                    action = server_table(ui, servers).or(action.take());
+                let before = (s.filter.clone(), s.rendezvous.clone());
+                centered(ctx, "Play online", 900.0, |ui| {
+                    filter_row(ui, &mut s.filter);
+                    let shown: Vec<Row> = servers
+                        .iter()
+                        .filter(|r| match &r.status {
+                            Status::Online(p) => s.filter.allows(&p.info, p.rtt_ms),
+                            _ => true,
+                        })
+                        .cloned()
+                        .collect();
+                    let hidden = servers.len() - shown.len();
+                    action = server_table(ui, &shown).or(action.take());
+                    if hidden > 0 {
+                        ui.colored_label(
+                            egui::Color32::from_gray(130),
+                            format!("{hidden} hidden by the filters"),
+                        );
+                    }
                     ui.horizontal(|ui| {
                         if ui.button("Refresh").clicked() {
                             action = Some(Action::RefreshServers);
@@ -437,6 +454,9 @@ impl Menu {
                         self.screen = Screen::Main;
                     }
                 });
+                if (s.filter.clone(), s.rendezvous.clone()) != before {
+                    self.dirty = true;
+                }
             }
             Screen::Host => {
                 let before = s.host.clone();
@@ -519,6 +539,37 @@ impl Menu {
 }
 
 /// The server list; returns Join / Remove actions.
+fn filter_row(ui: &mut egui::Ui, f: &mut crate::settings::BrowserFilter) {
+    ui.horizontal(|ui| {
+        ui.label("Mode");
+        combo(ui, "f_mode", &mut f.mode, &["any", "vamp", "classic"]);
+        ui.label("Anti-lag");
+        combo(ui, "f_lag", &mut f.anti_lag, &["any", "on", "off"]);
+        ui.label("Max ping");
+        ui.add(
+            egui::DragValue::new(&mut f.max_ping)
+                .range(0..=500)
+                .speed(5.0)
+                .custom_formatter(|v, _| {
+                    if v == 0.0 {
+                        "any".into()
+                    } else {
+                        format!("{v:.0}")
+                    }
+                }),
+        );
+        ui.label("Region");
+        ui.add(
+            egui::TextEdit::singleline(&mut f.region)
+                .hint_text("any")
+                .desired_width(70.0)
+                .char_limit(lgduel_net::protocol::MAX_REGION),
+        );
+        ui.checkbox(&mut f.hide_empty, "Hide empty");
+        ui.checkbox(&mut f.hide_full, "Hide full");
+    });
+}
+
 fn server_table(ui: &mut egui::Ui, rows: &[Row]) -> Option<Action> {
     let mut action = None;
     if rows.is_empty() {
@@ -527,11 +578,11 @@ fn server_table(ui: &mut egui::Ui, rows: &[Row]) -> Option<Action> {
     }
     egui::Grid::new("servers")
         .striped(true)
-        .num_columns(8)
+        .num_columns(9)
         .spacing([12.0, 6.0])
         .show(ui, |ui| {
             for h in [
-                "Server", "Ping", "Players", "Map", "Mode", "Anti-lag", "", "",
+                "Server", "Ping", "Players", "Map", "Mode", "Anti-lag", "Region", "", "",
             ] {
                 ui.strong(h);
             }
@@ -556,6 +607,7 @@ fn server_table(ui: &mut egui::Ui, rows: &[Row]) -> Option<Action> {
                             format!("Vamp {}%", p.info.lifesteal_percent)
                         });
                         ui.label(if p.info.anti_lag { "On" } else { "Off" });
+                        ui.label(&p.info.region);
                         if compatible {
                             if ui.button("Join").clicked() {
                                 action = Some(Action::Connect(r.address.clone()));
@@ -573,14 +625,15 @@ fn server_table(ui: &mut egui::Ui, rows: &[Row]) -> Option<Action> {
                             Status::Online(_) => unreachable!(),
                         };
                         ui.colored_label(dim, what);
-                        for _ in 0..4 {
+                        for _ in 0..5 {
                             ui.label("");
                         }
                         ui.label("");
                     }
                 }
-                if r.lan {
-                    ui.colored_label(egui::Color32::from_gray(130), "LAN");
+                if r.lan || r.public {
+                    let tag = if r.lan { "LAN" } else { "PUBLIC" };
+                    ui.colored_label(egui::Color32::from_gray(130), tag);
                 } else if r.official {
                     ui.label("");
                 } else if ui.small_button("Remove").clicked() {

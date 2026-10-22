@@ -46,6 +46,10 @@ pub struct ServerSettings {
     pub rcon_password: String,
     /// Rendezvous/relay service (host[:port]) for a join code; empty = off.
     pub rendezvous: String,
+    /// Also list this server publicly on the rendezvous service (master list).
+    pub public: bool,
+    /// Shown in the browser and filterable, e.g. "EU", "NA-East" (≤ 12 chars).
+    pub region: String,
 }
 
 impl Default for ServerSettings {
@@ -63,6 +67,8 @@ impl Default for ServerSettings {
             practice_bot_after_ms: 2000,
             rcon_password: String::new(),
             rendezvous: String::new(),
+            public: false,
+            region: String::new(),
         }
     }
 }
@@ -673,6 +679,7 @@ missing_cmds = {missing}
             lifesteal_percent: r.lifesteal_percent.min(100) as u8,
             anti_lag: r.hit_mode == HitMode::AntiLag,
             tick_rate: game.cfg.tick_rate_hz.min(u16::MAX as u32) as u16,
+            region: self.settings.region.clone(),
             // Keyed hash of the secret: stable for this process, reveals nothing.
             instance: cookie(self.secret, &SocketAddr::from(([0, 0, 0, 0], 0)), 0x1D),
         }

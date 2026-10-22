@@ -171,3 +171,81 @@ fn unknown_code_fails_cleanly() {
     );
     assert_eq!(rig.host.client_count(), 0);
 }
+
+#[test]
+fn master_lists_public_servers_only_to_proven_addresses() {
+    use lgduel_net::browser::Pinger;
+    use lgduel_net::rendezvous::Rdv;
+    let net = MemNet::new(23);
+    let mut rdv = Rendezvous::new(net.endpoint(RDV_PORT), 9);
+    let rdv_addr = rdv.transport.local_addr();
+    let cfg = ServerConfig::default();
+    let p = &cfg.game.physics;
+    let hull = (
+        Vec3::from_array(p.player_mins),
+        Vec3::from_array(p.player_maxs),
+    );
+    let world = builtin::load("arena_flat", hull).unwrap();
+    let mut public_cfg = cfg.clone();
+    public_cfg.server.name = "public one".into();
+    public_cfg.server.region = "EU".into();
+    let mut public = Server::new(
+        RelayTransport::host(net.endpoint(27960), rdv_addr, 1).listed(),
+        public_cfg,
+        world.clone(),
+        2,
+    );
+    // A host with a join code but not listed.
+    let mut private = Server::new(
+        RelayTransport::host(net.endpoint(27961), rdv_addr, 3),
+        cfg,
+        world,
+        4,
+    );
+    let mut browser = Pinger::new(net.endpoint(6000), 7);
+    browser.master = Some(rdv_addr);
+    let mut spoofer = net.endpoint(6001);
+    let mut now = 0;
+    let mut step = |now: u64, rdv: &mut Rendezvous<MemEndpoint>, b: &mut Pinger<MemEndpoint>| {
+        net.advance_to(now);
+        for s in [&mut public, &mut private] {
+            s.transport.tick(now);
+            s.poll(now);
+        }
+        rdv.poll(now);
+        b.poll(now, 2_000_000);
+    };
+    for _ in 0..100 {
+        now += 1_000;
+        step(now, &mut rdv, &mut browser);
+    }
+    assert_eq!((rdv.hosts(), rdv.listed()), (2, 1));
+    // A list request without the cookie only gets the small challenge.
+    let probe = Rdv::ListRequest {
+        nonce: 5,
+        cookie: 0,
+    }
+    .encode();
+    spoofer.send_to(rdv_addr, &probe).unwrap();
+    now += 1_000;
+    step(now, &mut rdv, &mut browser);
+    let (_, answer) = spoofer.recv().expect("challenge");
+    assert!(answer.len() <= probe.len());
+    assert!(matches!(
+        Rdv::decode(&answer),
+        Some(Rdv::ListChallenge { .. })
+    ));
+    assert_eq!(rdv.stats.lists_sent, 0);
+    // The browser does the handshake, gets the list and pings the server.
+    browser.request_list();
+    for _ in 0..100 {
+        now += 1_000;
+        step(now, &mut rdv, &mut browser);
+    }
+    assert_eq!(rdv.stats.lists_sent, 1);
+    assert_eq!(browser.public.len(), 1);
+    let addr = *browser.public.iter().next().unwrap();
+    let r = browser.results.get(&addr).expect("pinged");
+    assert_eq!(r.info.name, "public one");
+    assert_eq!(r.info.region, "EU");
+}

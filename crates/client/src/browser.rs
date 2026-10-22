@@ -54,6 +54,8 @@ pub struct Row {
     pub official: bool,
     /// Found on the local network (not in the list; can't be removed).
     pub lan: bool,
+    /// From the master's public list.
+    pub public: bool,
     pub status: Status,
 }
 
@@ -77,6 +79,8 @@ pub struct Browser {
     last_refresh: Option<Instant>,
     /// Ports to discover servers on (broadcast on the LAN + this PC).
     lan_ports: Vec<u16>,
+    /// Master (rendezvous service) text as set, "host[:port]".
+    master: Option<String>,
 }
 
 impl Default for Browser {
@@ -104,6 +108,28 @@ impl Browser {
             sent_at: HashMap::new(),
             last_refresh: None,
             lan_ports: LAN_PORTS.to_vec(),
+            master: None,
+        }
+    }
+
+    /// Fetch the public list from this rendezvous service ("host[:port]").
+    pub fn set_master(&mut self, master: Option<String>) {
+        let master = master.map(|m| {
+            if m.rsplit_once(':')
+                .is_some_and(|(_, p)| p.parse::<u16>().is_ok())
+            {
+                m
+            } else {
+                format!("{m}:{}", lgduel_net::rendezvous::RDV_PORT)
+            }
+        });
+        if master != self.master {
+            self.master = master;
+            if let Some(p) = self.pinger.as_mut() {
+                p.master = None;
+                p.public.clear();
+            }
+            self.last_refresh = None;
         }
     }
 
@@ -128,6 +154,19 @@ impl Browser {
                 Some(Ok(addr)) => self.query(&e.address, addr),
                 Some(Err(_)) => {}
                 None => self.look_up(&e.address),
+            }
+        }
+        // Public list from the master (its address resolved like any server's).
+        if let Some(m) = self.master.clone() {
+            match self.resolved.get(&m).cloned() {
+                Some(Ok(addr)) => {
+                    if let Some(p) = self.pinger.as_mut() {
+                        p.master = Some(addr);
+                        p.request_list();
+                    }
+                }
+                Some(Err(_)) => {}
+                None => self.look_up(&m),
             }
         }
         // LAN discovery: broadcast, plus this PC directly (its own broadcasts
@@ -169,7 +208,14 @@ impl Browser {
         while let Ok((text, r)) = self.lookups_rx.try_recv() {
             self.looking_up.remove(&text);
             if let Ok(addr) = r {
-                self.query(&text, addr);
+                if Some(&text) == self.master.as_ref() {
+                    if let Some(p) = self.pinger.as_mut() {
+                        p.master = Some(addr);
+                        p.request_list();
+                    }
+                } else {
+                    self.query(&text, addr);
+                }
             }
             self.resolved.insert(text, r);
         }
@@ -206,6 +252,7 @@ impl Browser {
                     address: e.address.clone(),
                     official: *official,
                     lan: false,
+                    public: false,
                     status,
                 }
             })
@@ -225,10 +272,16 @@ impl Browser {
             .filter_map(|(e, _)| self.resolved.get(&e.address)?.as_ref().ok())
             .filter_map(|a| p.results.get(a).map(|r| r.info.instance))
             .collect();
-        let mut found: Vec<&SocketAddr> = p.discovered.iter().collect();
-        found.sort_by_key(|a| !a.ip().is_loopback());
+        // Public list first (a public server on the LAN shows once, as public).
+        let mut lan: Vec<&SocketAddr> = p.discovered.iter().collect();
+        lan.sort_by_key(|a| !a.ip().is_loopback());
+        let found = p
+            .public
+            .iter()
+            .map(|a| (a, true))
+            .chain(lan.into_iter().map(|a| (a, false)));
         let mut rows = Vec::new();
-        for addr in found {
+        for (addr, public) in found {
             let Some(r) = p.results.get(addr) else {
                 continue;
             };
@@ -240,7 +293,8 @@ impl Browser {
                 name: r.info.name.clone(),
                 address: addr.to_string(),
                 official: false,
-                lan: true,
+                lan: !public,
+                public,
                 status: Status::Online(r.clone()),
             });
         }

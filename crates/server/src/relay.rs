@@ -21,6 +21,8 @@ pub const RELAY_BYTES_PER_SEC: u64 = 256 * 1024;
 struct Host {
     addr: SocketAddr,
     last_seen: u64,
+    /// In the public server list.
+    listed: bool,
 }
 
 struct Session {
@@ -38,6 +40,7 @@ pub struct RelayStats {
     pub sessions_opened: u64,
     pub relayed_datagrams: u64,
     pub dropped: u64,
+    pub lists_sent: u64,
 }
 
 pub struct Rendezvous<T: Transport> {
@@ -47,6 +50,8 @@ pub struct Rendezvous<T: Transport> {
     sessions: HashMap<u32, Session>,
     requests: HashMap<IpAddr, (u32, u64)>,
     rng: u64,
+    /// Key for list-request cookies.
+    secret: u64,
     pub stats: RelayStats,
     pub log: Vec<String>,
 }
@@ -60,6 +65,7 @@ impl<T: Transport> Rendezvous<T> {
             sessions: HashMap::new(),
             requests: HashMap::new(),
             rng: seed | 1,
+            secret: seed.rotate_left(29) ^ 0x5EC2_E7C0_0C1E,
             stats: RelayStats::default(),
             log: Vec::new(),
         }
@@ -74,6 +80,11 @@ impl<T: Transport> Rendezvous<T> {
 
     pub fn hosts(&self) -> usize {
         self.hosts.len()
+    }
+
+    /// Servers in the public list.
+    pub fn listed(&self) -> usize {
+        self.hosts.values().filter(|h| h.listed).count()
     }
 
     pub fn sessions(&self) -> usize {
@@ -100,7 +111,7 @@ impl<T: Transport> Rendezvous<T> {
                 continue;
             };
             match m {
-                Rdv::Register { nonce } => {
+                Rdv::Register { nonce, listed } => {
                     let code = match self.codes.get(&from) {
                         Some(c) => *c,
                         None => {
@@ -122,6 +133,7 @@ impl<T: Transport> Rendezvous<T> {
                         Host {
                             addr: from,
                             last_seen: now,
+                            listed,
                         },
                     );
                     self.send(from, &Rdv::Registered { nonce, code });
@@ -176,6 +188,33 @@ impl<T: Transport> Rendezvous<T> {
                         }
                     };
                     self.send(from, &Rdv::RelayReady { nonce, session });
+                }
+                Rdv::ListRequest { nonce, cookie } => {
+                    let expected = lgduel_net::protocol::cookie(self.secret, &from, nonce);
+                    if cookie != expected {
+                        // Small answer to an unproven address.
+                        self.send(
+                            from,
+                            &Rdv::ListChallenge {
+                                nonce,
+                                cookie: expected,
+                            },
+                        );
+                        continue;
+                    }
+                    if !self.allow(from.ip(), now) {
+                        continue;
+                    }
+                    let mut servers: Vec<SocketAddr> = self
+                        .hosts
+                        .values()
+                        .filter(|h| h.listed)
+                        .map(|h| h.addr)
+                        .collect();
+                    servers.sort();
+                    servers.truncate(lgduel_net::rendezvous::MAX_LIST);
+                    self.stats.lists_sent += 1;
+                    self.send(from, &Rdv::List { nonce, servers });
                 }
                 Rdv::RelayData { session, payload } => {
                     let Some(s) = self.sessions.get_mut(&session) else {

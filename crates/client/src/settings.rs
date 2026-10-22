@@ -127,6 +127,60 @@ pub struct Settings {
     /// Rendezvous/relay service for join codes (host[:port]); empty = the
     /// one shipped in servers.toml, if any.
     pub rendezvous: String,
+    /// Server browser filters.
+    pub filter: BrowserFilter,
+}
+
+/// Which servers the browser shows (rows that don't answer are always shown).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BrowserFilter {
+    /// any | vamp | classic
+    pub mode: String,
+    /// any | on | off
+    pub anti_lag: String,
+    /// 0 = any.
+    pub max_ping: u32,
+    /// Empty = any; otherwise the server's region must contain this (any case).
+    pub region: String,
+    pub hide_empty: bool,
+    pub hide_full: bool,
+}
+
+impl Default for BrowserFilter {
+    fn default() -> Self {
+        Self {
+            mode: "any".into(),
+            anti_lag: "any".into(),
+            max_ping: 0,
+            region: String::new(),
+            hide_empty: false,
+            hide_full: false,
+        }
+    }
+}
+
+impl BrowserFilter {
+    /// Does a server with this info and ping pass?
+    pub fn allows(&self, info: &lgduel_net::protocol::ServerInfo, rtt_ms: f64) -> bool {
+        let mode_ok = match self.mode.as_str() {
+            "vamp" => !info.classic,
+            "classic" => info.classic,
+            _ => true,
+        };
+        let lag_ok = match self.anti_lag.as_str() {
+            "on" => info.anti_lag,
+            "off" => !info.anti_lag,
+            _ => true,
+        };
+        let region = self.region.trim().to_lowercase();
+        mode_ok
+            && lag_ok
+            && (self.max_ping == 0 || rtt_ms <= self.max_ping as f64)
+            && (region.is_empty() || info.region.to_lowercase().contains(&region))
+            && !(self.hide_empty && info.players == 0)
+            && !(self.hide_full && info.players >= info.max_players)
+    }
 }
 
 impl Default for Settings {
@@ -143,6 +197,7 @@ impl Default for Settings {
             servers: Vec::new(),
             host: HostSettings::default(),
             rendezvous: String::new(),
+            filter: BrowserFilter::default(),
         }
     }
 }
@@ -301,6 +356,35 @@ mod tests {
                 .unwrap();
         assert_eq!(s.practice.map, "arena_flat");
         assert_eq!(s.host.map, "arena_tiers");
+    }
+
+    #[test]
+    fn browser_filter() {
+        let info = |classic, anti_lag, players, region: &str| lgduel_net::protocol::ServerInfo {
+            classic,
+            anti_lag,
+            players,
+            max_players: 16,
+            region: region.into(),
+            ..Default::default()
+        };
+        let any = BrowserFilter::default();
+        assert!(any.allows(&info(true, false, 0, ""), 300.0));
+        let f = BrowserFilter {
+            mode: "vamp".into(),
+            anti_lag: "on".into(),
+            max_ping: 80,
+            region: "eu".into(),
+            hide_empty: true,
+            hide_full: true,
+        };
+        assert!(f.allows(&info(false, true, 3, "EU-West"), 40.0));
+        assert!(!f.allows(&info(true, true, 3, "EU"), 40.0), "classic");
+        assert!(!f.allows(&info(false, false, 3, "EU"), 40.0), "no anti-lag");
+        assert!(!f.allows(&info(false, true, 3, "EU"), 120.0), "ping");
+        assert!(!f.allows(&info(false, true, 3, "NA"), 40.0), "region");
+        assert!(!f.allows(&info(false, true, 0, "EU"), 40.0), "empty");
+        assert!(!f.allows(&info(false, true, 16, "EU"), 40.0), "full");
     }
 
     #[test]

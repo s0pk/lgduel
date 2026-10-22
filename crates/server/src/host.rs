@@ -171,6 +171,7 @@ pub fn run_config(
     admin: Admin,
     on_bound: impl FnOnce(Result<std::net::SocketAddr, String>),
 ) -> Result<(), String> {
+    let public = cfg.server.public;
     let rendezvous = match cfg.server.rendezvous.trim() {
         "" => None,
         r => Some(resolve_rendezvous(r)?),
@@ -226,7 +227,13 @@ pub fn run_config(
     let transport = match rendezvous {
         Some(r) => {
             println!("  join code: registering with {r}...");
-            RelayTransport::host(transport, r, secret)
+            let t = RelayTransport::host(transport, r, secret);
+            if public {
+                println!("  listed publicly on {r}");
+                t.listed()
+            } else {
+                t
+            }
         }
         None => RelayTransport::plain(transport),
     };

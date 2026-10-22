@@ -184,8 +184,9 @@ impl<T: Transport> Server<T> {
             || s.0.bind != s.1.bind
             || s.0.port != s.1.port
             || s.0.rendezvous != s.1.rendezvous
+            || s.0.public != s.1.public
         {
-            return Err("map, bind, port and rendezvous need a restart".into());
+            return Err("map, bind, port, rendezvous and public need a restart".into());
         }
         if s.0.max_arenas != s.1.max_arenas {
             return Err("max_arenas needs a restart".into());

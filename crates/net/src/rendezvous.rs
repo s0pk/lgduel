@@ -57,9 +57,11 @@ pub fn parse_code(s: &str) -> Option<u32> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Rdv {
-    /// Host → rendezvous (also every few seconds as keepalive).
+    /// Host → rendezvous (also every few seconds as keepalive). `listed`:
+    /// show this server in everyone's browser (master list).
     Register {
         nonce: u64,
+        listed: bool,
     },
     Registered {
         nonce: u64,
@@ -97,7 +99,25 @@ pub enum Rdv {
         session: u32,
         payload: Vec<u8>,
     },
+    /// Browser → master: the public server list. First with `cookie` 0; the
+    /// master answers with a `ListChallenge` cookie proving the address, and
+    /// only a request carrying it gets the (large) list.
+    ListRequest {
+        nonce: u64,
+        cookie: u64,
+    },
+    ListChallenge {
+        nonce: u64,
+        cookie: u64,
+    },
+    List {
+        nonce: u64,
+        servers: Vec<SocketAddr>,
+    },
 }
+
+/// Most servers in one `List` datagram.
+pub const MAX_LIST: usize = 100;
 
 fn write_addr(w: &mut Writer, a: SocketAddr) {
     match a.ip() {
@@ -139,9 +159,10 @@ impl Rdv {
         let mut w = Writer::new();
         w.u8(RDV_MAGIC);
         let pad = match self {
-            Self::Register { nonce } => {
+            Self::Register { nonce, listed } => {
                 w.u8(1);
                 w.u64(*nonce);
+                w.u8(*listed as u8);
                 true
             }
             Self::Registered { nonce, code } => {
@@ -194,6 +215,28 @@ impl Rdv {
                 w.raw(payload);
                 false
             }
+            Self::ListRequest { nonce, cookie } => {
+                w.u8(11);
+                w.u64(*nonce);
+                w.u64(*cookie);
+                true
+            }
+            Self::ListChallenge { nonce, cookie } => {
+                w.u8(12);
+                w.u64(*nonce);
+                w.u64(*cookie);
+                false
+            }
+            Self::List { nonce, servers } => {
+                w.u8(13);
+                w.u64(*nonce);
+                let n = servers.len().min(MAX_LIST);
+                w.u8(n as u8);
+                for a in &servers[..n] {
+                    write_addr(&mut w, *a);
+                }
+                false
+            }
         };
         if pad {
             let n = RDV_REQUEST_SIZE.saturating_sub(w.buf.len());
@@ -208,7 +251,10 @@ impl Rdv {
             return None;
         }
         Some(match r.u8()? {
-            1 => Self::Register { nonce: r.u64()? },
+            1 => Self::Register {
+                nonce: r.u64()?,
+                listed: r.u8()? != 0,
+            },
             2 => Self::Registered {
                 nonce: r.u64()?,
                 code: r.u32()?,
@@ -238,6 +284,23 @@ impl Rdv {
                 session: r.u32()?,
                 payload: r.rest().to_vec(),
             },
+            11 => Self::ListRequest {
+                nonce: r.u64()?,
+                cookie: r.u64()?,
+            },
+            12 => Self::ListChallenge {
+                nonce: r.u64()?,
+                cookie: r.u64()?,
+            },
+            13 => {
+                let nonce = r.u64()?;
+                let n = (r.u8()? as usize).min(MAX_LIST);
+                let mut servers = Vec::with_capacity(n);
+                for _ in 0..n {
+                    servers.push(read_addr(&mut r)?);
+                }
+                Self::List { nonce, servers }
+            }
             _ => return None,
         })
     }
@@ -299,6 +362,7 @@ enum Mode {
         code: Option<u32>,
         last_register: Option<u64>,
         nonce: u64,
+        listed: bool,
     },
     Join {
         code: u32,
@@ -341,6 +405,7 @@ impl<T: Transport> RelayTransport<T> {
                 code: None,
                 last_register: None,
                 nonce,
+                listed: false,
             },
             rdv: Some(rdv),
             ..Self::plain(inner)
@@ -361,6 +426,14 @@ impl<T: Transport> RelayTransport<T> {
             rdv: Some(rdv),
             ..Self::plain(inner)
         }
+    }
+
+    /// Host: also appear in the public server list.
+    pub fn listed(mut self) -> Self {
+        if let Mode::Host { listed, .. } = &mut self.mode {
+            *listed = true;
+        }
+        self
     }
 
     /// Go straight to the relay once the code is found (no direct attempt).
@@ -401,11 +474,15 @@ impl<T: Transport> RelayTransport<T> {
             Mode::Host {
                 last_register,
                 nonce,
+                listed,
                 ..
             } => {
                 if last_register.is_none_or(|t| now_us.saturating_sub(t) >= REGISTER_EVERY_US) {
                     *last_register = Some(now_us);
-                    out = Some(Rdv::Register { nonce: *nonce });
+                    out = Some(Rdv::Register {
+                        nonce: *nonce,
+                        listed: *listed,
+                    });
                 }
             }
             Mode::Join {
@@ -615,7 +692,22 @@ mod tests {
         let v4: SocketAddr = "203.0.113.7:40001".parse().unwrap();
         let v6: SocketAddr = "[2001:db8::1]:27960".parse().unwrap();
         for m in [
-            Rdv::Register { nonce: 1 },
+            Rdv::Register {
+                nonce: 1,
+                listed: true,
+            },
+            Rdv::ListRequest {
+                nonce: 4,
+                cookie: 0,
+            },
+            Rdv::ListChallenge {
+                nonce: 4,
+                cookie: 99,
+            },
+            Rdv::List {
+                nonce: 4,
+                servers: vec![v4, v6],
+            },
             Rdv::Registered { nonce: 1, code: 77 },
             Rdv::Lookup { nonce: 2, code: 77 },
             Rdv::Found { nonce: 2, host: v4 },
@@ -636,9 +728,24 @@ mod tests {
             assert_eq!(Rdv::decode(&m.encode()), Some(m.clone()), "{m:?}");
         }
         // Anything a stranger can ask is at least as big as any answer.
-        let biggest_answer = Rdv::Found { nonce: 0, host: v6 }.encode().len();
+        // (The List itself only goes to an address that proved itself with the cookie.)
+        let biggest_answer = Rdv::Found { nonce: 0, host: v6 }.encode().len().max(
+            Rdv::ListChallenge {
+                nonce: 0,
+                cookie: 0,
+            }
+            .encode()
+            .len(),
+        );
         for req in [
-            Rdv::Register { nonce: 0 },
+            Rdv::ListRequest {
+                nonce: 0,
+                cookie: 0,
+            },
+            Rdv::Register {
+                nonce: 0,
+                listed: false,
+            },
             Rdv::Lookup { nonce: 0, code: 0 },
             Rdv::RelayOpen { nonce: 0, code: 0 },
         ] {

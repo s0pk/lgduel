@@ -58,6 +58,16 @@ rendezvous = "YOUR.VPS.IP"
 
 Players can also type it in Play online → Join code → *via*.
 
+The same service is the **public server list**: put this in `/etc/lgduel/server.toml` and restart, and
+your server shows up in the browser of everyone who uses that rendezvous service:
+
+```toml
+[server]
+rendezvous = "127.0.0.1"   # the relay on this same VPS
+public = true
+region = "EU"              # shown in the browser; players can filter by it
+```
+
 ## Settings
 
 Edit `/etc/lgduel/server.toml`, then `sudo systemctl restart lgduel-server`. Every key is optional;
