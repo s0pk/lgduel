@@ -24,6 +24,8 @@ pub struct Video {
     pub fov: f32,
     /// Map theme (`classic` = the original flat look).
     pub theme: String,
+    /// Menu / console size multiplier (0.75 to 2.0).
+    pub ui_scale: f32,
 }
 
 impl Default for Video {
@@ -35,6 +37,7 @@ impl Default for Video {
             fps_cap: None,
             fov: 110.0,
             theme: "classic".into(),
+            ui_scale: 1.0,
         }
     }
 }
@@ -224,6 +227,11 @@ impl Settings {
             self.video.size.1.clamp(240, 16384),
         );
         self.video.fps_cap = self.video.fps_cap.filter(|c| *c >= 30);
+        self.video.ui_scale = if self.video.ui_scale.is_finite() {
+            self.video.ui_scale.clamp(0.75, 2.0)
+        } else {
+            1.0
+        };
         self.audio.volume = if self.audio.volume.is_finite() {
             self.audio.volume.clamp(0.0, 1.0)
         } else {
@@ -356,6 +364,13 @@ mod tests {
         assert_eq!(s.audio.volume, 1.0);
         assert_eq!(s.mouse.dpi, MouseSettings::default().dpi);
         assert_eq!(s.name, "player");
+        let mut t = Settings::default();
+        t.video.ui_scale = 9.0;
+        t.sanitize();
+        assert_eq!(t.video.ui_scale, 2.0);
+        t.video.ui_scale = f32::NAN;
+        t.sanitize();
+        assert_eq!(t.video.ui_scale, 1.0);
         let s =
             Settings::from_toml("[practice]\nmap = \"nowhere\"\n[host]\nmap = \"arena_tiers\"\n")
                 .unwrap();

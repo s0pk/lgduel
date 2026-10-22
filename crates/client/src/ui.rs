@@ -43,6 +43,13 @@ impl Ui {
         }
     }
 
+    /// Menu size multiplier (egui zoom factor).
+    pub fn set_ui_scale(&mut self, scale: f32) {
+        if (self.ctx.zoom_factor() - scale).abs() > 1e-3 {
+            self.ctx.set_zoom_factor(scale);
+        }
+    }
+
     /// Feed a window event; true if egui wants it (the game should ignore it).
     pub fn on_window_event(&mut self, window: &Window, event: &winit::event::WindowEvent) -> bool {
         self.winit

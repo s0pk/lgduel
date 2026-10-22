@@ -381,6 +381,23 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
             }
             "--import-theme" => o.import_theme = Some(val("--import-theme")?),
             "--import-profile" => o.import_profile = Some(val("--import-profile")?),
+            "--ui-scale" => {
+                o.s.video.ui_scale = val("--ui-scale")?
+                    .parse::<f32>()
+                    .map_err(|_| "--ui-scale needs a number (0.75 to 2.0)")?;
+                o.s.sanitize();
+            }
+            "--crosshair" => {
+                let v = val("--crosshair")?;
+                o.s.hud.crosshair.shape = hud::CrosshairShape::ALL
+                    .into_iter()
+                    .find(|s| format!("{s:?}").eq_ignore_ascii_case(&v))
+                    .ok_or(format!(
+                        "--crosshair must be cross|dot|circle|tshape, got {v}"
+                    ))?;
+            }
+            "--crosshair-outline" => o.s.hud.crosshair.outline = true,
+            "--auto-hud" => o.s.hud.auto_scale = true,
             "--theme-dir" => o.theme_dir = Some(val("--theme-dir")?.into()),
             "--make-example-theme" => {
                 let dir = std::path::PathBuf::from(val("--make-example-theme")?);
@@ -767,6 +784,8 @@ fn run_headless(opts: &Options) -> Result<(), String> {
     // Default HUD look (the pixel checks expect it), plus the optional input display.
     let hud_settings = HudSettings {
         input_display: opts.s.hud.input_display,
+        auto_scale: opts.s.hud.auto_scale,
+        crosshair: opts.s.hud.crosshair,
         ..HudSettings::default()
     };
     let mut numbers = DamageNumbers::default();
@@ -839,6 +858,7 @@ fn run_headless(opts: &Options) -> Result<(), String> {
     }
     if let Some(screen) = opts.menu {
         let mut ui = ui::Ui::new(&off.device, offscreen::FORMAT, None);
+        ui.set_ui_scale(opts.s.video.ui_scale);
         let mut menu = menu::Menu {
             screen,
             tab: menu::Tab::Visuals,
@@ -2319,6 +2339,7 @@ impl ApplicationHandler for App {
                                 _ => (Vec::new(), None),
                             };
                             let (menu, s) = (&mut self.menu, &mut self.opts.s);
+                            ui.set_ui_scale(s.video.ui_scale);
                             Some(
                                 ui.run_windowed(w, |ctx| action = menu.draw(ctx, s, online, &rows)),
                             )

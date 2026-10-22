@@ -69,6 +69,13 @@ stage "client offscreen render (1920x1080, screenshot + pixel checks)"
 "$T/$PROFILE/lgduel" --headless --frames 3 --enemy-model humanoid --skins --enemy-distance 110 --size 1280x720 --screenshot artifacts/model_skin.png | grep -E "CHECK"
 # Environment report (also what a bug report should include).
 "$T/$PROFILE/lgduel" --doctor | grep -E "^(adapter|audio|session):"
+# Scaling: menu at 1.5x, and HUD text scaled with a 1080p window.
+"$T/$PROFILE/lgduel" --headless --frames 3 --menu pause --ui-scale 1.5 --size 1280x720 --screenshot artifacts/menu_scaled.png | grep -E "IMAGE menu|MENU CHECK"
+"$T/$PROFILE/lgduel" --headless --frames 3 --auto-hud --size 1920x1080 --screenshot artifacts/hud_auto.png | grep -E "CHECK"
+# Every crosshair shape (with and without outline) passes the crosshair pixel check.
+for x in cross dot circle tshape; do
+  "$T/$PROFILE/lgduel" --headless --frames 3 --crosshair "$x" --crosshair-outline --no-sparks --size 1280x720 --screenshot "artifacts/crosshair_$x.png" | grep -E "CHECK"
+done
 # Every built-in map renders with the duel checks passing.
 for m in arena_pillars arena_tiers; do
   "$T/$PROFILE/lgduel" --headless --frames 3 --map "$m" --size 1280x720 --screenshot "artifacts/map_$m.png" | grep -E "^MAP|CHECK"

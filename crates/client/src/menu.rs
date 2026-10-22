@@ -798,6 +798,15 @@ fn video_tab(ui: &mut egui::Ui, s: &mut Settings) {
     row(ui, "Field of view", |ui| {
         ui.add(egui::Slider::new(&mut s.video.fov, 10.0..=130.0).step_by(1.0));
     });
+    row(ui, "Menu size", |ui| {
+        ui.add(egui::Slider::new(&mut s.video.ui_scale, 0.75..=2.0).step_by(0.05));
+    });
+    row(ui, "Auto HUD size", |ui| {
+        ui.checkbox(
+            &mut s.hud.auto_scale,
+            "scale HUD text with the window height",
+        );
+    });
     row(ui, "Fullscreen", |ui| {
         ui.checkbox(&mut s.video.fullscreen, "(F11 / Alt+Enter)");
     });
@@ -904,6 +913,11 @@ fn visuals_tab(ui: &mut egui::Ui, s: &mut Settings, themes: &[String]) {
     }
     ui.heading("Crosshair");
     let c = &mut s.hud.crosshair;
+    row(ui, "Shape", |ui| {
+        for sh in crate::hud::CrosshairShape::ALL {
+            ui.selectable_value(&mut c.shape, sh, sh.name());
+        }
+    });
     row(ui, "Length", |ui| {
         ui.add(egui::Slider::new(&mut c.size, 0.0..=40.0).step_by(1.0));
     });
@@ -917,6 +931,42 @@ fn visuals_tab(ui: &mut egui::Ui, s: &mut Settings, themes: &[String]) {
         ui.checkbox(&mut c.dot, "");
     });
     color_row(ui, "Colour", &mut c.color);
+    color_row(ui, "Hit colour", &mut c.hit_color);
+    row(ui, "Outline", |ui| {
+        ui.checkbox(&mut c.outline, "");
+    });
+    if c.outline {
+        color_row(ui, "Outline colour", &mut c.outline_color);
+    }
+    // Live preview (a copy of the real crosshair, drawn here).
+    ui.horizontal(|ui| {
+        ui.label("Preview");
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(80.0, 80.0), egui::Sense::hover());
+        ui.painter()
+            .rect_filled(rect, 4.0, egui::Color32::from_gray(90));
+        let mut verts = Vec::new();
+        crate::hud::push_crosshair(&mut verts, (80.0, 80.0), c);
+        let col = |p: [f32; 3]| {
+            egui::Color32::from_rgb(
+                (p[0] * 255.0) as u8,
+                (p[1] * 255.0) as u8,
+                (p[2] * 255.0) as u8,
+            )
+        };
+        for tri in verts.as_chunks::<3>().0 {
+            let pt = |v: &crate::render::Vertex| {
+                egui::pos2(
+                    rect.left() + (v.pos[0] + 1.0) / 2.0 * 80.0,
+                    rect.top() + (1.0 - v.pos[1]) / 2.0 * 80.0,
+                )
+            };
+            ui.painter().add(egui::Shape::convex_polygon(
+                vec![pt(&tri[0]), pt(&tri[1]), pt(&tri[2])],
+                col(tri[0].color),
+                egui::Stroke::NONE,
+            ));
+        }
+    });
     ui.heading("HUD");
     row(ui, "Damage numbers", |ui| {
         ui.checkbox(&mut s.hud.damage_numbers, "");
