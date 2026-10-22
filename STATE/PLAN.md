@@ -20,8 +20,8 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] 2.8 pmove slide-move / clip velocity / step-up 18u, crouch hull + speed scale
 - [x] 2.9 Golden tests: standing jump apex, ground accel-to-320 time, strafe-jump speed gain, circle-jump
 - [x] 2.10 Strafe-aim relative-speed ratio test: mirroring ≈0.00v, anti-mirroring ≈2.00v, HSW mirroring ≈0.29v, HSW anti ≈1.71v
-- [ ] 2.11 Hitscan LG: 50 ms refire, range 768, ray vs player AABB, damage, knockback
-- [ ] 2.12 Damage/health/armor(off)/death/respawn timer, lifesteal % (0–100), exact-heal test
+- [x] 2.11 Hitscan LG: 50 ms refire, range 768, ray vs player AABB, damage, knockback
+- [x] 2.12 Damage/health/armor(off)/death/respawn timer, lifesteal % (0–100), exact-heal test
 - [ ] 2.13 Rules: vamp duel (default), first-to-N classic, fight lifecycle, stats counters
 - [ ] 2.14 Determinism test: input log replayed twice → identical state hash; wired into check.sh
 

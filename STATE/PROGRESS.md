@@ -44,3 +44,8 @@
 - Measured (pinned): jump apex 50.342u / 92 ticks; accel to 320 in 19 ticks; circle-jump takeoff 378.34 u/s; strafe-jump hops 494→643→729→826→905→998→1069→1142, 1145.74 u/s after 6 s; ratios mirroring 0.0000v, anti 2.0000v, HSW mirroring 0.2937v, HSW anti 1.7062v.
 - Researched QL cvar defaults (3 web searches): no authoritative values found; KI-4 stays open.
 - Verified: check.sh GREEN, 5 golden tests pass.
+
+## 2026-10-22 — iteration 10: PLAN 2.11 + 2.12 combat
+- `sim::game`: `Game` (config, world, tick, players, per-tick events), `Player` (pmove, view, health/armor, alive/respawn, weapon timer, lifesteal remainder, stats), `GameEvent` (Fire/Damage/Kill/Respawn), `hitscan()`, `Game::state_hash()`.
+- Done together: hitscan alone has no observable effect without damage.
+- Verified: check.sh GREEN; sim lib tests 51 passed. Game tests: 21 cells in 1.008 s with only 6/7-tick gaps; hit at 700u (100→93), miss at 900u; wall blocks; vamp 100% heals exactly dealt up to the cap; 33% lifesteal over 500 ticks earned == floor(dealt·33/100); 0% heals nothing; kill → dead untargetable → respawn exactly 125 ticks later at full health; knockback along beam; armor 30 dmg → 90 hp / 80 armor; hitscan nearest/occluded/behind.

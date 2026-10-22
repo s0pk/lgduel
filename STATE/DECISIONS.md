@@ -98,3 +98,18 @@ Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update th
   (wiki: 0.00 / 2.00 / 0.29 / 1.71). The HSW 0.001 deviation is velocity snapping on the diagonal.
 - Web search for Quake Live pmove cvar defaults (step height, jump velocity, LG damage/knockback) found no
   authoritative source; values stay configurable, KI-4 remains open.
+
+## D9 — Combat model (2026-10-22)
+- LG refire uses a µs weapon timer that carries negative remainder (Quake style): at 125 Hz, 50 ms cells
+  alternate 6/7-tick gaps and average exactly 50 ms. Releasing fire clamps the timer to ≥ 0.
+- Hitscan from eye (origin + view_height) along view forward, range 768; nearest of world/target boxes
+  wins. `hitscan()` takes target boxes explicitly so lag compensation can pass rewound boxes.
+- Knockback: velocity += dir · damage · 5 · lg.knockback (5 = Quake g_knockback 1000 / mass 200).
+  At default 1.0 → 35 u/s per cell. Unverified vs QL (KI-4).
+- Armor (off by default) absorbs ceil(66%) like Quake.
+- Lifesteal is based on damage actually dealt (health removed, capped at the target's remaining health,
+  plus armor absorbed). Integer percentage with a hundredths remainder carried per attacker, so over any
+  sequence `lifesteal_earned == floor(total_dealt * pct / 100)` exactly; healing is capped at max_health
+  (`healed` ≤ `lifesteal_earned`).
+- No player-vs-player collision yet (players pass through each other) — KI-6.
+- Respawn delay rounds up to whole ticks; spawn = point farthest from living opponents.

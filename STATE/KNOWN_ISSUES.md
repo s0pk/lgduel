@@ -10,3 +10,5 @@
   possibly 22, pmove_JumpVelocity 275, LG damage/knockback). Verify from public docs before Phase 2 ends.
 - KI-5 (2026-10-22): pmove has no "all solid" recovery (Q3 jitters the origin to escape). Spawns are
   validated free; revisit if players can get embedded (e.g. crouch/stand edge cases, knockback).
+- KI-6 (2026-10-22): No player-player collision in pmove. Quake duelists block each other; add solid
+  player boxes (same-pair only) before Phase 6 pair isolation.
