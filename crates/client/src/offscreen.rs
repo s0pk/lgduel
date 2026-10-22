@@ -2,7 +2,7 @@
 //! read it back, save a PNG and check the pixels. Used by check.sh.
 
 use crate::frame_stats::FrameStats;
-use crate::render::{Camera, Renderer, Vertex, depth_texture};
+use crate::render::{Camera, Renderer, Targets, Vertex, targets};
 use std::path::Path;
 use std::time::Instant;
 
@@ -15,11 +15,16 @@ pub struct Offscreen {
     pub size: (u32, u32),
     color: wgpu::Texture,
     color_view: wgpu::TextureView,
-    depth_view: wgpu::TextureView,
+    targets: Targets,
 }
 
 impl Offscreen {
     pub fn new(width: u32, height: u32) -> Result<Self, String> {
+        Self::with_samples(width, height, 1)
+    }
+
+    /// Like `new`, with `samples`x MSAA (1, 2 or 4).
+    pub fn with_samples(width: u32, height: u32, samples: u32) -> Result<Self, String> {
         let instance =
             wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -54,7 +59,7 @@ impl Offscreen {
             view_formats: &[],
         });
         let color_view = color.create_view(&Default::default());
-        let depth_view = depth_texture(&device, width, height);
+        let targets = targets(&device, width, height, FORMAT, samples);
         Ok(Self {
             device,
             queue,
@@ -62,7 +67,7 @@ impl Offscreen {
             size: (width, height),
             color,
             color_view,
-            depth_view,
+            targets,
         })
     }
 
@@ -84,7 +89,7 @@ impl Offscreen {
                 &self.device,
                 &self.queue,
                 &self.color_view,
-                &self.depth_view,
+                &self.targets,
                 self.size,
                 &cam,
                 clear,

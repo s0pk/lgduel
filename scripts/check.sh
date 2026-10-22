@@ -62,6 +62,11 @@ stage "client offscreen render (1920x1080, screenshot + pixel checks)"
 "$T/$PROFILE/lgduel" --headless --no-settings --play-demo artifacts/practice.lgdemo --size 1280x720 --screenshot artifacts/demo_end.png | grep -E "DEMO (REPLAY|CHECK)"
 # Textured theme: renders with many colours and the usual enemy / HUD / beam checks.
 "$T/$PROFILE/lgduel" --headless --frames 3 --theme grid --map arena_tiers --size 1280x720 --screenshot artifacts/theme_grid.png | grep -E "CHECK"
+# MSAA 4x: edges get blended, so the picture has many more distinct colours than the aliased one (12), and the usual checks still pass.
+msaa_out=$("$T/$PROFILE/lgduel" --headless --no-settings --frames 3 --msaa 4 --size 1280x720 --screenshot artifacts/msaa4.png)
+echo "$msaa_out" | grep -E "RENDER CHECK"
+msaa_colors=$(echo "$msaa_out" | sed -n 's/.*distinct colours \([0-9]*\),.*/\1/p')
+[ "${msaa_colors:-0}" -gt 30 ] || { echo "MSAA had no visible effect ($msaa_colors colours)"; exit 1; }
 # A theme loaded from a folder (PNG textures).
 "$T/$PROFILE/lgduel" --headless --frames 3 --theme example --theme-dir assets/themes --map arena_pillars --size 1280x720 --screenshot artifacts/theme_example.png | grep -E "CHECK"
 # Humanoid enemy model (forced colours), and the same model in its own skin colours.

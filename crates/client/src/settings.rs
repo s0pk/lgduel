@@ -26,6 +26,8 @@ pub struct Video {
     pub theme: String,
     /// Menu / console size multiplier (0.75 to 2.0).
     pub ui_scale: f32,
+    /// Multisample anti-aliasing: 1 (off), 2 or 4. Applied at start-up.
+    pub msaa: u32,
 }
 
 impl Default for Video {
@@ -38,6 +40,7 @@ impl Default for Video {
             fov: 110.0,
             theme: "classic".into(),
             ui_scale: 1.0,
+            msaa: 1,
         }
     }
 }
@@ -267,6 +270,7 @@ impl Settings {
                 0.5
             };
         }
+        self.video.msaa = crate::render::sane_samples(self.video.msaa);
         self.video.ui_scale = if self.video.ui_scale.is_finite() {
             self.video.ui_scale.clamp(0.75, 2.0)
         } else {

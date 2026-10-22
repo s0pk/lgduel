@@ -381,6 +381,13 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
             }
             "--import-theme" => o.import_theme = Some(val("--import-theme")?),
             "--import-profile" => o.import_profile = Some(val("--import-profile")?),
+            "--msaa" => {
+                o.s.video.msaa = val("--msaa")?
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|n| matches!(n, 1 | 2 | 4))
+                    .ok_or("--msaa needs 1, 2 or 4")?;
+            }
             "--ui-scale" => {
                 o.s.video.ui_scale = val("--ui-scale")?
                     .parse::<f32>()
@@ -698,9 +705,13 @@ fn run_headless_demo(opts: &Options) -> Result<(), String> {
     let fv = d.frame_view().ok_or("nothing to show")?;
     let (world, cfg) = d.world_cfg();
     let (w, h) = opts.s.video.size;
-    let off = offscreen::Offscreen::new(w, h)?;
+    let off = offscreen::Offscreen::with_samples(w, h, opts.s.video.msaa)?;
     let style = theme_style(opts);
-    let mut r = Renderer::new(&off.device, offscreen::FORMAT);
+    let mut r = Renderer::with_samples(
+        &off.device,
+        offscreen::FORMAT,
+        render::sane_samples(opts.s.video.msaa),
+    );
     r.set_world(&off.device, &off.queue, world, &style);
     let cam = scene::view_camera(
         &fv,
@@ -765,7 +776,7 @@ fn load_world(name: &str) -> World {
 
 fn run_headless(opts: &Options) -> Result<(), String> {
     let (w, h) = opts.s.video.size;
-    let off = offscreen::Offscreen::new(w, h)?;
+    let off = offscreen::Offscreen::with_samples(w, h, opts.s.video.msaa)?;
     println!(
         "GPU {} ({:?}) offscreen {w}x{h}",
         off.adapter_info.name, off.adapter_info.backend
@@ -773,7 +784,11 @@ fn run_headless(opts: &Options) -> Result<(), String> {
     let world = load_world(&opts.s.practice.map);
     println!("MAP {} ({:016x})", world.name, world.content_hash());
     let style = theme_style(opts);
-    let mut r = Renderer::new(&off.device, offscreen::FORMAT);
+    let mut r = Renderer::with_samples(
+        &off.device,
+        offscreen::FORMAT,
+        render::sane_samples(opts.s.video.msaa),
+    );
     r.set_world(&off.device, &off.queue, &world, &style);
     // Local player at spawn 1, an idle opponent at spawn 2; look at the opponent's chest.
     // Opponent placed 400u in front (mid LG range) so effects are a few pixels wide.
@@ -1256,9 +1271,13 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
         }
     };
     let (w, h) = opts.s.video.size;
-    let off = offscreen::Offscreen::new(w, h)?;
+    let off = offscreen::Offscreen::with_samples(w, h, opts.s.video.msaa)?;
     let style = theme_style(opts);
-    let mut r = Renderer::new(&off.device, offscreen::FORMAT);
+    let mut r = Renderer::with_samples(
+        &off.device,
+        offscreen::FORMAT,
+        render::sane_samples(opts.s.video.msaa),
+    );
     let colors = EnemyColors::default();
     let hud_settings = HudSettings::default();
     let start = Instant::now();
@@ -1475,7 +1494,7 @@ struct App {
     style: theme::ThemeStyle,
     ui: Option<ui::Ui>,
     menu: menu::Menu,
-    depth: Option<wgpu::TextureView>,
+    depth: Option<render::Targets>,
     stats: FrameStats,
     last_frame: Option<Instant>,
     frames: u64,
@@ -2145,12 +2164,15 @@ impl ApplicationHandler for App {
                     g.config.height,
                     g.config.present_mode
                 );
-                let mut r = Renderer::new(&g.device, g.config.format);
+                let samples = render::sane_samples(self.opts.s.video.msaa);
+                let mut r = Renderer::with_samples(&g.device, g.config.format, samples);
                 r.set_world(&g.device, &g.queue, &self.world, &self.style);
-                self.depth = Some(render::depth_texture(
+                self.depth = Some(render::targets(
                     &g.device,
                     g.config.width,
                     g.config.height,
+                    g.config.format,
+                    samples,
                 ));
                 self.renderer = Some(r);
                 self.ui = Some(ui::Ui::new(&g.device, g.config.format, Some(&window)));
@@ -2236,10 +2258,12 @@ impl ApplicationHandler for App {
             WindowEvent::Resized(size) => {
                 if let Some(g) = &mut self.gfx {
                     g.resize(size.width, size.height);
-                    self.depth = Some(render::depth_texture(
+                    self.depth = Some(render::targets(
                         &g.device,
                         g.config.width,
                         g.config.height,
+                        g.config.format,
+                        render::sane_samples(self.opts.s.video.msaa),
                     ));
                 }
             }

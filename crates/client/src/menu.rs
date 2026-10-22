@@ -798,6 +798,11 @@ fn video_tab(ui: &mut egui::Ui, s: &mut Settings) {
     row(ui, "Field of view", |ui| {
         ui.add(egui::Slider::new(&mut s.video.fov, 10.0..=130.0).step_by(1.0));
     });
+    row(ui, "Anti-aliasing (restart)", |ui| {
+        for (n, label) in [(1, "Off"), (2, "2x"), (4, "4x")] {
+            ui.selectable_value(&mut s.video.msaa, n, label);
+        }
+    });
     color_row(ui, "Menu accent colour", &mut s.ui.accent);
     row(ui, "Menu size", |ui| {
         ui.add(egui::Slider::new(&mut s.video.ui_scale, 0.75..=2.0).step_by(0.05));

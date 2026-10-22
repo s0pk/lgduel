@@ -518,6 +518,7 @@ pub fn perspective_rh(fov_y: f32, aspect: f32, near: f32, far: f32) -> Mat4 {
 }
 
 pub struct Renderer {
+    samples: u32,
     pipeline: wgpu::RenderPipeline,
     hud_pipeline: wgpu::RenderPipeline,
     hud_vb: wgpu::Buffer,
@@ -588,7 +589,17 @@ struct VOut {
 "#;
 
 impl Renderer {
-    pub fn new(device: &wgpu::Device, color_format: wgpu::TextureFormat) -> Self {
+    /// `samples` = MSAA sample count (1, 2 or 4); the targets passed to `draw`
+    /// must have been made with the same count (see [`targets`]).
+    pub fn with_samples(
+        device: &wgpu::Device,
+        color_format: wgpu::TextureFormat,
+        samples: u32,
+    ) -> Self {
+        let multisample = wgpu::MultisampleState {
+            count: samples,
+            ..Default::default()
+        };
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("flat"),
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
@@ -653,7 +664,7 @@ impl Renderer {
                     stencil: Default::default(),
                     bias: Default::default(),
                 }),
-                multisample: Default::default(),
+                multisample,
                 multiview_mask: None,
                 cache: None,
             })
@@ -717,7 +728,7 @@ impl Renderer {
                 stencil: Default::default(),
                 bias: Default::default(),
             }),
-            multisample: Default::default(),
+            multisample,
             multiview_mask: None,
             cache: None,
         });
@@ -728,6 +739,7 @@ impl Renderer {
         let dyn_vb = Self::dyn_buffer(device, dyn_capacity);
         let hud_vb = Self::dyn_buffer(device, dyn_capacity);
         Self {
+            samples,
             pipeline,
             hud_pipeline,
             hud_vb,
@@ -849,11 +861,15 @@ impl Renderer {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         color: &wgpu::TextureView,
-        depth: &wgpu::TextureView,
+        targets: &Targets,
         size: (u32, u32),
         cam: &Camera,
         clear: wgpu::Color,
     ) {
+        debug_assert_eq!(
+            targets.samples, self.samples,
+            "targets/renderer MSAA mismatch"
+        );
         let vp = cam.view_proj(size.0 as f32 / size.1.max(1) as f32);
         queue.write_buffer(
             &self.uniforms,
@@ -869,16 +885,20 @@ impl Renderer {
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("scene"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: color,
+                    view: targets.msaa.as_ref().unwrap_or(color),
                     depth_slice: None,
-                    resolve_target: None,
+                    resolve_target: targets.msaa.as_ref().map(|_| color),
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(clear),
-                        store: wgpu::StoreOp::Store,
+                        store: if targets.msaa.is_some() {
+                            wgpu::StoreOp::Discard
+                        } else {
+                            wgpu::StoreOp::Store
+                        },
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: depth,
+                    view: &targets.depth,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Discard,
@@ -916,23 +936,51 @@ impl Renderer {
     }
 }
 
-pub fn depth_texture(device: &wgpu::Device, w: u32, h: u32) -> wgpu::TextureView {
-    device
-        .create_texture(&wgpu::TextureDescriptor {
-            label: Some("depth"),
-            size: wgpu::Extent3d {
-                width: w.max(1),
-                height: h.max(1),
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        })
-        .create_view(&Default::default())
+/// Depth buffer and (with MSAA) the multisampled colour buffer the scene is drawn
+/// into before being resolved to the real target. Recreate on resize.
+pub struct Targets {
+    pub depth: wgpu::TextureView,
+    pub msaa: Option<wgpu::TextureView>,
+    pub samples: u32,
+}
+
+/// Valid MSAA sample counts; anything else means off.
+pub fn sane_samples(n: u32) -> u32 {
+    if matches!(n, 2 | 4) { n } else { 1 }
+}
+
+pub fn targets(
+    device: &wgpu::Device,
+    w: u32,
+    h: u32,
+    format: wgpu::TextureFormat,
+    samples: u32,
+) -> Targets {
+    let samples = sane_samples(samples);
+    let size = wgpu::Extent3d {
+        width: w.max(1),
+        height: h.max(1),
+        depth_or_array_layers: 1,
+    };
+    let make = |label, format, sample_count| {
+        device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size,
+                mip_level_count: 1,
+                sample_count,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            })
+            .create_view(&Default::default())
+    };
+    Targets {
+        depth: make("depth", DEPTH_FORMAT, samples),
+        msaa: (samples > 1).then(|| make("msaa color", format, samples)),
+        samples,
+    }
 }
 
 #[cfg(test)]
