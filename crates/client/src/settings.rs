@@ -122,6 +122,7 @@ pub struct Settings {
     pub effects: EffectSettings,
     pub hud: HudSettings,
     pub enemy_colors: EnemyColors,
+    pub models: crate::models::ModelSettings,
     pub audio: Audio,
     pub practice: Practice,
     /// Servers the player added (the official list ships separately).
@@ -195,6 +196,7 @@ impl Default for Settings {
             effects: EffectSettings::default(),
             hud: HudSettings::default(),
             enemy_colors: EnemyColors::default(),
+            models: crate::models::ModelSettings::default(),
             audio: Audio::default(),
             practice: Practice::default(),
             servers: Vec::new(),

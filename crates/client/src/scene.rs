@@ -3,8 +3,9 @@
 
 use crate::effects::{self, EffectSettings};
 use crate::hud::{self, DamageNumbers, HudInfo, HudSettings};
-use crate::players::{self, EnemyColors};
-use crate::render::{Camera, Vertex};
+use crate::models::{self, ModelPose, ModelSettings};
+use crate::players::EnemyColors;
+use crate::render::{self, Camera, Vertex};
 use lgduel_sim::config::GameConfig;
 use lgduel_sim::game::{GameEvent, PlayerId, hitscan};
 use lgduel_sim::math::{Angle, Vec3, angle_vectors};
@@ -94,59 +95,7 @@ fn push_gun(v: &mut Vec<Vertex>, cam: &Camera, gun: effects::GunModel) {
     ];
     for (cf, hl, hw, color) in parts {
         let c = at(cf, mr, md);
-        let corner = |a: f32, b: f32, d: f32| c + f * (a * hl) + r * (b * hw) + u * (d * hw);
-        // Six faces, each two triangles; shaded by which way the face looks.
-        let faces = [
-            (
-                [(1., -1., -1.), (1., 1., -1.), (1., 1., 1.), (1., -1., 1.)],
-                1.0,
-            ),
-            (
-                [
-                    (-1., -1., -1.),
-                    (-1., -1., 1.),
-                    (-1., 1., 1.),
-                    (-1., 1., -1.),
-                ],
-                0.55,
-            ),
-            (
-                [(-1., 1., -1.), (-1., 1., 1.), (1., 1., 1.), (1., 1., -1.)],
-                0.85,
-            ),
-            (
-                [
-                    (-1., -1., -1.),
-                    (1., -1., -1.),
-                    (1., -1., 1.),
-                    (-1., -1., 1.),
-                ],
-                0.72,
-            ),
-            (
-                [(-1., -1., 1.), (1., -1., 1.), (1., 1., 1.), (-1., 1., 1.)],
-                1.0,
-            ),
-            (
-                [
-                    (-1., -1., -1.),
-                    (-1., 1., -1.),
-                    (1., 1., -1.),
-                    (1., -1., -1.),
-                ],
-                0.55,
-            ),
-        ];
-        for (q, shade) in faces {
-            let p = q.map(|(a, b, d)| corner(a, b, d));
-            let col = [color[0] * shade, color[1] * shade, color[2] * shade];
-            for i in [0, 1, 2, 0, 2, 3] {
-                v.push(Vertex {
-                    pos: p[i].to_array(),
-                    color: col,
-                });
-            }
-        }
+        render::push_obox(v, c, (f, r, u), Vec3::new(hl, hw, hw), color, true);
     }
 }
 
@@ -225,12 +174,19 @@ pub fn scene_mesh(
     cam: &Camera,
     firing: bool,
     colors: &EnemyColors,
+    models: &ModelSettings,
     fx: &EffectSettings,
     seed: u32,
 ) -> Vec<Vertex> {
     let mut v = Vec::new();
     for o in fv.others.iter().filter(|o| o.alive) {
-        players::push_player(&mut v, o.origin, o.yaw, o.ducked, &cfg.physics, colors);
+        let pose = ModelPose {
+            origin: o.origin,
+            yaw: o.yaw,
+            pitch: o.pitch,
+            ducked: o.ducked,
+        };
+        models::push_model(&mut v, models.enemy, pose, &cfg.physics, colors, models);
         if o.buttons & buttons::FIRE != 0 {
             let eye = FrameView::eye_of(o, cfg);
             push_lg(
@@ -378,8 +334,28 @@ mod tests {
                 ..EffectSettings::default()
             };
             let colors = EnemyColors::default();
-            let a = scene_mesh(&fv, &world, &cfg, &cam, true, &colors, &fx, 1);
-            let b = scene_mesh(&hurt, &world, &cfg, &cam, true, &colors, &fx, 1);
+            let a = scene_mesh(
+                &fv,
+                &world,
+                &cfg,
+                &cam,
+                true,
+                &colors,
+                &ModelSettings::default(),
+                &fx,
+                1,
+            );
+            let b = scene_mesh(
+                &hurt,
+                &world,
+                &cfg,
+                &cam,
+                true,
+                &colors,
+                &ModelSettings::default(),
+                &fx,
+                1,
+            );
             assert_eq!(a, b);
             assert!(!a.is_empty());
         }
@@ -406,6 +382,7 @@ mod tests {
                 &cam,
                 false,
                 &EnemyColors::default(),
+                &ModelSettings::default(),
                 &fx,
                 1,
             )
@@ -426,6 +403,7 @@ mod tests {
             &cam,
             false,
             &EnemyColors::default(),
+            &ModelSettings::default(),
             &fx_none,
             1,
         )
@@ -441,6 +419,7 @@ mod tests {
             &cam,
             false,
             &EnemyColors::default(),
+            &ModelSettings::default(),
             &fx,
             1,
         );

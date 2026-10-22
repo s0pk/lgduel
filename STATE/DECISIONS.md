@@ -628,3 +628,16 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
   OS), scaled to 256². Style key hashes all pixels so edited files re-upload on `reloadtheme`.
 - `lgduel --make-example-theme DIR` writes the example (CC0); a test fails if `assets/themes/example` is stale.
   Packages ship it under `themes/example`.
+
+## D63 — Enemy models and skins (2026-10-23)
+- `models.rs`: `ModelKind::{Classic, Humanoid}`, `ModelSettings {enemy, forced_colors (default true), skin}`.
+  Classic = the old `players::push_player` byte for byte. Humanoid = legs (swing from position phase, ±0.28 rad),
+  leaning torso, head, two arms + LG aimed by pitch (≤ 0.6 rad), built with the shared `render::push_obox`.
+- Everything stays inside a 15-unit-radius cylinder and the hull's height (test over 10 000+ vertices at many yaws,
+  pitches, positions, standing/crouched), so it is within the axis-aligned hitbox at every yaw.
+- Forced colours are applied per part, not by height band as first sketched: legs → `lower`, torso/arms/gun/→ `upper`,
+  head → `head`, unshaded. Skins (forced colours off) are shaded; defaults are warm/dark tones that stand out
+  from grey arenas (a first grey-blue default vanished against the floor).
+- Legs animate from position only (no velocity in `OtherView`), so a standing player holds a frozen stride.
+- Headless: `--enemy-model`, `--skins`, `--enemy-distance` (60–1500) for close-up pictures; the per-band pixel
+  minimum is 20 for non-classic models.

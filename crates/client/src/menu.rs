@@ -839,10 +839,33 @@ fn visuals_tab(ui: &mut egui::Ui, s: &mut Settings, themes: &[String]) {
             egui::Slider::new(&mut s.effects.spark_size, 0.5..=16.0).text("size"),
         );
     });
-    ui.heading("Enemy colours");
-    color_row(ui, "Head", &mut s.enemy_colors.head);
-    color_row(ui, "Body", &mut s.enemy_colors.upper);
-    color_row(ui, "Legs", &mut s.enemy_colors.lower);
+    ui.heading("Enemies");
+    row(ui, "Model", |ui| {
+        use crate::models::ModelKind;
+        for (k, name) in [
+            (ModelKind::Classic, "Classic"),
+            (ModelKind::Humanoid, "Humanoid"),
+        ] {
+            ui.selectable_value(&mut s.models.enemy, k, name);
+        }
+    });
+    row(ui, "Forced colours", |ui| {
+        ui.checkbox(
+            &mut s.models.forced_colors,
+            "solid colours, easiest to see (recommended)",
+        );
+    });
+    if s.models.forced_colors {
+        color_row(ui, "Head", &mut s.enemy_colors.head);
+        color_row(ui, "Body", &mut s.enemy_colors.upper);
+        color_row(ui, "Legs", &mut s.enemy_colors.lower);
+    } else {
+        ui.label("Skin colours (shown instead of the forced colours):");
+        color_row(ui, "Head", &mut s.models.skin.head);
+        color_row(ui, "Torso", &mut s.models.skin.torso);
+        color_row(ui, "Arms", &mut s.models.skin.arms);
+        color_row(ui, "Legs", &mut s.models.skin.legs);
+    }
     ui.heading("Crosshair");
     let c = &mut s.hud.crosshair;
     row(ui, "Length", |ui| {

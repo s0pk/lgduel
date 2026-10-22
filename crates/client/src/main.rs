@@ -23,6 +23,7 @@ mod hud;
 mod input;
 mod local;
 mod menu;
+mod models;
 mod net_session;
 mod offscreen;
 mod players;
@@ -97,6 +98,8 @@ struct Options {
     join: Option<String>,
     /// Joining by code: skip the direct attempt and use the relay.
     force_relay: bool,
+    /// Headless picture: how far in front of you the opponent stands (default 400).
+    enemy_distance: f32,
     /// Extra folder to look for themes in.
     theme_dir: Option<std::path::PathBuf>,
     /// Record a demo to this file.
@@ -150,6 +153,7 @@ impl Options {
             spectate: false,
             join: None,
             force_relay: false,
+            enemy_distance: 400.0,
             theme_dir: None,
             record: None,
             play_demo: None,
@@ -180,6 +184,19 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
             "--frames" => o.frames = Some(num("--frames", val("--frames")?)?),
             "--fps-cap" => o.s.video.fps_cap = Some(num("--fps-cap", val("--fps-cap")?)? as u32),
             "--theme" => o.s.video.theme = val("--theme")?,
+            "--enemy-model" => {
+                let v = val("--enemy-model")?;
+                o.s.models.enemy = models::ModelKind::parse(&v)
+                    .ok_or(format!("--enemy-model must be classic|humanoid, got {v}"))?;
+            }
+            "--skins" => o.s.models.forced_colors = false,
+            "--enemy-distance" => {
+                o.enemy_distance = val("--enemy-distance")?
+                    .parse::<f32>()
+                    .ok()
+                    .filter(|d| (60.0..=1500.0).contains(d))
+                    .ok_or("--enemy-distance needs a number from 60 to 1500")?;
+            }
             "--theme-dir" => o.theme_dir = Some(val("--theme-dir")?.into()),
             "--make-example-theme" => {
                 let dir = std::path::PathBuf::from(val("--make-example-theme")?);
@@ -477,6 +494,7 @@ fn run_headless_demo(opts: &Options) -> Result<(), String> {
                 &cam,
                 firing,
                 &EnemyColors::default(),
+                &opts.s.models,
                 &opts.s.effects,
                 i,
             );
@@ -534,7 +552,7 @@ fn run_headless(opts: &Options) -> Result<(), String> {
     let mut session = LocalSession::new(cfg, world.clone(), 1);
     let me = session.game.player(session.me).unwrap().pm.origin;
     let enemy_id = session.game.players[1].id;
-    session.teleport(enemy_id, me + Vec3::new(400.0, 0.0, 0.0));
+    session.teleport(enemy_id, me + Vec3::new(opts.enemy_distance, 0.0, 0.0));
     let enemy = session.game.player(enemy_id).unwrap().pm.origin;
     let eye = session.eye();
     let (pitch, yaw) = look_angles(enemy + Vec3::new(0.0, 0.0, 8.0) - eye);
@@ -590,6 +608,7 @@ fn run_headless(opts: &Options) -> Result<(), String> {
                 &cam,
                 true,
                 &colors,
+                &opts.s.models,
                 &opts.s.effects,
                 i,
             );
@@ -717,7 +736,13 @@ fn run_headless(opts: &Options) -> Result<(), String> {
         let srgb = offscreen::linear_to_srgb8(c);
         let px_count = (offscreen::color_fraction(&px, srgb, 2) * total).round() as u64;
         println!("IMAGE enemy {name} {srgb:?}: {px_count} px");
-        if px_count < 50 {
+        // The humanoid is slimmer: its head is a few pixels.
+        let min = if opts.s.models.enemy == models::ModelKind::Classic {
+            50
+        } else {
+            20
+        };
+        if opts.s.models.forced_colors && px_count < min {
             return Err(format!(
                 "forced enemy {name} colour not visible ({px_count} px)"
             ));
@@ -1087,6 +1112,7 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
                 &cam,
                 fv.spectate.is_some_and(|s| s.firing),
                 &colors,
+                &opts.s.models,
                 &opts.s.effects,
                 seed,
             );
@@ -1912,6 +1938,7 @@ impl ApplicationHandler for App {
                         &cam,
                         fv.spectate.map_or(self.keys.fire, |s| s.firing),
                         &self.opts.s.enemy_colors,
+                        &self.opts.s.models,
                         &self.opts.s.effects,
                         self.frames as u32,
                     ),

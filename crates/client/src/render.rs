@@ -107,6 +107,75 @@ pub fn push_box(out: &mut Vec<Vertex>, b: &Aabb, color: [f32; 3]) {
     }
 }
 
+/// Append an oriented box: `half` is the half size along `axes` (three unit
+/// vectors, e.g. forward / right / up). `shade` applies the per-face brightness.
+pub fn push_obox(
+    out: &mut Vec<Vertex>,
+    centre: Vec3,
+    axes: (Vec3, Vec3, Vec3),
+    half: Vec3,
+    color: [f32; 3],
+    shade: bool,
+) {
+    let (f, r, u) = axes;
+    let corner =
+        |a: f32, b: f32, d: f32| centre + f * (a * half.x) + r * (b * half.y) + u * (d * half.z);
+    // Six faces as sign triples of the corners, with their brightness.
+    type FaceSpec = ([(f32, f32, f32); 4], f32);
+    const FACES: [FaceSpec; 6] = [
+        (
+            [(1., -1., -1.), (1., 1., -1.), (1., 1., 1.), (1., -1., 1.)],
+            1.0,
+        ),
+        (
+            [
+                (-1., -1., -1.),
+                (-1., -1., 1.),
+                (-1., 1., 1.),
+                (-1., 1., -1.),
+            ],
+            0.55,
+        ),
+        (
+            [(-1., 1., -1.), (-1., 1., 1.), (1., 1., 1.), (1., 1., -1.)],
+            0.85,
+        ),
+        (
+            [
+                (-1., -1., -1.),
+                (1., -1., -1.),
+                (1., -1., 1.),
+                (-1., -1., 1.),
+            ],
+            0.72,
+        ),
+        (
+            [(-1., -1., 1.), (1., -1., 1.), (1., 1., 1.), (-1., 1., 1.)],
+            1.0,
+        ),
+        (
+            [
+                (-1., -1., -1.),
+                (-1., 1., -1.),
+                (1., 1., -1.),
+                (1., -1., -1.),
+            ],
+            0.55,
+        ),
+    ];
+    for (q, s) in FACES {
+        let s = if shade { s } else { 1.0 };
+        let p = q.map(|(a, b, d)| corner(a, b, d));
+        let col = [color[0] * s, color[1] * s, color[2] * s];
+        for i in [0, 1, 2, 0, 2, 3] {
+            out.push(Vertex {
+                pos: p[i].to_array(),
+                color: col,
+            });
+        }
+    }
+}
+
 /// A world vertex: position, texture coordinate, tint (face brightness included)
 /// and the texture-array layer. Layer 0 is white, so the colour alone is shown.
 #[repr(C)]

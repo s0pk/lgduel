@@ -129,5 +129,5 @@ Full instructions: `STATE/HANDOFF_VISUALS.md` (read section 0 first). Client-sid
 - [x] T2 Textured world pipeline (texture array, UVs), classic look identical
 - [x] T3 Theme system + built-in themes classic / grid (procedural textures), video.theme setting
 - [x] T4 User themes from folders (theme.toml + PNG), example theme, THEMES.md
-- [ ] T5 Built-in character models (classic, humanoid) + forced-colour banding + skins
+- [x] T5 Built-in character models (classic, humanoid) + forced-colour banding + skins
 - [ ] T6 Docs, settings UI pass, perf re-measure, state

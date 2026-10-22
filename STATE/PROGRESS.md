@@ -384,3 +384,7 @@
 ## 2026-10-23 — iteration 69: visuals T4 user themes
 - textures.rs (PNG decode with limits + resize, safe_relative, load_png_file, encode_png_rgb), theme.rs (load, find_theme_dir, available, search_dirs, example_theme_files), `--theme-dir`, `--make-example-theme`, console `reloadtheme`, Menu.themes, assets/themes/example, THEMES.md, package/release copy the example, check.sh renders it.
 - Verified: PNG decode tests (all colour types, shrink/grow, 2049 px rejected, garbage, truncated), path safety, broken-theme fallbacks (unknown name, bad TOML, `../`, missing, absolute, too many, oversized file), committed example == generator output and loads; screenshot inspected (brick walls, tiled floor, enemy clearly visible); exe-folder search verified; check.sh GREEN 114 s.
+
+## 2026-10-23 — iteration 70: visuals T5 character models
+- render::push_obox (gun refactored onto it), models.rs, scene_mesh takes `&ModelSettings`, settings `[models]`, Visuals tab (model, forced colours, skin pickers), `--enemy-model/--skins/--enemy-distance`, check.sh humanoid + skin renders.
+- Verified: 6 model tests (hitbox containment, exactly three forced colours / skin has none of them, classic == original, legs move while torso/head don't and yaw turns the model, crouch lowers it, settings round trip); close-up screenshots inspected; check.sh GREEN 115 s; 6675 fps at 1080p with grid + humanoid.
