@@ -257,6 +257,8 @@ struct Options {
     settings_path: Option<std::path::PathBuf>,
     frames: Option<u64>,
     headless: bool,
+    /// Headless: draw the TAB scoreboard.
+    scoreboard_demo: bool,
     /// Headless: draw this menu screen over the scene (UI render check).
     menu: Option<menu::Screen>,
     screenshot: Option<String>,
@@ -338,6 +340,7 @@ impl Options {
             theme_dir: None,
             record: None,
             play_demo: None,
+            scoreboard_demo: false,
             menu_online: false,
             summary_demo: false,
             menu_console: false,
@@ -418,6 +421,7 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
                 ];
             }
             "--auto-hud" => o.s.hud.auto_scale = true,
+            "--scoreboard-demo" => o.scoreboard_demo = true,
             "--theme-dir" => o.theme_dir = Some(val("--theme-dir")?.into()),
             "--make-example-theme" => {
                 let dir = std::path::PathBuf::from(val("--make-example-theme")?);
@@ -867,7 +871,7 @@ fn run_headless(opts: &Options) -> Result<(), String> {
                 fire: true,
                 ..Default::default()
             };
-            let hud = scene::hud_mesh(
+            let mut hud = scene::hud_mesh(
                 &fv,
                 &cam,
                 (w, h),
@@ -876,6 +880,12 @@ fn run_headless(opts: &Options) -> Result<(), String> {
                 demo.as_ref(),
                 Some(input),
             );
+            if opts.scoreboard_demo {
+                let rows = hud::scoreboard_lines(&fv.stats, fv.me, 125, &|id| {
+                    (id != fv.me).then(|| "BOT".to_string())
+                });
+                hud::scoreboard(&mut hud, (w as f32, h as f32), &rows, &hud_settings);
+            }
             (cam, scene, hud)
         },
         style.sky(),
@@ -1024,6 +1034,15 @@ fn run_headless(opts: &Options) -> Result<(), String> {
         ("crosshair", hud_settings.crosshair.color, 20),
         ("hud text", hud_settings.text_color, 100),
     ];
+    if opts.scoreboard_demo {
+        // The panel's dark backing (nothing else in the scene has this colour).
+        let backing = offscreen::linear_to_srgb8([0.04, 0.04, 0.05]);
+        let px_count = (offscreen::color_fraction(&px, backing, 1) * total).round() as u64;
+        println!("IMAGE scoreboard backing {backing:?}: {px_count} px");
+        if px_count < 5_000 {
+            return Err(format!("scoreboard not drawn ({px_count} px)"));
+        }
+    }
     if !numbers.items.is_empty() {
         hud_checks.push(("damage numbers", hud_settings.damage_color, 10));
     } else if frames >= 60 {
@@ -1497,6 +1516,10 @@ struct App {
     depth: Option<render::Targets>,
     stats: FrameStats,
     last_frame: Option<Instant>,
+    /// TAB held: show the scoreboard.
+    scores: bool,
+    /// When the window title was last refreshed (at most once a second).
+    title_at: Option<Instant>,
     frames: u64,
     error: Option<String>,
     /// `quit` typed in the console (handled at the end of the frame).
@@ -1775,6 +1798,7 @@ impl App {
             KeyCode::Escape if down => self.toggle_menu(),
             KeyCode::Backquote if down => self.toggle_console(),
             KeyCode::F3 if down => self.opts.s.hud.net_graph = !self.opts.s.hud.net_graph,
+            KeyCode::Tab => self.scores = down,
             KeyCode::F11 if down => self.toggle_fullscreen(),
             KeyCode::Enter | KeyCode::NumpadEnter if down && self.alt => self.toggle_fullscreen(),
             _ => {}
@@ -2116,6 +2140,14 @@ impl App {
     }
 }
 
+/// Window title: the game name, the map, and the ping when online.
+fn window_title(map: &str, ping_ms: Option<f32>) -> String {
+    match ping_ms {
+        Some(p) if p > 0.0 => format!("LGDuel - {map} - {p:.0} ms"),
+        _ => format!("LGDuel - {map}"),
+    }
+}
+
 impl ApplicationHandler for App {
     fn resumed(&mut self, el: &ActiveEventLoop) {
         if self.window.is_some() {
@@ -2289,6 +2321,17 @@ impl ApplicationHandler for App {
                     Some(s) => s.world_cfg(),
                     None => (&self.world, None),
                 };
+                if self
+                    .title_at
+                    .is_none_or(|t| t.elapsed() >= Duration::from_secs(1))
+                    && let Some(w) = &self.window
+                {
+                    self.title_at = Some(now);
+                    w.set_title(&window_title(
+                        &world.name,
+                        fv.as_ref().and_then(|f| f.hud.net).map(|n| n.ping_ms),
+                    ));
+                }
                 let cam = match &fv {
                     // Spectating: through the watched player's eyes.
                     Some(f) => {
@@ -2370,6 +2413,31 @@ impl ApplicationHandler for App {
                             )
                         })
                         .unwrap_or_default();
+                    let mut hud = hud;
+                    if self.scores
+                        && !self.menu.is_open()
+                        && let Some(fv) = &fv
+                    {
+                        let (tick_hz, names): (u32, Vec<_>) = match &self.session {
+                            Some(Session::Net(n)) => (
+                                cfg.map_or(125, |c| c.tick_rate_hz),
+                                n.roster().iter().map(|e| (e.id, e.name.clone())).collect(),
+                            ),
+                            _ => (cfg.map_or(125, |c| c.tick_rate_hz), Vec::new()),
+                        };
+                        let rows = hud::scoreboard_lines(&fv.stats, fv.me, tick_hz, &|id| {
+                            names
+                                .iter()
+                                .find(|(i, _)| *i == id.0)
+                                .map(|(_, n)| n.clone())
+                        });
+                        hud::scoreboard(
+                            &mut hud,
+                            (size.0 as f32, size.1 as f32),
+                            &rows,
+                            &self.opts.s.hud,
+                        );
+                    }
                     r.set_hud(&g.device, &g.queue, &hud);
                     let mut action = None;
                     let entries = server_entries(&self.opts.s);
@@ -2696,6 +2764,8 @@ fn main() {
         depth: None,
         stats: FrameStats::default(),
         last_frame: None,
+        scores: false,
+        title_at: None,
         frames: 0,
         error: None,
         quit_requested: false,
@@ -2729,6 +2799,16 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn window_title_shows_map_and_ping_only_when_known() {
+        assert_eq!(window_title("arena_flat", None), "LGDuel - arena_flat");
+        assert_eq!(window_title("arena_flat", Some(0.0)), "LGDuel - arena_flat");
+        assert_eq!(
+            window_title("arena_flat", Some(23.6)),
+            "LGDuel - arena_flat - 24 ms"
+        );
+    }
+
     use super::*;
 
     fn parse(s: &str) -> Result<Options, String> {

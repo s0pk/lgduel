@@ -67,6 +67,8 @@ msaa_out=$("$T/$PROFILE/lgduel" --headless --no-settings --frames 3 --msaa 4 --s
 echo "$msaa_out" | grep -E "RENDER CHECK"
 msaa_colors=$(echo "$msaa_out" | sed -n 's/.*distinct colours \([0-9]*\),.*/\1/p')
 [ "${msaa_colors:-0}" -gt 30 ] || { echo "MSAA had no visible effect ($msaa_colors colours)"; exit 1; }
+# Scoreboard (TAB): panel drawn high on the screen, enemy / crosshair / beam still visible.
+"$T/$PROFILE/lgduel" --headless --no-settings --frames 20 --scoreboard-demo --size 1280x720 --screenshot artifacts/scoreboard.png | grep -E "scoreboard|CHECK"
 # A theme loaded from a folder (PNG textures).
 "$T/$PROFILE/lgduel" --headless --frames 3 --theme example --theme-dir assets/themes --map arena_pillars --size 1280x720 --screenshot artifacts/theme_example.png | grep -E "CHECK"
 # Humanoid enemy model (forced colours), and the same model in its own skin colours.

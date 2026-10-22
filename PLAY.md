@@ -47,6 +47,7 @@ server on a small VPS avoids all of this, see [DEPLOY.md](DEPLOY.md).
 | Ctrl or C | crouch |
 | Left mouse | Lightning Gun |
 | Esc | menu (releases the mouse) |
+| Tab (hold) | scoreboard: wins-losses, LG %, damage, average fight length for you and the opponent |
 | F3 | net-graph on/off |
 | F11 or Alt+Enter | fullscreen on/off |
 | ` (key left of 1) | console |

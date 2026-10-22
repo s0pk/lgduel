@@ -468,6 +468,88 @@ pub fn centre_block(out: &mut Vec<Vertex>, screen: (f32, f32), lines: &[String],
     }
 }
 
+/// Scoreboard rows (a header, then the viewed player first, the others by id).
+/// `name` gives a player's display name; unknown names fall back to YOU / OPPONENT.
+pub fn scoreboard_lines(
+    stats: &[(lgduel_sim::game::PlayerId, lgduel_sim::game::PlayerStats)],
+    me: lgduel_sim::game::PlayerId,
+    tick_hz: u32,
+    name: &dyn Fn(lgduel_sim::game::PlayerId) -> Option<String>,
+) -> Vec<String> {
+    let mut rows: Vec<_> = stats.iter().collect();
+    rows.sort_by_key(|(id, _)| (*id != me, id.0));
+    let mut out = vec![format!(
+        "{:<10} {:>7} {:>5} {:>13} {:>6}",
+        "PLAYER", "W-L", "LG", "DMG", "FIGHT"
+    )];
+    for (id, st) in rows {
+        let fallback = if *id == me { "YOU" } else { "OPPONENT" };
+        let n: String = name(*id)
+            .unwrap_or_else(|| fallback.into())
+            .to_uppercase()
+            .chars()
+            .take(10)
+            .collect();
+        let fights = st.fights_won + st.fights_lost;
+        let fight = if fights == 0 || tick_hz == 0 {
+            "-".to_string()
+        } else {
+            format!(
+                "{:.1}S",
+                st.fight_ticks as f32 / fights as f32 / tick_hz as f32
+            )
+        };
+        out.push(format!(
+            "{:<10} {:>7} {:>5} {:>13} {:>6}",
+            n,
+            format!("{}-{}", st.fights_won, st.fights_lost),
+            format!("{:.0}%", st.accuracy_pct()),
+            format!("{}/{}", st.damage_dealt, st.damage_taken),
+            fight
+        ));
+    }
+    out
+}
+
+/// The scoreboard panel (shown while TAB is held): a dark backing and the rows,
+/// centred horizontally in the upper part of the screen.
+pub fn scoreboard(out: &mut Vec<Vertex>, screen: (f32, f32), lines: &[String], s: &HudSettings) {
+    let sc = effective_text_scale(s, screen.1 as u32);
+    let line = (GLYPH_H as f32 + 4.0) * sc;
+    let width = lines.iter().map(|l| text_width(l, sc)).fold(0.0, f32::max);
+    let height = line * lines.len() as f32;
+    let pad = 12.0 * sc / 3.0;
+    let x0 = ((screen.0 - width) * 0.5).max(0.0);
+    // High on the screen: the crosshair and the enemy stay visible while TAB is held.
+    let y0 = (screen.1 * 0.12).max(pad);
+    push_rect(
+        out,
+        screen,
+        x0 - pad,
+        y0 - pad,
+        width + 2.0 * pad,
+        height + 2.0 * pad,
+        [0.04, 0.04, 0.05],
+    );
+    for (i, l) in lines.iter().enumerate() {
+        let colour = if i == 0 {
+            s.net_graph_color
+        } else {
+            s.text_color
+        };
+        label(
+            out,
+            screen,
+            x0,
+            y0 + i as f32 * line,
+            sc,
+            colour,
+            s.text_shadow,
+            l,
+        );
+    }
+}
+
 pub fn build(
     out: &mut Vec<Vertex>,
     screen: (f32, f32),
@@ -560,6 +642,46 @@ pub fn build(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn scoreboard_rows_are_aligned_and_ordered() {
+        use lgduel_sim::game::{PlayerId, PlayerStats};
+        let a = PlayerStats {
+            shots: 100,
+            hits: 40,
+            damage_dealt: 1200,
+            damage_taken: 800,
+            fights_won: 3,
+            fights_lost: 1,
+            fight_ticks: 4 * 125 * 10,
+            ..Default::default()
+        };
+        let b = PlayerStats::default();
+        // Opponent listed first in the data; the viewed player (id 5) still comes first.
+        let stats = [(PlayerId(2), b), (PlayerId(5), a)];
+        let rows = scoreboard_lines(&stats, PlayerId(5), 125, &|id| {
+            (id == PlayerId(2)).then(|| "a-very-long-name-indeed".to_string())
+        });
+        assert_eq!(rows.len(), 3);
+        assert!(rows[1].starts_with("YOU "), "{rows:?}");
+        assert!(rows[1].contains("3-1") && rows[1].contains("40%"));
+        assert!(rows[1].contains("1200/800") && rows[1].contains("10.0S"));
+        assert!(rows[2].starts_with("A-VERY-LON "), "{rows:?}");
+        assert!(rows[2].ends_with("     -"), "{rows:?}");
+        assert!(rows.iter().all(|r| r.len() == rows[0].len()), "{rows:?}");
+    }
+
+    #[test]
+    fn scoreboard_stays_on_screen() {
+        let lines = vec!["PLAYER".to_string(); 3];
+        let mut v = Vec::new();
+        scoreboard(&mut v, (1280.0, 720.0), &lines, &HudSettings::default());
+        assert!(!v.is_empty());
+        assert!(
+            v.iter()
+                .all(|p| p.pos[0].abs() <= 1.001 && p.pos[1].abs() <= 1.001)
+        );
+    }
+
     use super::*;
 
     #[test]
