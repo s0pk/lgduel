@@ -131,3 +131,26 @@ Full instructions: `STATE/HANDOFF_VISUALS.md` (read section 0 first). Client-sid
 - [x] T4 User themes from folders (theme.toml + PNG), example theme, THEMES.md
 - [x] T5 Built-in character models (classic, humanoid) + forced-colour banding + skins
 - [x] T6 Docs, settings UI pass, perf re-measure, state
+
+## Linux, look & feel, share codes (handoff plan, user-approved scope 2026-10-23)
+Full instructions: `STATE/HANDOFF_LINUX_LOOK_SHARE.md` (read section 0 first). Order: Part A, then B, then C (C items independent).
+Part A — native Linux + Arch (AUR source package):
+- [ ] A1 Build/test on real Linux (WSL2 Ubuntu), check.sh green, close KI-1
+- [ ] A2 Linux platform behaviour: XDG theme dirs, window app id, `lgduel --doctor`
+- [ ] A3 Generated app icon, window icon, .desktop file
+- [ ] A4 PKGBUILD (split: lgduel + lgduel-server with systemd/sysusers), pkgbuild check script, AUR steps for the user
+- [ ] A5 INSTALL.md, release workflow Linux client tarball, CI Arch container job
+Part B — share codes:
+- [ ] B1 Profile codes (`LGP1-…`): export/import/preview, Share tab, console, CLI, hostile-input tests
+- [ ] B2 Built-in presets (classic, high-visibility, colour-blind-safe, minimal, showcase)
+- [ ] B3 Theme packs (`.lgtheme`), drag and drop import, safe unpack
+- [ ] B4 SHARING.md, share screen check
+Part C — look & feel:
+- [ ] C1 MSAA option
+- [ ] C2 Window title / identity polish
+- [ ] C3 HUD auto-scale and UI scale
+- [ ] C4 Crosshair styles, outline, hit marker
+- [ ] C5 Procedural sound set
+- [ ] C6 Menu styling (accent colour, shared panel constant)
+- [ ] C7 Sky gradient, edge outlines, themes midnight / paper / ember
+- [ ] C8 Scoreboard overlay (TAB) and session summary
