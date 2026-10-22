@@ -159,3 +159,11 @@
 - `crates/server/tests/lagcomp.rs`: shooter at 100 ms RTT aims at what its interpolation shows; strafer A/D.
 - Measured: anti-lag 100.0% (219 shots, mean rewind 119 ms) vs no-anti-lag 24.7% at 100 ms RTT; anti-lag 100.0% at 100±20 ms (mean rewind 143 ms); 600 ms RTT → 214/214 rewinds clamped to 200 ms, accuracy 12.6%.
 - Verified: determinism golden hash unchanged; check.sh GREEN.
+
+## 2026-10-22 — iteration 30: PLAN 4.9 bot as network client
+- `crates/bot/src/netbot.rs` (NetBot), `crates/bot/src/main.rs` (UDP bot binary with BOTRESULT output), Predictor `external` corrections, server dev-dep on bot, `crates/server/tests/netbots.rs`.
+- Finding: the victim bot showed mean 1.08u / max 896u "prediction error" — caused by being hit/killed/respawned (unpredictable for the victim), not desync. Metric now excludes those (counted as external) → both bots 0.0000.
+- Finding → PLAN 5.6 + KI-10: events ride only in the snapshot carrying them; lost snapshot = lost hit sounds/kill notices.
+- MemNet duel (25±5 ms, 1% loss, 30 s): hard 9W–0L, 42.1% vs 9.3% accuracy; lifesteal_earned == damage_dealt for both; prediction 0.0000 over 3493 checks.
+- Live UDP (server + 2 bot binaries, 10 s): both connected/left cleanly; hard 62.6% acc 4 kills, easy 10.7%; lifesteal exact; prediction 0.0000 (1235/1173 checks); server 1499 ticks in 12.0 s.
+- Verified: check.sh GREEN.

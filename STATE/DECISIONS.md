@@ -286,3 +286,11 @@ Pinned in `crates/sim/tests/movement_golden.rs`. Changing physics must update th
 - Measured (MemNet, perfect on-screen aim at a target strafing A/D every 400 ms at 300u):
   100 ms RTT → anti-lag 100.0% (mean rewind 119 ms), no-anti-lag 24.7%; 100±20 ms RTT → anti-lag 100.0%;
   600 ms RTT → all rewinds clamped at 200 ms, 12.6%.
+
+## D28 — Network bots & desync metric (2026-10-22)
+- `lgduel_bot::netbot::NetBot`: NetClient + Bot + a mirror Game rebuilt from the newest snapshot + Predictor.
+  The bot decides on the newest snapshot and reports that tick as its anti-lag view time.
+- `lgduel-bot --server H:P [--pattern --skill --name --seed --duration-secs]`, prints a `BOTRESULT` line.
+- Desync = prediction error on snapshots *not* preceded by an external change to the predicted player
+  (damage taken → knockback, death, respawn). Those are counted separately as `external` corrections;
+  detected from authoritative state (damage_taken/deaths/alive), not from events (events can be lost, KI-10).

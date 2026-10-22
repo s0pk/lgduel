@@ -15,6 +15,9 @@ lgduel-net = { path = "../net" }
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.1.8"
 
+[dev-dependencies]
+lgduel-bot = { path = "../bot" }
+
 [lib]
 name = "lgduel_server"
 path = "src/lib.rs"

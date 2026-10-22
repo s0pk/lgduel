@@ -7,6 +7,8 @@
 //! between the two players. Everything is driven by a seeded RNG, so a bot with
 //! the same seed and the same game produces the same inputs.
 
+pub mod netbot;
+
 use lgduel_sim::game::{Game, PlayerId};
 use lgduel_sim::math::{Angle, Vec3, look_angles};
 use lgduel_sim::tick::Tick;

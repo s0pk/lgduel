@@ -19,3 +19,6 @@
 - KI-9 (2026-10-22): Audible output of the hit sound is verified only to the point of "stream opened and
   samples submitted" (`lgduel --sound-test` on Realtek @ 48 kHz); a human must confirm it sounds right.
   `--sound-test` is not in check.sh because CI boxes have no audio device.
+- KI-10 (2026-10-22): Game events (Fire/Damage/Kill/…) ride only in the snapshot that carries them; a lost
+  snapshot loses them (hit sounds, damage numbers, kill notices). State (health, stats, alive) is still
+  correct via later snapshots. Fix planned as PLAN 5.6.

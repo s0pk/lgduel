@@ -31,6 +31,9 @@ pub struct PredictionStats {
     pub max_error: f32,
     /// Checked ticks with any error at all.
     pub mispredicted: u64,
+    /// Corrections caused by things the client cannot predict (being hit →
+    /// knockback, dying, respawning). Not counted as prediction error.
+    pub external: u64,
 }
 
 impl PredictionStats {
@@ -57,6 +60,8 @@ pub struct Predictor {
     /// Visual correction offset (decays to zero).
     pub smooth_offset: Vec3,
     pub stats: PredictionStats,
+    /// (damage taken, deaths, alive) at the last reconciled snapshot.
+    last_seen: Option<(u32, u32, bool)>,
 }
 
 impl Predictor {
@@ -71,6 +76,7 @@ impl Predictor {
             history: BTreeMap::new(),
             smooth_offset: Vec3::ZERO,
             stats: PredictionStats::default(),
+            last_seen: None,
         }
     }
 
@@ -98,8 +104,15 @@ impl Predictor {
         let Some(me) = snap.player(self.me) else {
             return;
         };
+        // Hit (knockback), killed or respawned since the last snapshot? Then a
+        // correction is expected and isn't a prediction error.
+        let seen = (me.stats.damage_taken, me.stats.deaths, me.alive);
+        let external = self.last_seen.is_some_and(|s| s != seen);
+        self.last_seen = Some(seen);
         // Measure: what did we predict for the command the server just applied?
-        if let Some(last) = snap.last_cmd
+        if external {
+            self.stats.external += 1;
+        } else if let Some(last) = snap.last_cmd
             && let Some(pred) = self.history.get(&last.0)
         {
             let err = (*pred - me.pm.origin).length();
