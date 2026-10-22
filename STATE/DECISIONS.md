@@ -490,3 +490,13 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
   HUD shows their numbers) and keeps sending idle commands. Esc menu online: Spectate / Play.
 - HUD status line (top centre): "ARENA n - VS NAME", "... PRACTICE BOT UNTIL AN OPPONENT JOINS",
   "QUEUE #k - WATCHING ARENA n", "SPECTATING ARENA n - ESC > PLAY TO JOIN".
+
+## D49 — Reliable game events (2026-10-22)
+- Every event except `Fire` (beam visuals: only useful fresh) is reliable. The server numbers them per client
+  (`event_base` + queue) and repeats the whole unacked queue in every snapshot as `reliable_events` with the
+  first sequence number `event_seq`; when the client acks snapshot T, events up to that snapshot's mark are
+  dropped. The client delivers each sequence number once (appended to `events`), counting gaps.
+- Wire: count, then the first sequence as a varint only when the list is non-empty (idle delta +1 byte).
+  Protocol v5. Queue cap 256 per client (oldest dropped and counted; never hit in tests).
+- Effect: hit sounds, damage numbers, kill/fight notices survive loss; they may arrive one RTT late when
+  the first copy is lost. Resolves KI-10.

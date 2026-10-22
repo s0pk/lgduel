@@ -82,6 +82,8 @@ mod tests {
 
     fn snap(tick: u32, target: Option<PlayerId>) -> Snapshot {
         Snapshot {
+            event_seq: 0,
+            reliable_events: Vec::new(),
             tick: Tick(tick),
             fight_start: None,
             players: vec![],

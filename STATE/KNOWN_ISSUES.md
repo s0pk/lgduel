@@ -22,6 +22,7 @@
 - KI-10 (2026-10-22): Game events (Fire/Damage/Kill/…) ride only in the snapshot that carries them; a lost
   snapshot loses them (hit sounds, damage numbers, kill notices). State (health, stats, alive) is still
   correct via later snapshots. Fix planned as PLAN 5.6.
+  RESOLVED 2026-10-22 (iteration 54, M4.3): non-Fire events are repeated until acked (D49).
 - KI-11 (2026-10-22): Default anti-lag cap (200 ms) only fully compensates RTT ≲ 140 ms because the rewind
   includes the input lead and interpolation delay (D32). Consider exposing "max ping fully compensated" in
   the server browser, or a 250–300 ms default after community feedback.

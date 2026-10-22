@@ -54,6 +54,12 @@ pub struct NetClient<T: Transport> {
     pub map: Option<(String, u64)>,
     /// Latest arena/queue status from the server.
     pub status: Option<crate::protocol::ArenaStatus>,
+    /// Next reliable event sequence number we expect.
+    next_event_seq: u32,
+    /// Reliable events handed out (each exactly once).
+    pub reliable_events_delivered: u64,
+    /// Reliable events the server gave up on before we got them (should stay 0).
+    pub event_gaps: u64,
     nonce: u64,
     last_request_us: Option<u64>,
     pub snapshots: SnapshotHistory,
@@ -102,6 +108,9 @@ impl<T: Transport> NetClient<T> {
             config: None,
             map: None,
             status: None,
+            next_event_seq: 0,
+            reliable_events_delivered: 0,
+            event_gaps: 0,
             nonce,
             last_request_us: None,
             snapshots: SnapshotHistory::new(64),
@@ -180,11 +189,33 @@ impl<T: Transport> NetClient<T> {
                 },
                 None => None,
             };
-            let Some(snap) = Snapshot::decode_delta(&rx.unreliable, base_snap.as_ref()) else {
+            let Some(mut snap) = Snapshot::decode_delta(&rx.unreliable, base_snap.as_ref()) else {
                 continue;
             };
             self.snaps_received += 1;
+            self.take_reliable_events(&mut snap);
             self.on_snapshot(now_us, snap);
+        }
+    }
+
+    /// Deliver the reliable events this snapshot repeats that we haven't seen
+    /// yet (appended to `events`, in order); drop the ones already delivered.
+    fn take_reliable_events(&mut self, snap: &mut Snapshot) {
+        let first = snap.event_seq;
+        let end = first.wrapping_add(snap.reliable_events.len() as u32);
+        // Sequence comparisons are wrap-safe (differences as i32).
+        if (first.wrapping_sub(self.next_event_seq) as i32) > 0 {
+            self.event_gaps += first.wrapping_sub(self.next_event_seq) as u64;
+        }
+        for (k, e) in snap.reliable_events.drain(..).enumerate() {
+            let seq = first.wrapping_add(k as u32);
+            if (seq.wrapping_sub(self.next_event_seq) as i32) >= 0 {
+                snap.events.push(e);
+                self.reliable_events_delivered += 1;
+            }
+        }
+        if (end.wrapping_sub(self.next_event_seq) as i32) > 0 {
+            self.next_event_seq = end;
         }
     }
 
@@ -452,6 +483,8 @@ mod tests {
         };
         c.handshake_rtt_us = 20_000.0;
         let snap = Snapshot {
+            event_seq: 0,
+            reliable_events: Vec::new(),
             tick: Tick(1000),
             fight_start: None,
             players: vec![],
@@ -499,6 +532,8 @@ mod tests {
             ..Default::default()
         });
         let snap = Snapshot {
+            event_seq: 0,
+            reliable_events: Vec::new(),
             tick: Tick(1001),
             fight_start: None,
             players: vec![],
@@ -514,6 +549,8 @@ mod tests {
             ..Default::default()
         });
         let snap = Snapshot {
+            event_seq: 0,
+            reliable_events: Vec::new(),
             tick: Tick(1002),
             fight_start: None,
             players: vec![],

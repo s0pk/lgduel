@@ -19,6 +19,11 @@ pub struct Snapshot {
     /// Newest client command tick the server had consumed for the receiving
     /// client (prediction replays commands after this).
     pub last_cmd: Option<Tick>,
+    /// Events that matter if lost (damage, kills, respawns, fight/match ends):
+    /// the server repeats them in every snapshot until one carrying them is
+    /// acked; `event_seq` numbers the first, so the client can drop repeats.
+    pub reliable_events: Vec<GameEvent>,
+    pub event_seq: u32,
 }
 
 impl Snapshot {
@@ -29,7 +34,15 @@ impl Snapshot {
             players: game.players.clone(),
             events,
             last_cmd,
+            reliable_events: Vec::new(),
+            event_seq: 0,
         }
+    }
+
+    /// Fire events (beam visuals) are only worth showing when fresh; every
+    /// other event is sent reliably.
+    pub fn is_reliable_event(e: &GameEvent) -> bool {
+        !matches!(e, GameEvent::Fire { .. })
     }
 
     /// Overwrite the game's dynamic state with this snapshot.
@@ -53,10 +66,7 @@ impl Snapshot {
         for p in &self.players {
             write_player(&mut w, p);
         }
-        w.var(self.events.len() as u64);
-        for e in &self.events {
-            write_event(&mut w, e);
-        }
+        write_events(&mut w, self);
         w.finish()
     }
 
@@ -73,19 +83,56 @@ impl Snapshot {
         for _ in 0..n {
             players.push(read_player(&mut r)?);
         }
-        let ne = r.var()?.min(4096);
-        let mut events = Vec::with_capacity(ne as usize);
-        for _ in 0..ne {
-            events.push(read_event(&mut r)?);
-        }
+        let (events, reliable_events, event_seq) = read_events(&mut r)?;
         Some(Self {
             tick,
             fight_start,
             players,
             events,
             last_cmd,
+            reliable_events,
+            event_seq,
         })
     }
+}
+
+fn write_events(w: &mut Writer, s: &Snapshot) {
+    w.var(s.events.len() as u64);
+    for e in &s.events {
+        write_event(w, e);
+    }
+    // Reliable events: count, then (only if any) the first sequence number.
+    w.var(s.reliable_events.len() as u64);
+    if !s.reliable_events.is_empty() {
+        w.var(s.event_seq as u64);
+    }
+    for e in &s.reliable_events {
+        write_event(w, e);
+    }
+}
+
+#[allow(clippy::type_complexity)]
+fn read_events(r: &mut Reader) -> Option<(Vec<GameEvent>, Vec<GameEvent>, u32)> {
+    let mut list = || -> Option<Vec<GameEvent>> {
+        let n = r.var()?.min(4096);
+        let mut v = Vec::with_capacity(n as usize);
+        for _ in 0..n {
+            v.push(read_event(r)?);
+        }
+        Some(v)
+    };
+    let events = list()?;
+    let n = r.var()?.min(4096);
+    let seq = if n > 0 {
+        u32::try_from(r.var()?).ok()?
+    } else {
+        0
+    };
+    let mut reliable = Vec::with_capacity(n as usize);
+    for _ in 0..n {
+        reliable.push(read_event(r)?);
+    }
+    Some((events, reliable, seq))
 }
 
 fn opt_tick(w: &mut Writer, t: Option<Tick>) {
@@ -531,10 +578,7 @@ impl Snapshot {
                 }
             }
         }
-        w.var(self.events.len() as u64);
-        for e in &self.events {
-            write_event(&mut w, e);
-        }
+        write_events(&mut w, self);
         w.finish()
     }
 
@@ -576,17 +620,15 @@ impl Snapshot {
             }
             players.push(p);
         }
-        let ne = r.var()?.min(4096);
-        let mut events = Vec::with_capacity(ne as usize);
-        for _ in 0..ne {
-            events.push(read_event(&mut r)?);
-        }
+        let (events, reliable_events, event_seq) = read_events(&mut r)?;
         Some(Self {
             tick,
             fight_start,
             players,
             events,
             last_cmd,
+            reliable_events,
+            event_seq,
         })
     }
 }
@@ -788,9 +830,25 @@ mod tests {
         s.tick = Tick(base.tick.0 + 1);
         let d = s.encode_delta(Some(&base));
         println!("unchanged-state delta: {} bytes", d.len());
-        // kind + tick + base + fight + last_cmd + count + 2 × (id + mask) + events.
-        assert_eq!(d.len(), 1 + 4 * 4 + 1 + 2 * 3 + 1);
+        // kind + tick + base + fight + last_cmd + count + 2 × (id + mask) + events
+        // + reliable events.
+        assert_eq!(d.len(), 1 + 4 * 4 + 1 + 2 * 3 + 1 + 1);
         assert_eq!(Snapshot::decode_delta(&d, Some(&base)), Some(s));
+    }
+
+    #[test]
+    fn reliable_events_round_trip() {
+        let (g, ev) = played();
+        let mut s = Snapshot::capture(&g, vec![], None);
+        s.reliable_events = ev
+            .iter()
+            .filter(|e| Snapshot::is_reliable_event(e))
+            .cloned()
+            .collect();
+        assert!(!s.reliable_events.is_empty());
+        s.event_seq = 70_000;
+        assert_eq!(Snapshot::decode(&s.encode()), Some(s.clone()));
+        assert_eq!(Snapshot::decode_delta(&s.encode_delta(None), None), Some(s));
     }
 
     #[test]

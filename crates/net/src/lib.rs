@@ -13,7 +13,7 @@ pub mod transport;
 pub mod wire;
 
 /// Protocol version; bump on any wire-format change.
-pub const PROTOCOL_VERSION: u16 = 4;
+pub const PROTOCOL_VERSION: u16 = 5;
 
 #[cfg(test)]
 mod tests {

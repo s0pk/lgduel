@@ -111,6 +111,38 @@ struct Client {
     spectate: bool,
     /// Last status sent (a new one goes out when it changes).
     status_sent: Option<ArenaStatus>,
+    /// Reliable events not yet in an acked snapshot; the front one has
+    /// sequence number `event_base`.
+    reliable: VecDeque<GameEvent>,
+    event_base: u32,
+    /// (snapshot tick, sequence after its last reliable event) per sent snapshot.
+    event_marks: VecDeque<(u32, u32)>,
+    /// Reliable events given up on because the queue overflowed.
+    pub events_dropped: u64,
+}
+
+/// Most reliable events kept per client (beyond that the oldest are dropped).
+pub const MAX_RELIABLE_EVENTS: usize = 256;
+
+impl Client {
+    /// Snapshot `acked` arrived: forget the reliable events it carried.
+    fn ack_events(&mut self, acked: Tick) {
+        let mut end = None;
+        while let Some(&(t, e)) = self.event_marks.front() {
+            if t > acked.0 {
+                break;
+            }
+            end = Some(e);
+            self.event_marks.pop_front();
+        }
+        if let Some(end) = end {
+            while (end.wrapping_sub(self.event_base) as i32) > 0
+                && self.reliable.pop_front().is_some()
+            {
+                self.event_base = self.event_base.wrapping_add(1);
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -122,6 +154,9 @@ pub struct ClientInfo {
     pub buffered_cmds: usize,
     /// None = queued.
     pub arena: Option<usize>,
+    /// Reliable events numbered for this client so far.
+    pub events_sequenced: u64,
+    pub events_dropped: u64,
 }
 
 /// Players per arena (a duel).
@@ -434,6 +469,8 @@ missing_cmds = {missing}
                 missing_cmds: c.missing,
                 buffered_cmds: c.inputs.buffered(),
                 arena: c.arena,
+                events_sequenced: c.event_base as u64 + c.reliable.len() as u64,
+                events_dropped: c.events_dropped,
             })
             .collect()
     }
@@ -460,6 +497,7 @@ missing_cmds = {missing}
                     && c.acked.is_none_or(|a| t > a)
                 {
                     c.acked = Some(t);
+                    c.ack_events(t);
                 }
                 for (i, cmd) in inp.cmds.into_iter().enumerate() {
                     c.inputs
@@ -594,6 +632,10 @@ missing_cmds = {missing}
                     past: PlayerStats::default(),
                     spectate: false,
                     status_sent: None,
+                    reliable: VecDeque::new(),
+                    event_base: 0,
+                    event_marks: VecDeque::new(),
+                    events_dropped: 0,
                 });
                 self.place();
                 self.accept(from, player.0);
@@ -687,12 +729,33 @@ missing_cmds = {missing}
         for c in &mut self.clients {
             // Queued players and spectators watch the busiest arena.
             let game = &self.arenas[c.arena.unwrap_or(watched)].game;
-            c.pending_events.extend(game.events.iter().cloned());
+            for e in &game.events {
+                if Snapshot::is_reliable_event(e) {
+                    c.reliable.push_back(e.clone());
+                    if c.reliable.len() > MAX_RELIABLE_EVENTS {
+                        c.reliable.pop_front();
+                        c.event_base = c.event_base.wrapping_add(1);
+                        c.events_dropped += 1;
+                    }
+                } else {
+                    c.pending_events.push(e.clone());
+                }
+            }
             if !send {
                 continue;
             }
-            let snap =
+            let mut snap =
                 Snapshot::capture(game, std::mem::take(&mut c.pending_events), c.last_consumed);
+            // Repeat every unacked reliable event until a snapshot carrying it is acked.
+            snap.reliable_events = c.reliable.iter().cloned().collect();
+            snap.event_seq = c.event_base;
+            c.event_marks.push_back((
+                snap.tick.0,
+                c.event_base.wrapping_add(c.reliable.len() as u32),
+            ));
+            if c.event_marks.len() > 256 {
+                c.event_marks.pop_front();
+            };
             let base = c.acked.and_then(|t| c.history.get(t));
             let payload = snap.encode_delta(base);
             c.history.push(snap);

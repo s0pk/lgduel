@@ -58,7 +58,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] 5.3 Hit-reg agreement metric (client-predicted hit vs server hit), anti-lag on/off
 - [x] 5.4 Rubber-band detector; one lossy + one high-ping run in check.sh
 - [x] 5.5 Net-graph: ping, loss, jitter, tick rate, snapshot rate
-- [ ] 5.6 Game events survive snapshot loss: resend events until a snapshot carrying them is acked (dedupe client-side by tick)
+- [x] 5.6 Game events survive snapshot loss: resend events until a snapshot carrying them is acked (dedupe client-side by tick)
 
 ## Friend-test release (user priority, 2026-10-22)
 - [x] F.1 `lgduel host`, self-contained Windows release zip (static CRT), PLAY.md guide (LAN / Tailscale / port forward), packaged smoke test
@@ -79,7 +79,7 @@ Split items that are too big before starting them. `[blocked]` = see KNOWN_ISSUE
 - [x] M3.4 Ramp/slope movement golden tests; headless matches + screenshots on every map
 - [x] M4.1 Multi-arena server: N `Game`s, lobby + auto-queue, per-arena snapshots, isolation test
 - [x] M4.2 Lone player gets a practice bot; spectate; lobby/queue Control messages + HUD/menu status
-- [ ] M4.3 (= PLAN 5.6) events resent until a snapshot carrying them is acked
+- [x] M4.3 (= PLAN 5.6) events resent until a snapshot carrying them is acked
 - [ ] M5.1 GitHub Actions: Linux + Windows build, check.sh on Linux (lavapipe), release workflow artifacts
 - [ ] M5.2 Dockerfile + docker-compose + systemd unit + DEPLOY.md (VPS in one command)
 - [ ] M5.3 Release v0.2.0 (official server in servers.toml once the user provides the VPS address)
