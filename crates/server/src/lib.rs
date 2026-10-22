@@ -10,7 +10,7 @@ use lgduel_net::protocol::{Connectionless, Control, InputBuffer, Inputs, cookie}
 use lgduel_net::snapshot::{Snapshot, SnapshotHistory};
 use lgduel_net::transport::Transport;
 use lgduel_sim::config::{ConfigError, GameConfig, HitMode};
-use lgduel_sim::game::{Game, GameEvent, PlayerId};
+use lgduel_sim::game::{Game, GameEvent, PlayerId, PlayerStats};
 use lgduel_sim::tick::Tick;
 use lgduel_sim::usercmd::UserCmd;
 use lgduel_sim::world::{Aabb, World};
@@ -32,6 +32,8 @@ pub struct ServerSettings {
     pub timeout_ms: u32,
     /// Built-in map name or a path to a map TOML file.
     pub map: String,
+    /// Duel arenas (each its own game; two players per arena, more wait in a queue).
+    pub max_arenas: u8,
 }
 
 impl Default for ServerSettings {
@@ -44,6 +46,7 @@ impl Default for ServerSettings {
             snapshot_every: 1,
             timeout_ms: 5000,
             map: "arena_flat".into(),
+            max_arenas: 8,
         }
     }
 }
@@ -68,9 +71,12 @@ impl ServerConfig {
         let rest = toml::to_string(&table).map_err(|e| ConfigError::Parse(e.to_string()))?;
         let game = GameConfig::from_toml_str(&rest)?;
         let cfg = Self { server, game };
-        if cfg.server.snapshot_every == 0 || cfg.server.max_clients == 0 {
+        if cfg.server.snapshot_every == 0
+            || cfg.server.max_clients == 0
+            || cfg.server.max_arenas == 0
+        {
             return Err(ConfigError::Invalid(
-                "snapshot_every and max_clients must be > 0".into(),
+                "snapshot_every, max_clients and max_arenas must be > 0".into(),
             ));
         }
         Ok(cfg)
@@ -91,6 +97,10 @@ struct Client {
     pending_events: Vec<GameEvent>,
     /// Ticks simulated with a repeated (missing) command.
     pub missing: u64,
+    /// Arena this client plays in (None = waiting in the queue).
+    arena: Option<usize>,
+    /// Stats from arenas this client already left.
+    past: PlayerStats,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -100,18 +110,30 @@ pub struct ClientInfo {
     pub loss: f64,
     pub missing_cmds: u64,
     pub buffered_cmds: usize,
+    /// None = queued.
+    pub arena: Option<usize>,
+}
+
+/// Players per arena (a duel).
+pub const ARENA_PLAYERS: usize = 2;
+
+/// One duel: its own game (so no cross-arena damage or collision, D10) and
+/// its own anti-lag history. All arenas step together, so their ticks match.
+pub struct Arena {
+    pub game: Game,
+    /// Rewind buffer: (snapshot tick, hitboxes of living players) per tick.
+    rewind: VecDeque<(u32, Vec<(PlayerId, Aabb)>)>,
 }
 
 pub struct Server<T: Transport> {
     pub transport: T,
-    pub game: Game,
+    pub arenas: Vec<Arena>,
     pub settings: ServerSettings,
+    /// In connect order (also the queue order).
     clients: Vec<Client>,
     secret: u64,
     /// Log lines for the operator (connects, disconnects).
     pub log: Vec<String>,
-    /// Rewind buffer: (snapshot tick, hitboxes of living players) per tick.
-    rewind: VecDeque<(u32, Vec<(PlayerId, Aabb)>)>,
     /// (name, final stats) of clients that left.
     departed: Vec<(String, lgduel_sim::game::PlayerStats, u64)>,
     /// Anti-lag diagnostics: how far back shots were rewound (ticks), and how
@@ -151,17 +173,90 @@ fn rewound_box(
 
 impl<T: Transport> Server<T> {
     pub fn new(transport: T, cfg: ServerConfig, world: World, secret: u64) -> Self {
+        let arenas = (0..cfg.server.max_arenas.max(1))
+            .map(|_| Arena {
+                game: Game::new(cfg.game.clone(), world.clone()),
+                rewind: VecDeque::new(),
+            })
+            .collect();
         Self {
             transport,
             map_hash: world.content_hash(),
-            game: Game::new(cfg.game, world),
+            arenas,
             settings: cfg.server,
             clients: Vec::new(),
             secret,
             log: Vec::new(),
-            rewind: VecDeque::new(),
             departed: Vec::new(),
             rewind_stats: RewindStats::default(),
+        }
+    }
+
+    /// The first arena's game (tick, config and map are the same in every arena).
+    pub fn game(&self) -> &Game {
+        &self.arenas[0].game
+    }
+
+    /// Total stats of a client: arenas it left plus its current one.
+    fn client_stats(&self, c: &Client) -> PlayerStats {
+        let mut s = c.past;
+        if let Some(p) = c.arena.and_then(|a| self.arenas[a].game.player(c.player)) {
+            s += p.stats;
+        }
+        s
+    }
+
+    /// Players per arena.
+    fn arena_counts(&self) -> Vec<usize> {
+        let mut n = vec![0; self.arenas.len()];
+        for c in &self.clients {
+            if let Some(a) = c.arena {
+                n[a] += 1;
+            }
+        }
+        n
+    }
+
+    /// Put client `ci` into arena `a` (leaving its old one).
+    fn move_client(&mut self, ci: usize, a: usize) {
+        let c = &mut self.clients[ci];
+        if let Some(old) = c.arena {
+            let g = &mut self.arenas[old].game;
+            if let Some(p) = g.player(c.player) {
+                c.past += p.stats;
+            }
+            g.remove_player(c.player);
+        }
+        self.arenas[a].game.add_player_with_id(c.player);
+        c.arena = Some(a);
+        self.log.push(format!("{} plays in arena {a}", c.name));
+    }
+
+    /// Auto-queue: waiting players join an arena with one player, else an
+    /// empty one; two lone players in different arenas are paired up.
+    fn place(&mut self) {
+        loop {
+            let n = self.arena_counts();
+            if let Some(ci) = self.clients.iter().position(|c| c.arena.is_none())
+                && let Some(a) = n
+                    .iter()
+                    .position(|&k| k == 1)
+                    .or_else(|| n.iter().position(|&k| k == 0))
+            {
+                self.move_client(ci, a);
+                continue;
+            }
+            let lone: Vec<usize> = (0..n.len()).filter(|&a| n[a] == 1).collect();
+            if lone.len() >= 2 {
+                let ci = self
+                    .clients
+                    .iter()
+                    .position(|c| c.arena == Some(lone[1]))
+                    .expect("lone player");
+                self.move_client(ci, lone[0]);
+                continue;
+            }
+            break;
         }
     }
 
@@ -176,16 +271,15 @@ mode = \"{:?}\"
 lifesteal_percent = {}
 hit_mode = \"{:?}\"
 ",
-            self.game.tick.0,
-            self.game.cfg.rules.mode,
-            self.game.cfg.rules.lifesteal_percent,
-            self.game.cfg.rules.hit_mode
+            self.game().tick.0,
+            self.game().cfg.rules.mode,
+            self.game().cfg.rules.lifesteal_percent,
+            self.game().cfg.rules.hit_mode
         ));
-        let current = self.clients.iter().filter_map(|c| {
-            self.game
-                .player(c.player)
-                .map(|p| (c.name.clone(), p.stats, c.missing))
-        });
+        let current = self
+            .clients
+            .iter()
+            .map(|c| (c.name.clone(), self.client_stats(c), c.missing));
         for (name, s, missing) in self.departed.iter().cloned().chain(current) {
             out.push_str(&format!(
                 "
@@ -235,6 +329,7 @@ missing_cmds = {missing}
                 loss: c.conn.stats.loss(),
                 missing_cmds: c.missing,
                 buffered_cmds: c.inputs.buffered(),
+                arena: c.arena,
             })
             .collect()
     }
@@ -295,17 +390,18 @@ missing_cmds = {missing}
 
     /// Public description for the server browser.
     pub fn info(&self) -> lgduel_net::protocol::ServerInfo {
-        let r = &self.game.cfg.rules;
+        let game = self.game();
+        let r = &game.cfg.rules;
         lgduel_net::protocol::ServerInfo {
             protocol: PROTOCOL_VERSION,
             name: self.settings.name.clone(),
-            map: self.game.world.name.clone(),
+            map: game.world.name.clone(),
             players: self.clients.len().min(255) as u8,
             max_players: self.settings.max_clients,
             classic: r.mode == lgduel_sim::config::DuelMode::Classic,
             lifesteal_percent: r.lifesteal_percent.min(100) as u8,
             anti_lag: r.hit_mode == HitMode::AntiLag,
-            tick_rate: self.game.cfg.tick_rate_hz.min(u16::MAX as u32) as u16,
+            tick_rate: game.cfg.tick_rate_hz.min(u16::MAX as u32) as u16,
         }
     }
 
@@ -348,7 +444,13 @@ missing_cmds = {missing}
                     );
                     return;
                 }
-                let player = self.game.add_player();
+                // Ids are unique across arenas, so a client keeps its id when it moves.
+                let Some(player) = (0..=u8::MAX)
+                    .find(|i| self.clients.iter().all(|c| c.player.0 != *i))
+                    .map(PlayerId)
+                else {
+                    return;
+                };
                 self.log.push(format!(
                     "{name} connected from {from} as player {}",
                     player.0
@@ -366,7 +468,10 @@ missing_cmds = {missing}
                     last_consumed: None,
                     pending_events: Vec::new(),
                     missing: 0,
+                    arena: None,
+                    past: PlayerStats::default(),
                 });
+                self.place();
                 self.accept(from, player.0);
             }
             _ => {}
@@ -374,38 +479,42 @@ missing_cmds = {missing}
     }
 
     fn accept(&mut self, to: SocketAddr, player: u8) {
+        let game = self.game();
         let m = Connectionless::Accept {
             player,
-            tick_rate: self.game.cfg.tick_rate_hz,
-            config_toml: self.game.cfg.to_toml_string(),
-            map: self.game.world.name.clone(),
+            tick_rate: game.cfg.tick_rate_hz,
+            config_toml: game.cfg.to_toml_string(),
+            map: game.world.name.clone(),
             map_hash: self.map_hash,
         };
         self.reply(to, m);
     }
 
     fn drop_client(&mut self, i: usize, why: &str) {
+        let stats = self.client_stats(&self.clients[i]);
         let c = self.clients.remove(i);
-        if let Some(p) = self.game.player(c.player) {
-            self.departed.push((c.name.clone(), p.stats, c.missing));
+        self.departed.push((c.name.clone(), stats, c.missing));
+        if let Some(a) = c.arena {
+            self.arenas[a].game.remove_player(c.player);
         }
-        self.game.remove_player(c.player);
         self.log
             .push(format!("{} (player {}) {why}", c.name, c.player.0));
+        self.place();
     }
 
-    /// Simulate one tick and send snapshots.
+    /// Simulate one tick in every arena and send snapshots.
     pub fn tick(&mut self, now_us: u64) {
-        let tick = self.game.tick;
-        let mut cmds = Vec::with_capacity(self.clients.len());
-        let mut views: Vec<(PlayerId, f64)> = Vec::new();
+        self.place();
+        let tick = self.game().tick;
+        let mut cmds = vec![Vec::new(); self.arenas.len()];
+        let mut views: Vec<Vec<(PlayerId, f64)>> = vec![Vec::new(); self.arenas.len()];
         for c in &mut self.clients {
             let cmd = match c.inputs.take_with_view(tick) {
                 Some((cmd, view)) => {
                     c.last_consumed = Some(tick);
                     c.last_cmd = Some(cmd);
-                    if let Some(v) = view {
-                        views.push((c.player, v));
+                    if let (Some(v), Some(a)) = (view, c.arena) {
+                        views[a].push((c.player, v));
                     }
                     cmd
                 }
@@ -419,9 +528,46 @@ missing_cmds = {missing}
                     }
                 }
             };
-            cmds.push((c.player, cmd));
+            if let Some(a) = c.arena {
+                cmds[a].push((c.player, cmd));
+            }
         }
-        // Anti-lag: test each shooter's beam against targets where that shooter saw them.
+        for (a, arena) in self.arenas.iter_mut().enumerate() {
+            arena.step(&cmds[a], &views[a], &mut self.rewind_stats);
+        }
+        let send = self
+            .game()
+            .tick
+            .0
+            .is_multiple_of(self.settings.snapshot_every);
+        for c in &mut self.clients {
+            // Queued players watch arena 0 until they get a place.
+            let game = &self.arenas[c.arena.unwrap_or(0)].game;
+            c.pending_events.extend(game.events.iter().cloned());
+            if !send {
+                continue;
+            }
+            let snap =
+                Snapshot::capture(game, std::mem::take(&mut c.pending_events), c.last_consumed);
+            let base = c.acked.and_then(|t| c.history.get(t));
+            let payload = snap.encode_delta(base);
+            c.history.push(snap);
+            let pkt = c.conn.build_packet(now_us, &payload);
+            let _ = self.transport.send_to(c.addr, &pkt);
+        }
+    }
+}
+
+impl Arena {
+    /// One tick: anti-lag (each shooter's beam tested against targets where that
+    /// shooter saw them), simulate, record hitboxes for future rewinds.
+    fn step(
+        &mut self,
+        cmds: &[(PlayerId, UserCmd)],
+        views: &[(PlayerId, f64)],
+        stats: &mut RewindStats,
+    ) {
+        let tick = self.game.tick;
         let anti_lag = self.game.cfg.rules.hit_mode == HitMode::AntiLag;
         let max_rewind_ticks =
             self.game.cfg.rules.max_rewind_ms as f64 * self.game.cfg.tick_rate_hz as f64 / 1000.0;
@@ -440,10 +586,10 @@ missing_cmds = {missing}
             rewound_box(history, target, *v)
         };
         let shots_before: u64 = self.game.players.iter().map(|p| p.stats.shots as u64).sum();
-        self.game.step_with(&cmds, &rewind);
+        self.game.step_with(cmds, &rewind);
         if anti_lag {
             let shots_after: u64 = self.game.players.iter().map(|p| p.stats.shots as u64).sum();
-            for (p, v) in &views {
+            for (p, v) in views {
                 if shots_after > shots_before
                     && self
                         .game
@@ -451,11 +597,11 @@ missing_cmds = {missing}
                         .iter()
                         .any(|e| matches!(e, GameEvent::Fire { shooter, .. } if shooter == p))
                 {
-                    self.rewind_stats.shots_rewound += 1;
-                    self.rewind_stats.sum_rewind_ticks +=
+                    stats.shots_rewound += 1;
+                    stats.sum_rewind_ticks +=
                         (now_t - v.clamp(now_t - max_rewind_ticks, now_t)).max(0.0);
                     if *v < now_t - max_rewind_ticks {
-                        self.rewind_stats.clamped += 1;
+                        stats.clamped += 1;
                     }
                 }
             }
@@ -471,27 +617,6 @@ missing_cmds = {missing}
         self.rewind.push_back((self.game.tick.0, boxes));
         while self.rewind.len() > 128 {
             self.rewind.pop_front();
-        }
-        let send = self
-            .game
-            .tick
-            .0
-            .is_multiple_of(self.settings.snapshot_every);
-        for c in &mut self.clients {
-            c.pending_events.extend(self.game.events.iter().cloned());
-            if !send {
-                continue;
-            }
-            let snap = Snapshot::capture(
-                &self.game,
-                std::mem::take(&mut c.pending_events),
-                c.last_consumed,
-            );
-            let base = c.acked.and_then(|t| c.history.get(t));
-            let payload = snap.encode_delta(base);
-            c.history.push(snap);
-            let pkt = c.conn.build_packet(now_us, &payload);
-            let _ = self.transport.send_to(c.addr, &pkt);
         }
     }
 }
@@ -636,7 +761,7 @@ mod tests {
         assert_eq!(server.client_count(), 1);
         // Run 2 s: the client sends "walk forward" for ticks well ahead of the server.
         for _ in 0..250 {
-            let lead = Tick(server.game.tick.0 + 3);
+            let lead = Tick(server.game().tick.0 + 3);
             client.send_input(
                 t,
                 UserCmd {
@@ -720,10 +845,10 @@ mod tests {
             client.pump(t);
         }
         assert_eq!(server.client_count(), 1);
-        assert_eq!(server.game.players.len(), 1);
+        assert_eq!(server.game().players.len(), 1);
         server.poll(6_000_000);
         assert_eq!(server.client_count(), 0);
-        assert_eq!(server.game.players.len(), 0);
+        assert_eq!(server.game().players.len(), 0);
         assert!(server.log.iter().any(|l| l.contains("timed out")));
     }
 
@@ -744,7 +869,7 @@ mod tests {
             client.connect_request();
         }
         for _ in 0..1250 {
-            let lead = Tick(server.game.tick.0 + 6);
+            let lead = Tick(server.game().tick.0 + 6);
             client.send_input(
                 t,
                 UserCmd {

@@ -284,3 +284,9 @@
 - Fix: sim `example_config_matches_defaults` broke in iteration 50 (example file gained `[server]`, which GameConfig rejects); the test now drops `[server]` before parsing. Iteration 50's check run predated that edit — I only ran the server lib tests after it.
 - Headless matches + screenshots on every map were added in iteration 50 (check.sh).
 - Verified: map_movement 5 passed; check.sh GREEN 102 s (matches clean@arena_flat, lossy@arena_pillars, highping@arena_tiers OK).
+
+
+## 2026-10-22 — iteration 52: M4.1 multi-arena server
+- server: `Arena { game, rewind }`, `Server.arenas` + `game()` accessor, `max_arenas` setting (validated > 0, in example config), server-wide player ids, `place()` auto-queue/pairing, `move_client` (stats carried in `past`), per-arena `Arena::step` (anti-lag unchanged), snapshots per client from its arena (queued → arena 0), `ClientInfo.arena`. sim: `Game::add_player_with_id`, `PlayerStats: AddAssign`.
+- client/bot: when not in the snapshot (queued), send idle commands instead of nothing (the server timed out a queued bot before this fix).
+- Verified: server tests/arenas.rs — 6 bots in 4 arenas → pairs in arenas 0/1/2, arena 3 empty, ticks equal, damage only within pairs (dealt = partner's taken), each bot's snapshot has exactly its pair; 5 bots / 2 arenas → bot 4 queued, stays connected, takes the place when a player leaves arena 0 and fights; 4 bots / 3 arenas, one leaves each pair → the lone players are paired into arena 0 and keep fighting, stats file includes the moved player; all earlier server tests pass unchanged (tests now use `game()` / `arenas[0].game`); check.sh GREEN 102 s.

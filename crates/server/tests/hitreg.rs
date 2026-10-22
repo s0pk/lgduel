@@ -70,9 +70,9 @@ fn run(
         a.update(now);
         b.update(now);
         if !placed && server.client_count() == 2 {
-            let z = server.game.players[0].pm.origin.z;
-            server.game.players[0].pm.origin = Vec3::new(-150.0, 0.0, z);
-            server.game.players[1].pm.origin = Vec3::new(150.0, 0.0, z);
+            let z = server.arenas[0].game.players[0].pm.origin.z;
+            server.arenas[0].game.players[0].pm.origin = Vec3::new(-150.0, 0.0, z);
+            server.arenas[0].game.players[1].pm.origin = Vec3::new(150.0, 0.0, z);
             placed = true;
         }
         let right = if (ms / 400).is_multiple_of(2) {

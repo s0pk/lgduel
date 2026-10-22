@@ -135,6 +135,17 @@ impl NetSession {
             return;
         };
         let Some(mine) = snap.player(me).cloned() else {
+            // Not in an arena (queued): idle commands keep the connection and clock alive.
+            for t in self.client.advance(now) {
+                self.client.send_cmd(
+                    now,
+                    UserCmd {
+                        tick: t,
+                        ..UserCmd::default()
+                    },
+                );
+            }
+            self.view = None;
             return;
         };
         // Remote players as rendered this frame (also what our own beam is judged against).

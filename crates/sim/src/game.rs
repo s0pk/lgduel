@@ -39,6 +39,22 @@ pub struct PlayerStats {
     pub fight_ticks: u32,
 }
 
+impl std::ops::AddAssign for PlayerStats {
+    fn add_assign(&mut self, o: Self) {
+        self.shots += o.shots;
+        self.hits += o.hits;
+        self.damage_dealt += o.damage_dealt;
+        self.damage_taken += o.damage_taken;
+        self.healed += o.healed;
+        self.lifesteal_earned += o.lifesteal_earned;
+        self.kills += o.kills;
+        self.deaths += o.deaths;
+        self.fights_won += o.fights_won;
+        self.fights_lost += o.fights_lost;
+        self.fight_ticks += o.fight_ticks;
+    }
+}
+
 impl PlayerStats {
     /// LG accuracy in percent (0 if nothing fired).
     pub fn accuracy_pct(&self) -> f32 {
@@ -184,6 +200,13 @@ impl Game {
                 .find(|i| self.players.iter().all(|p| p.id.0 != *i))
                 .expect("player slots exhausted"),
         );
+        self.add_player_with_id(id)
+    }
+
+    /// Add a player with a caller-chosen id (a server keeps ids unique across
+    /// its arenas). Panics if the id is already in this game.
+    pub fn add_player_with_id(&mut self, id: PlayerId) -> PlayerId {
+        assert!(self.player(id).is_none(), "player id {} taken", id.0);
         let mut p = Player {
             id,
             pm: PlayerMove::default(),

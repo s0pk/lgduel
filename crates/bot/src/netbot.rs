@@ -90,6 +90,16 @@ impl<T: Transport> NetBot<T> {
             }
         }
         if mirror.player(me).is_none() {
+            // Not in an arena (queued): idle commands keep the connection alive.
+            for t in self.client.advance(now_us) {
+                self.client.send_cmd(
+                    now_us,
+                    lgduel_sim::usercmd::UserCmd {
+                        tick: t,
+                        ..Default::default()
+                    },
+                );
+            }
             return;
         }
         // The bot sees the newest snapshot; that is also its anti-lag view time.

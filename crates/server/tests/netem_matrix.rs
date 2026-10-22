@@ -95,9 +95,9 @@ fn run(cell: Cell) -> Metrics {
         b.update(now);
         if !placed && server.client_count() == 2 {
             // Keep both well inside the arena regardless of spawn.
-            let z = server.game.players[0].pm.origin.z;
-            server.game.players[0].pm.origin = Vec3::new(-300.0, -300.0, z);
-            server.game.players[1].pm.origin = Vec3::new(0.0, 300.0, z);
+            let z = server.arenas[0].game.players[0].pm.origin.z;
+            server.arenas[0].game.players[0].pm.origin = Vec3::new(-300.0, -300.0, z);
+            server.arenas[0].game.players[1].pm.origin = Vec3::new(0.0, 300.0, z);
             placed = true;
         }
         if pred.is_none()
@@ -137,7 +137,7 @@ fn run(cell: Cell) -> Metrics {
         }
         if ms == WARMUP_MS {
             missing_at_warmup = server.clients().iter().map(|c| c.missing_cmds).sum::<u64>();
-            ticks_at_warmup = server.game.tick.0;
+            ticks_at_warmup = server.game().tick.0;
             interp.stats = Default::default();
             pr.stats = Default::default();
         }
@@ -155,7 +155,7 @@ fn run(cell: Cell) -> Metrics {
     }
     let ps = pred.unwrap().stats;
     let missing = server.clients().iter().map(|c| c.missing_cmds).sum::<u64>() - missing_at_warmup;
-    let ticks = (server.game.tick.0 - ticks_at_warmup) as u64 * 2; // two clients
+    let ticks = (server.game().tick.0 - ticks_at_warmup) as u64 * 2; // two clients
     Metrics {
         rtt_ms: a.conn.stats.rtt_us / 1000.0,
         pred_mean: ps.mean_error(),

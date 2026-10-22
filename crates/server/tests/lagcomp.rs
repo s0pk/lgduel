@@ -65,9 +65,9 @@ fn duel(hit_mode: HitMode, latency_us: u64, jitter_us: u64) -> Outcome {
         b.update(now);
         // Once both are in, put them 300u apart facing each other.
         if !placed && server.client_count() == 2 {
-            let z = server.game.players[0].pm.origin.z;
-            server.game.players[0].pm.origin = Vec3::new(-150.0, 0.0, z);
-            server.game.players[1].pm.origin = Vec3::new(150.0, 0.0, z);
+            let z = server.arenas[0].game.players[0].pm.origin.z;
+            server.arenas[0].game.players[0].pm.origin = Vec3::new(-150.0, 0.0, z);
+            server.arenas[0].game.players[1].pm.origin = Vec3::new(150.0, 0.0, z);
             placed = true;
         }
         for s in a.take_snapshots() {
@@ -123,13 +123,13 @@ fn duel(hit_mode: HitMode, latency_us: u64, jitter_us: u64) -> Outcome {
         }
         if ms == 3_000 {
             shots_at_start = server
-                .game
+                .game()
                 .player(aid)
                 .map(|p| (p.stats.shots, p.stats.hits));
         }
     }
     let aid = a.player().unwrap();
-    let st = server.game.player(aid).unwrap().stats;
+    let st = server.game().player(aid).unwrap().stats;
     let (s0, h0) = shots_at_start.unwrap();
     let shots = st.shots - s0;
     let hits = st.hits - h0;

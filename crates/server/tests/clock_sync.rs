@@ -135,10 +135,10 @@ fn client_ticks_track_server_rate() {
     });
     rig.run_ms(2_000);
     let (c0, _) = rig.client.client_tick();
-    let s0 = rig.server.game.tick;
+    let s0 = rig.server.game().tick;
     rig.run_ms(20_000);
     let (c1, _) = rig.client.client_tick();
-    let s1 = rig.server.game.tick;
+    let s1 = rig.server.game().tick;
     let (dc, ds) = (c1.0 - c0.0, s1.0 - s0.0);
     println!("20 s: client ticks {dc}, server ticks {ds}");
     assert_eq!(ds, 2500);

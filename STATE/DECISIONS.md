@@ -466,3 +466,14 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
   authentic Q3 behaviour and stays; tests/map_movement.rs pins it as a small hop (5–20u).
 - Walking up a slope keeps 3D speed (Q3 rescale after clipping), so horizontal speed is 320·cos θ (300 u/s on
   arena_tiers' 20.6° ramp). Golden: tiers ground→mid deck 224 ticks, →high deck 677; stairs top at tick 128.
+
+## D47 — Multi-arena server (2026-10-22)
+- `Server.arenas: Vec<Arena>`, `max_arenas` (default 8) pre-created at start and stepped together every tick
+  (empty ones too), so every arena has the same tick number and a client moving between arenas sees no clock
+  jump. Each `Arena` = its own `Game` + anti-lag rewind buffer (isolation by construction, D10).
+- Player ids are unique server-wide (`Game::add_player_with_id`), so a client keeps its id when moved.
+- Auto-queue (`Server::place`, run on connect, leave and every tick): queued clients (connect order) go to an
+  arena with one player, else an empty one; two lone players in different arenas are paired (the later
+  arena's player moves). Players beyond 2·max_arenas wait queued and are sent arena 0's snapshots (watching);
+  clients not in the snapshot send idle commands so the connection and clock stay alive.
+- Stats: a client's stats = stats from arenas it left (`past`) + current arena.

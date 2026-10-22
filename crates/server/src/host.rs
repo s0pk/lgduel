@@ -184,7 +184,7 @@ pub fn run_config(
             println!(
                 "shutting down after {:.1} s, {} ticks, {} clients",
                 (now - start).as_secs_f64(),
-                server.game.tick.0,
+                server.game().tick.0,
                 server.client_count()
             );
             if let Some(path) = stats_file {
