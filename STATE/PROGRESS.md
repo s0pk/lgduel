@@ -19,3 +19,7 @@
 ## 2026-10-22 — iteration 4: PLAN 2.2 fixed-tick loop
 - `sim::tick`: `Tick(u32)` and `FixedStepper` — caller feeds elapsed µs; accumulator kept in µs·Hz units so non-divisor rates (60 Hz) never drift; catch-up capped (default rate/4 ticks) to avoid spiral after stalls; `alpha()` for render interpolation.
 - Verified: check.sh GREEN (3s). Tests: exact 125 Hz stepping, 1 h of 1 ms frames at 60 Hz = exactly 216000 ticks, irregular frame sum exact, stall cap, alpha 0.5 at half tick.
+
+## 2026-10-22 — iteration 5: PLAN 2.3 usercmd
+- `sim::usercmd::UserCmd { tick, pitch, yaw, forward, right, buttons }`: exact `Angle(u32)` view, ±127 move axes, JUMP/CROUCH/FIRE bits (jump/crouch replace Quake's upmove). `from_keys` (opposite keys cancel), `sanitized()` for untrusted input (pitch clamp ±89°, no -128, unknown bits cleared).
+- Verified: check.sh GREEN. Tests: key→axis mapping, sanitize of hostile values.
