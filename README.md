@@ -41,6 +41,32 @@ Mouse look (raw input) · **WASD** move · **Space** jump (hold to hop) · **Ctr
 Command-line options override the settings for one run, e.g. `--sens-cm 30 --dpi 800`, `--fov 110`,
 `--practice --map arena_tiers --bot mirror --bot-skill hard`, `--connect HOST:PORT`, `--fullscreen`.
 
+## Host a server in one command
+
+Clone the repo and run one command; it builds the server if needed (no GPU needed, so it works on a VPS or
+headless box too), prints the addresses players use to connect, and starts the server:
+
+```
+git clone https://github.com/s0pk/lgduel.git && cd lgduel
+./host.sh              # Linux, macOS, Git Bash, WSL
+host.cmd               # Windows (or run it inside the release zip: no Rust needed)
+```
+
+It prints something like:
+
+```
+   This PC:        127.0.0.1:27960
+   Same network:   192.168.1.20:27960
+   Internet:       203.0.113.7:27960
+```
+
+Players: **Play online → Add a server**, paste the address, **Join** (or `lgduel --connect ADDRESS`).
+Same network works straight away. For internet players open **UDP 27960** (nothing uses TCP) in your
+firewall and forward it on your router; on a VPS also open it in the provider's panel. Options pass
+through: `./host.sh --port 27961 --map arena_tiers --config server.toml`. Type `help` in the terminal for
+server commands. The public IP is looked up through `api.ipify.org`; nothing else is sent anywhere.
+Always-on servers: [DEPLOY.md](DEPLOY.md). Other ways to host: [HOSTING.md](HOSTING.md).
+
 ## Running a server
 
 - **On a VPS (recommended for playing over the internet):** see [DEPLOY.md](DEPLOY.md) — open UDP 27960,
