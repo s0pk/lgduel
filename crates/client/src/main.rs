@@ -22,6 +22,7 @@ mod gfx;
 mod hud;
 mod icon;
 mod input;
+mod kovaaks;
 mod local;
 mod menu;
 mod models;
@@ -113,6 +114,61 @@ fn doctor(opts: &Options) -> i32 {
         );
     }
     code
+}
+
+/// The KovaaK's folder the player set, if any (empty = look through Steam).
+fn kovaaks_manual(s: &Settings) -> Option<&std::path::Path> {
+    Some(s.kovaaks.path.trim())
+        .filter(|p| !p.is_empty())
+        .map(std::path::Path::new)
+}
+
+/// `lgduel --import-kovaaks-theme <name|current|all>`: copy the theme(s) into the
+/// themes folder, select the current / named one (with its enemy colours) and save.
+fn import_kovaaks_theme_cli(opts: &Options, which: &str) -> i32 {
+    let Some(settings_path) = opts.settings_path.as_ref() else {
+        eprintln!("lgduel: no settings folder to write to (started with --no-settings)");
+        return 1;
+    };
+    let inst = match kovaaks::find(kovaaks_manual(&opts.s)) {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("lgduel: {e}");
+            return 1;
+        }
+    };
+    let themes_dir = settings_path
+        .parent()
+        .map(|d| d.join("themes"))
+        .unwrap_or_else(|| "themes".into());
+    let which = match which {
+        "current" => kovaaks::Which::Current,
+        "all" => kovaaks::Which::All,
+        name => kovaaks::Which::Named(name.to_string()),
+    };
+    let all = which == kovaaks::Which::All;
+    let r = kovaaks::import_themes(&inst, which, &themes_dir);
+    for f in &r.imported {
+        println!("KOVAAKS THEME imported {f}");
+    }
+    for w in &r.warnings {
+        println!("KOVAAKS WARNING {w}");
+    }
+    for p in &r.problems {
+        eprintln!("KOVAAKS PROBLEM {p}");
+    }
+    let mut s = opts.s.clone();
+    if !all && let Some(first) = r.imported.first() {
+        s.video.theme = first.clone();
+        if let Some(patch) = r.enemy {
+            patch.apply(&mut s.enemy_colors);
+        }
+        if let Err(e) = settings::save(settings_path, &s) {
+            eprintln!("lgduel: could not write {}: {e}", settings_path.display());
+            return 1;
+        }
+    }
+    i32::from(r.imported.is_empty())
 }
 
 /// Write theme `name` as `<settings>/themepacks/<name>.lgtheme`. Returns a message.
@@ -301,6 +357,10 @@ struct Options {
     menu_share: bool,
     /// Headless online run length.
     secs: f64,
+    /// Print what was found of KovaaK's and exit.
+    kovaaks_report: bool,
+    /// Import KovaaK's theme(s) (a name, `current` or `all`), save the settings and exit.
+    import_kovaaks_theme: Option<String>,
 }
 
 /// Offline opponent described by the practice settings.
@@ -346,6 +406,8 @@ impl Options {
             menu_console: false,
             menu_share: false,
             secs: 5.0,
+            kovaaks_report: false,
+            import_kovaaks_theme: None,
         }
     }
 }
@@ -601,6 +663,11 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
                 println!("icons written to {}", dir.display());
                 std::process::exit(0);
             }
+            "--kovaaks-dir" => o.s.kovaaks.path = val("--kovaaks-dir")?,
+            "--kovaaks-report" => o.kovaaks_report = true,
+            "--import-kovaaks-theme" => {
+                o.import_kovaaks_theme = Some(val("--import-kovaaks-theme")?)
+            }
             "--doctor" => std::process::exit(doctor(&o)),
             other => return Err(format!("unknown argument: {other}")),
         }
@@ -812,7 +879,7 @@ fn run_headless(opts: &Options) -> Result<(), String> {
         yaw,
         fov: opts.s.video.fov,
     };
-    let colors = EnemyColors::default();
+    let colors = opts.s.enemy_colors;
     // Default HUD look (the pixel checks expect it), plus the optional input display.
     let hud_settings = HudSettings {
         input_display: opts.s.hud.input_display,
@@ -2625,7 +2692,8 @@ fn main() {
         .position(|a| a == "--settings")
         .and_then(|i| argv.get(i + 1))
         .map(std::path::PathBuf::from);
-    let path = if headless || no_settings {
+    // (An explicit --settings file is also used headless, so checks can render a saved look.)
+    let path = if no_settings || (headless && explicit.is_none()) {
         None
     } else {
         explicit.or_else(settings::default_path)
@@ -2651,6 +2719,13 @@ fn main() {
             std::process::exit(2);
         }
     };
+    if opts.kovaaks_report {
+        println!("{}", kovaaks::report(kovaaks_manual(&opts.s)));
+        return;
+    }
+    if let Some(which) = opts.import_kovaaks_theme.clone() {
+        std::process::exit(import_kovaaks_theme_cli(&opts, &which));
+    }
     if opts.headless && opts.play_demo.is_some() {
         if let Err(e) = run_headless_demo(&opts) {
             eprintln!("lgduel: {e}");

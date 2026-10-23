@@ -649,3 +649,12 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
 - MSAA is a start-up setting (renderer pipelines and targets are made once); default 1 keeps the classic look pixel-identical. `render::Targets` bundles the depth buffer and the multisampled colour buffer that resolves into the real target.
 - The scoreboard sits high on the screen (not centred) so the crosshair and enemy stay visible while TAB is held; the existing end-of-session report on leaving covers the "session summary".
 - Arch: AUR source package only (split lgduel / lgduel-server); submission to the AUR needs the user's account.
+
+## D65 — KovaaK's import (2026-10-23)
+- Copy what we import: converted themes become normal LGDuel theme folders `<settings dir>/themes/kovaaks-<slug>/` (marker file `.kovaaks-import`; a player's own folder of the same name is never overwritten, we use `-2`, `-3`). The KovaaK's folder is only ever read, the `.pak` never.
+- Approximate mapping: colours are exact (KovaaK's tints are linear, `skyColor` is sRGB bytes → `srgb8_to_linear`); texture style is the nearest of tiles/concrete/panel/none (`kovaaks::texture_for`); `shade = true` stays on so walls remain distinguishable. A non-solid sky (skybox preset) becomes the same colour with a 0.6× top gradient. Enemy colours are imported with a contrast warning when within 0.25 of the floor or wall tint.
+- Theme JSON is read through `serde_json::Value` field by field (not a derive struct): a wrongly typed value loses only that field, and unknown keys are ignored.
+- Texture scale: `scale = 128 / kv_scale` (higher KovaaK's scale = more repeats). Assumption, not yet compared against KovaaK's itself; flip in `kovaaks::scale_for` if inverted.
+- `kovaaks.path` is a plain `String` (empty = automatic) so it works as a console variable.
+- Linux: Steam roots are `$XDG_DATA_HOME/Steam`, `~/.local/share/Steam`, `~/.steam/steam`, `~/.steam/root` and the Flatpak path, deduplicated by canonical path (`~/.steam/steam` is a symlink to the first). Verified against a real Proton install on CachyOS (113 themes, 441 sounds).
+- Headless runs now use `--settings FILE` when given (and `opts.s.enemy_colors` for the pixel checks); without it nothing changes, so every existing check stays identical.

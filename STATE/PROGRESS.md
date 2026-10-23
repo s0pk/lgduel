@@ -398,3 +398,7 @@
 - Part B: `LGP1-` profile codes (zlib + CRC32 + base64url, whitelist, caps), presets, `.lgtheme` packs, Share tab, SHARING.md.
 - Part C: MSAA (`video.msaa`, `--msaa`), window title (map + ping), HUD auto-scale + menu scale, crosshair shapes/outline/hit colour, sound set, menu accent style, sky gradient + edge outlines + midnight/paper/ember themes, TAB scoreboard.
 - Verified: `makepkg` in WSL Arch built lgduel + lgduel-server; installed, `lgduel --version`/`--doctor` ran; every milestone check.sh GREEN on Windows (last 127 s); MSAA 4x render has 58 distinct colours vs 12 and 4146 fps at 1080p windowed; scoreboard screenshot inspected (panel high on screen, enemy/crosshair/beam still pass).
+
+## 2026-10-23 — KovaaK's import K1 + K2 (continued on Linux/CachyOS)
+- `crates/client/src/kovaaks.rs`: install discovery (libraryfolders.vdf parser, Windows/Linux/Flatpak roots, manual `kovaaks.path` / `--kovaaks-dir`), theme JSON → LGDuel theme conversion, `install_theme`, `import_themes`, `--kovaaks-report`, `--import-kovaaks-theme`. New deps `serde_json`, `lewton` (for K3). `offscreen::srgb8_to_linear`.
+- Verified: 16 new tests; baseline `check.sh` GREEN on Arch (CachyOS) before the change; `--kovaaks-report` found the real Steam install through libraryfolders.vdf; imported all 113 real themes (0 load problems, 113 render headless); fixture import renders with its orange/green enemy colours (RENDER CHECK OK).

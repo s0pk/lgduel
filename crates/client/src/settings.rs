@@ -89,6 +89,14 @@ impl Default for Audio {
     }
 }
 
+/// KovaaK's import.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Kovaaks {
+    /// KovaaK's install folder (`…/common/FPSAimTrainer`); empty = find it through Steam.
+    pub path: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Practice {
@@ -162,6 +170,7 @@ pub struct Settings {
     pub models: crate::models::ModelSettings,
     pub ui: UiSettings,
     pub audio: Audio,
+    pub kovaaks: Kovaaks,
     pub practice: Practice,
     /// Servers the player added (the official list ships separately).
     pub servers: Vec<ServerEntry>,
@@ -237,6 +246,7 @@ impl Default for Settings {
             models: crate::models::ModelSettings::default(),
             ui: UiSettings::default(),
             audio: Audio::default(),
+            kovaaks: Kovaaks::default(),
             practice: Practice::default(),
             servers: Vec::new(),
             host: HostSettings::default(),

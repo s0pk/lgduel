@@ -174,6 +174,16 @@ pub fn linear_to_srgb8(c: [f32; 3]) -> [u8; 3] {
     [f(c[0]), f(c[1]), f(c[2])]
 }
 
+/// 8-bit sRGB → linear [0,1] (the inverse of `linear_to_srgb8`).
+pub fn srgb8_to_linear(c: u8) -> f32 {
+    let s = c as f32 / 255.0;
+    if s <= 0.040_45 {
+        s / 12.92
+    } else {
+        ((s + 0.055) / 1.055).powf(2.4)
+    }
+}
+
 /// Fraction of pixels within `tol` (per channel) of `rgb`.
 pub fn color_fraction(rgba: &[u8], rgb: [u8; 3], tol: u8) -> f64 {
     let n = rgba.len() / 4;
@@ -206,6 +216,13 @@ mod tests {
     #[test]
     fn srgb_encoding() {
         assert_eq!(linear_to_srgb8([0.0, 1.0, 0.5]), [0, 255, 188]);
+    }
+
+    #[test]
+    fn srgb_round_trip() {
+        for c in 0..=255u8 {
+            assert_eq!(linear_to_srgb8([srgb8_to_linear(c); 3]), [c; 3]);
+        }
     }
 
     #[test]

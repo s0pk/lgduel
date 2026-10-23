@@ -87,6 +87,13 @@ done
 for t in midnight paper ember; do
   "$T/$PROFILE/lgduel" --headless --frames 3 --theme "$t" --map arena_tiers --size 1280x720 --screenshot "artifacts/theme_$t.png" | grep -E "CHECK"
 done
+# KovaaK's import against the fake install in testdata (never the real one): report, theme
+# import into a throwaway settings folder, then render the imported theme with its enemy colours.
+rm -rf artifacts/kv && mkdir -p artifacts/kv
+KV="--kovaaks-dir crates/client/testdata/kovaaks --settings artifacts/kv/settings.toml"
+"$T/$PROFILE/lgduel" $KV --kovaaks-report | grep -E "^KOVAAKS found .*themes 2 \(problems 1\)"
+"$T/$PROFILE/lgduel" $KV --import-kovaaks-theme current | grep -E "KOVAAKS THEME imported kovaaks-lgduel-test-full"
+"$T/$PROFILE/lgduel" --settings artifacts/kv/settings.toml --headless --frames 3 --size 1280x720 --screenshot artifacts/kovaaks_theme.png | grep -E "CHECK"
 # Every built-in map renders with the duel checks passing.
 for m in arena_pillars arena_tiers; do
   "$T/$PROFILE/lgduel" --headless --frames 3 --map "$m" --size 1280x720 --screenshot "artifacts/map_$m.png" | grep -E "^MAP|CHECK"
