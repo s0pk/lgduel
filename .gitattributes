@@ -1,2 +1,4 @@
 * text=auto eol=lf
 *.png binary
+# Test fixtures: keep exact bytes (BOM, CRLF).
+crates/client/testdata/** -text

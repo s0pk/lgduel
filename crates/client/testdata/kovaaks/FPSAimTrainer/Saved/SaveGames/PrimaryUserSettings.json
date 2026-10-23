@@ -1,0 +1,21 @@
+{
+	"booleanSettings":
+	{
+		"EBooleanSettingId::OverrideEnemyBodyColor": true,
+		"EBooleanSettingId::OverrideEnemyHeadColor": true,
+		"EBooleanSettingId::SolidSkyColor": false
+	},
+	"floatSettings":
+	{
+		"EFloatSettingId::HitVolume": 0.80000001192092896,
+		"EFloatSettingId::HitPitch": 1,
+		"EFloatSettingId::MasterVolume": 1,
+		"EFloatSettingId::SFXVolume": 1
+	},
+	"stringSettings":
+	{
+		"EStringSettingId::CurrentThemeName": "LGDuel Test Full",
+		"EStringSettingId::KillConfirmedSound": "lgduel_boop",
+		"EStringSettingId::SpawnSound": ""
+	}
+}

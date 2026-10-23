@@ -3,6 +3,8 @@
 A standalone **Lightning-Gun duel trainer** in the style of the classic arena-shooter LG duel scene
 (the "x76" vamp-duel format): two players, LG only, fighting over crosshair uptime vs. dodging.
 
+> Working on the code? Start with [HANDOFF.md](HANDOFF.md) (repo overview, rules, next feature plan).
+
 - **Vamp mode by default** — 100% lifesteal: damage you deal heals you, so fights are decided by the
   accuracy gap. Classic first-to-N duels and any lifesteal % are server settings.
 - **Arena-shooter movement** — 125 Hz fixed-tick physics with strafe-jumping, circle-jumps and the
