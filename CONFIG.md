@@ -56,7 +56,8 @@ for one run.
 | `[enemy_colors]` | `head` yellow, `upper` green, `lower` cyan (solid, unshaded; used while `models.forced_colors` is on) |
 | `[ui]` | `accent` colour of the menus (default blue) |
 | `[models]` | `enemy` "classic" / "humanoid", `forced_colors` true (off = show the skin), `skin` (`head`, `torso`, `arms`, `legs` colours) |
-| `[audio]` | `volume` 0.7 (hit sound) |
+| `[audio]` | `volume` 0.7, `hit_volume` 1.0, `hit_pitch_by_damage` false, `kill_sound` false, `ui_sounds` false, `hit_sound` / `kill_sound_file` (unset = synthesised; a file name in `sounds/` next to the settings, see [KOVAAKS.md](KOVAAKS.md); console `hitsound`; never part of a share code) |
+| `[kovaaks]` | `path` "" (your KovaaK's folder; empty = find it through Steam, see [KOVAAKS.md](KOVAAKS.md)) |
 | `[practice]` | `bot` true, `pattern` "still"/"ad"/"mirror"/"anti"/"hsw"/"hswanti", `skill` "easy"/"medium"/"hard"/"aimbot", `map` |
 | `[host]` | Host-a-game screen: `name`, `port`, `classic`, `lifesteal_percent`, `anti_lag`, `map`, `join_code` |
 | `[filter]` | server browser: `mode`, `anti_lag`, `max_ping` (0 = any), `region`, `hide_empty`, `hide_full` |

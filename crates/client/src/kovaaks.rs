@@ -9,6 +9,7 @@
 
 use crate::offscreen::srgb8_to_linear;
 use crate::players::EnemyColors;
+use crate::settings::Settings;
 use crate::theme::{self, Material, Theme};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -344,7 +345,7 @@ fn parse_weapon_ini(text: &str) -> WeaponSettings {
 // ---- themes ----
 
 /// Which KovaaK's themes to import.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Which {
     Current,
     All,
@@ -749,6 +750,111 @@ pub fn import_themes(inst: &Install, which: Which, themes_dir: &Path) -> ImportR
     r
 }
 
+/// What importing the sounds did: the file names now in `<settings dir>/sounds/`.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct SoundImport {
+    pub hit: Option<String>,
+    pub kill: Option<String>,
+    /// `HitVolume × SFXVolume` from KovaaK's (0..1), if it has one.
+    pub volume: Option<f32>,
+    /// Why a sound was not imported (or other trouble), one line each.
+    pub problems: Vec<String>,
+}
+
+/// `<sounds>/<stem>.ogg|.wav`, matching the stem case-insensitively (KovaaK's names
+/// come from Windows; a Linux file system is case-sensitive). `.ogg` wins over `.wav`.
+pub fn find_sound(inst: &Install, stem: &str) -> Result<PathBuf, String> {
+    let want = Path::new(stem)
+        .file_stem()
+        .filter(|_| stem.to_lowercase().ends_with(".ogg") || stem.to_lowercase().ends_with(".wav"))
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| stem.to_string())
+        .to_lowercase();
+    let mut best: Option<(u8, PathBuf)> = None;
+    if let Ok(rd) = std::fs::read_dir(inst.sounds_dir()) {
+        for e in rd.flatten() {
+            let p = e.path();
+            let (Some(name), Some(ext)) = (p.file_stem(), p.extension()) else {
+                continue;
+            };
+            let rank = match ext.to_string_lossy().to_lowercase().as_str() {
+                "ogg" => 0,
+                "wav" => 1,
+                _ => continue,
+            };
+            if name.to_string_lossy().to_lowercase() == want
+                && best.as_ref().is_none_or(|b| rank < b.0)
+            {
+                best = Some((rank, p));
+            }
+        }
+    }
+    best.map(|b| b.1)
+        .ok_or_else(|| format!("{stem:?} is built into KovaaK's, can't be imported"))
+}
+
+/// Validate `src` and copy its original bytes into `out_dir`; returns the file name.
+fn copy_sound(src: &Path, out_dir: &Path) -> Result<String, String> {
+    crate::sound_file::load(src)?;
+    let name = src
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .filter(|n| crate::settings::is_plain_file_name(n))
+        .ok_or("bad file name")?;
+    std::fs::create_dir_all(out_dir).map_err(|e| format!("{}: {e}", out_dir.display()))?;
+    let dest = out_dir.join(&name);
+    let tmp = out_dir.join(format!(".{name}.tmp"));
+    std::fs::copy(src, &tmp)
+        .and_then(|_| std::fs::rename(&tmp, &dest))
+        .map_err(|e| format!("{}: {e}", dest.display()))?;
+    Ok(name)
+}
+
+/// Copy the player's KovaaK's hit sound (`BodyHitSound`, else `HeadHitSound`) and kill
+/// sound (`KillConfirmedSound`) into `out_dir` (`<settings dir>/sounds/`).
+pub fn import_sounds(inst: &Install, out_dir: &Path, hit: bool, kill: bool) -> SoundImport {
+    let mut r = SoundImport::default();
+    let one = |label: &str, stem: Option<String>, problems: &mut Vec<String>| {
+        let Some(stem) = stem else {
+            problems.push(format!("no {label} sound is set in KovaaK's"));
+            return None;
+        };
+        match find_sound(inst, &stem).and_then(|p| copy_sound(&p, out_dir)) {
+            Ok(n) => Some(n),
+            Err(e) => {
+                problems.push(format!("{label} sound: {e}"));
+                None
+            }
+        }
+    };
+    let weapon = match weapon_settings(inst) {
+        Ok(w) => w,
+        Err(e) => {
+            r.problems.push(format!("weaponsettings.ini: {e}"));
+            WeaponSettings::default()
+        }
+    };
+    let user = match user_settings(inst) {
+        Ok(u) => u,
+        Err(e) => {
+            r.problems.push(format!("PrimaryUserSettings.json: {e}"));
+            UserSettings::default()
+        }
+    };
+    let mut problems = std::mem::take(&mut r.problems);
+    if hit {
+        r.hit = one("hit", weapon.hit_sound().map(str::to_string), &mut problems);
+    }
+    if kill {
+        r.kill = one("kill", user.kill_sound.clone(), &mut problems);
+    }
+    r.problems = problems;
+    r.volume = user
+        .hit_volume
+        .map(|h| (h * user.sfx_volume.unwrap_or(1.0)).clamp(0.0, 1.0));
+    r
+}
+
 /// Number of `.ogg` / `.wav` files in KovaaK's sounds folder.
 pub fn count_sounds(inst: &Install) -> usize {
     std::fs::read_dir(inst.sounds_dir())
@@ -764,26 +870,143 @@ pub fn count_sounds(inst: &Install) -> usize {
         .unwrap_or(0)
 }
 
+/// What a look at the install found (the Share tab keeps this instead of rescanning every frame).
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Scan {
+    pub root: Option<PathBuf>,
+    /// Why it wasn't found.
+    pub error: Option<String>,
+    /// Theme display names.
+    pub themes: Vec<String>,
+    pub theme_problems: usize,
+    pub sounds: usize,
+    /// The theme selected in KovaaK's.
+    pub current: Option<String>,
+}
+
+pub fn scan(manual: Option<&Path>) -> Scan {
+    match find(manual) {
+        Err(e) => Scan {
+            error: Some(e),
+            ..Scan::default()
+        },
+        Ok(inst) => {
+            let (themes, problems) = list_themes(&inst);
+            Scan {
+                sounds: count_sounds(&inst),
+                current: user_settings(&inst).ok().and_then(|u| u.current_theme),
+                themes: themes.into_iter().map(|t| t.0).collect(),
+                theme_problems: problems.len(),
+                root: Some(inst.root),
+                error: None,
+            }
+        }
+    }
+}
+
+/// Something to do with KovaaK's, from the console, the Share tab or the command line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Cmd {
+    Status,
+    Themes,
+    Import { which: Which, enemy: bool },
+    Sounds { hit: bool, kill: bool, volume: bool },
+}
+
+/// Run `cmd`, changing `s` where it should (the caller saves and applies), and
+/// return the lines to show. Files are copied below `settings_dir`.
+pub fn run(s: &mut Settings, settings_dir: Option<&Path>, cmd: Cmd) -> Vec<String> {
+    let manual = Some(s.kovaaks.path.trim())
+        .filter(|p| !p.is_empty())
+        .map(PathBuf::from);
+    let inst = match find(manual.as_deref()) {
+        Ok(i) => i,
+        Err(e) => return vec![e],
+    };
+    let Some(dir) = settings_dir else {
+        if matches!(cmd, Cmd::Import { .. } | Cmd::Sounds { .. }) {
+            return vec!["no settings folder to copy into (started with --no-settings)".into()];
+        }
+        return run_readonly(&inst, cmd);
+    };
+    match cmd {
+        Cmd::Status | Cmd::Themes => run_readonly(&inst, cmd),
+        Cmd::Import { which, enemy } => {
+            let all = which == Which::All;
+            let r = import_themes(&inst, which, &dir.join("themes"));
+            let mut lines: Vec<String> = r
+                .imported
+                .iter()
+                .map(|f| format!("imported theme {f}"))
+                .collect();
+            lines.extend(r.warnings.iter().map(|w| format!("warning: {w}")));
+            lines.extend(r.problems.iter().map(|p| format!("problem: {p}")));
+            if !all && let Some(first) = r.imported.first() {
+                s.video.theme = first.clone();
+                lines.push(format!("theme set to {first}"));
+                if enemy && let Some(patch) = r.enemy {
+                    patch.apply(&mut s.enemy_colors);
+                    lines.push("enemy colours set from the theme".into());
+                }
+            }
+            lines
+        }
+        Cmd::Sounds { hit, kill, volume } => {
+            let r = import_sounds(&inst, &dir.join("sounds"), hit, kill);
+            let mut lines = Vec::new();
+            if let Some(h) = r.hit {
+                lines.push(format!("hit sound: {h}"));
+                s.audio.hit_sound = Some(h);
+            }
+            if let Some(k) = r.kill {
+                lines.push(format!("kill sound: {k}"));
+                s.audio.kill_sound_file = Some(k);
+                s.audio.kill_sound = true;
+            }
+            if volume && let Some(v) = r.volume {
+                s.audio.hit_volume = v;
+                lines.push(format!("hit volume {v:.2}"));
+            }
+            lines.extend(r.problems.iter().map(|p| format!("problem: {p}")));
+            lines
+        }
+    }
+}
+
+fn run_readonly(inst: &Install, cmd: Cmd) -> Vec<String> {
+    match cmd {
+        Cmd::Themes => {
+            let (themes, problems) = list_themes(inst);
+            let mut lines: Vec<String> = themes.into_iter().map(|t| t.0).collect();
+            lines.extend(problems.iter().map(|p| format!("problem: {p}")));
+            lines
+        }
+        _ => vec![report_for(inst)],
+    }
+}
+
 /// `lgduel --kovaaks-report`: one line, found or not.
 pub fn report(manual: Option<&Path>) -> String {
     match find(manual) {
         Err(e) => format!("KOVAAKS not found: {e}"),
-        Ok(inst) => {
-            let (themes, problems) = list_themes(&inst);
-            let user = user_settings(&inst).unwrap_or_default();
-            let weapon = weapon_settings(&inst).unwrap_or_default();
-            format!(
-                "KOVAAKS found {} | themes {} (problems {}) | sounds {} | current \"{}\" | hit \"{}\" | kill \"{}\"",
-                inst.root.display(),
-                themes.len(),
-                problems.len(),
-                count_sounds(&inst),
-                user.current_theme.unwrap_or_default(),
-                weapon.hit_sound().unwrap_or_default(),
-                user.kill_sound.unwrap_or_default(),
-            )
-        }
+        Ok(inst) => report_for(&inst),
     }
+}
+
+fn report_for(inst: &Install) -> String {
+    let (themes, problems) = list_themes(inst);
+    let user = user_settings(inst).unwrap_or_default();
+    let weapon = weapon_settings(inst).unwrap_or_default();
+    format!(
+        "KOVAAKS found {} | themes {} (problems {}) | sounds {} | current \"{}\" | hit \"{}\" | kill \"{}\"",
+        inst.root.display(),
+        themes.len(),
+        problems.len(),
+        count_sounds(inst),
+        user.current_theme.unwrap_or_default(),
+        weapon.hit_sound().unwrap_or_default(),
+        user.kill_sound.unwrap_or_default(),
+    )
 }
 
 #[cfg(test)]
@@ -1062,6 +1285,133 @@ mod tests {
         assert_eq!(w.crosshair_file.as_deref(), Some("lgduel_dot.png"));
         let w = parse_weapon_ini("\u{feff}BodyHitSound=\r\nHeadHitSound=ding\r\n");
         assert_eq!(w.hit_sound(), Some("ding"));
+    }
+
+    #[test]
+    fn imports_hit_and_kill_sounds() {
+        let out = temp("sounds").join("sounds");
+        let inst = fixture();
+        let r = import_sounds(&inst, &out, true, true);
+        assert_eq!(r.hit.as_deref(), Some("lgduel_beep.ogg"));
+        assert_eq!(r.kill.as_deref(), Some("lgduel_boop.wav"));
+        assert!(r.problems.is_empty(), "{:?}", r.problems);
+        assert!((r.volume.unwrap() - 0.8).abs() < 1e-6);
+        // The original bytes are copied, and what was copied decodes.
+        for n in ["lgduel_beep.ogg", "lgduel_boop.wav"] {
+            let src = std::fs::read(inst.sounds_dir().join(n)).unwrap();
+            assert_eq!(std::fs::read(out.join(n)).unwrap(), src);
+            assert!(crate::sound_file::load(&out.join(n)).is_ok());
+        }
+        assert_eq!(
+            std::fs::read_dir(&out).unwrap().count(),
+            2,
+            "no temp files left"
+        );
+        let _ = std::fs::remove_dir_all(out.parent().unwrap());
+    }
+
+    #[test]
+    fn sound_lookup_is_case_insensitive_and_reports_builtins() {
+        let inst = fixture();
+        let want = inst.sounds_dir().join("lgduel_beep.ogg");
+        assert_eq!(find_sound(&inst, "LGDuel_BEEP").unwrap(), want);
+        assert_eq!(find_sound(&inst, "lgduel_beep.ogg").unwrap(), want);
+        let e = find_sound(&inst, "Shot").unwrap_err();
+        assert!(e.contains("built into KovaaK's, can't be imported"), "{e}");
+        // A broken file is reported, not copied.
+        let out = temp("badsound");
+        let e = copy_sound(&inst.sounds_dir().join("broken.ogg"), &out).unwrap_err();
+        assert!(e.starts_with("broken.ogg: "), "{e}");
+        assert_eq!(std::fs::read_dir(&out).unwrap().count(), 0);
+        let _ = std::fs::remove_dir_all(out);
+    }
+
+    #[test]
+    fn run_imports_into_settings() {
+        let dir = temp("run");
+        let mut s = Settings::default();
+        s.kovaaks.path = FIXTURE.into();
+        let lines = run(
+            &mut s,
+            Some(&dir),
+            Cmd::Import {
+                which: Which::Current,
+                enemy: true,
+            },
+        );
+        assert_eq!(s.video.theme, "kovaaks-lgduel-test-full", "{lines:?}");
+        assert_eq!(s.enemy_colors.head, [1.0, 0.5, 0.0]);
+        // Without "use my enemy colours" they stay as they were.
+        let mut t = Settings {
+            kovaaks: s.kovaaks.clone(),
+            ..Settings::default()
+        };
+        run(
+            &mut t,
+            Some(&dir),
+            Cmd::Import {
+                which: Which::Current,
+                enemy: false,
+            },
+        );
+        assert_eq!(t.enemy_colors, EnemyColors::default());
+        let lines = run(
+            &mut s,
+            Some(&dir),
+            Cmd::Sounds {
+                hit: true,
+                kill: false,
+                volume: true,
+            },
+        );
+        assert_eq!(
+            s.audio.hit_sound.as_deref(),
+            Some("lgduel_beep.ogg"),
+            "{lines:?}"
+        );
+        assert_eq!(s.audio.kill_sound_file, None);
+        assert!((s.audio.hit_volume - 0.8).abs() < 1e-6);
+        run(
+            &mut s,
+            Some(&dir),
+            Cmd::Sounds {
+                hit: false,
+                kill: true,
+                volume: false,
+            },
+        );
+        assert_eq!(s.audio.kill_sound_file.as_deref(), Some("lgduel_boop.wav"));
+        assert!(s.audio.kill_sound);
+        assert!(dir.join("sounds/lgduel_beep.ogg").is_file());
+        // Read-only commands and a missing install.
+        assert!(run(&mut s, None, Cmd::Status)[0].starts_with("KOVAAKS found"));
+        assert_eq!(
+            run(&mut s, None, Cmd::Themes),
+            [
+                "!lgduel minimal",
+                "LGDuel Test Full",
+                "problem: broken.json: EOF while parsing a value at line 2 column 0"
+            ]
+        );
+        assert!(
+            run(
+                &mut s,
+                None,
+                Cmd::Sounds {
+                    hit: true,
+                    kill: true,
+                    volume: false
+                }
+            )[0]
+            .contains("--no-settings")
+        );
+        s.kovaaks.path = "/nonexistent".into();
+        assert!(run(&mut s, Some(&dir), Cmd::Status)[0].contains("no KovaaK's install"));
+        assert!(scan(Some(Path::new("/nonexistent"))).error.is_some());
+        let sc = scan(Some(Path::new(FIXTURE)));
+        assert_eq!((sc.themes.len(), sc.sounds, sc.theme_problems), (2, 5, 1));
+        assert_eq!(sc.current.as_deref(), Some("LGDuel Test Full"));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

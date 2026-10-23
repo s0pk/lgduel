@@ -33,6 +33,7 @@ mod profile;
 mod render;
 mod scene;
 mod settings;
+mod sound_file;
 mod textures;
 mod theme;
 mod themepack;
@@ -93,7 +94,7 @@ fn doctor(opts: &Options) -> i32 {
             1
         }
     };
-    let audio = audio::Audio::open(0.5);
+    let audio = audio::Audio::open(0.5, &audio::CustomSounds::default());
     println!(
         "audio: {}",
         if audio.is_live() {
@@ -116,11 +117,81 @@ fn doctor(opts: &Options) -> i32 {
     code
 }
 
+/// `<settings dir>/sounds/`: where imported hit and kill sounds are kept.
+fn sounds_dir(settings_path: Option<&std::path::PathBuf>) -> Option<std::path::PathBuf> {
+    settings_path
+        .and_then(|p| p.parent())
+        .map(|p| p.join("sounds"))
+}
+
+/// Load the player's custom hit / kill sounds. A file that can't be read is
+/// reported and the synthesised sound is used instead; this never fails.
+fn custom_sounds(
+    s: &Settings,
+    settings_path: Option<&std::path::PathBuf>,
+) -> (audio::CustomSounds, Vec<String>) {
+    let mut problems = Vec::new();
+    let mut load = |name: &Option<String>| {
+        let name = name.as_deref()?;
+        let Some(dir) = sounds_dir(settings_path) else {
+            problems.push(format!("sound {name}: no settings folder (--no-settings)"));
+            return None;
+        };
+        match sound_file::load(&dir.join(name)) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                problems.push(format!("sound {e}; using the default sound"));
+                None
+            }
+        }
+    };
+    let custom = audio::CustomSounds {
+        hit: load(&s.audio.hit_sound),
+        kill: load(&s.audio.kill_sound_file),
+    };
+    (custom, problems)
+}
+
 /// The KovaaK's folder the player set, if any (empty = look through Steam).
 fn kovaaks_manual(s: &Settings) -> Option<&std::path::Path> {
     Some(s.kovaaks.path.trim())
         .filter(|p| !p.is_empty())
         .map(std::path::Path::new)
+}
+
+/// `lgduel --import-kovaaks-sounds`: copy the hit and kill sound, use them and save.
+fn import_kovaaks_sounds_cli(opts: &Options) -> i32 {
+    let Some(settings_path) = opts.settings_path.as_ref() else {
+        eprintln!("lgduel: no settings folder to write to (started with --no-settings)");
+        return 1;
+    };
+    let inst = match kovaaks::find(kovaaks_manual(&opts.s)) {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("lgduel: {e}");
+            return 1;
+        }
+    };
+    let out = sounds_dir(Some(settings_path)).unwrap_or_else(|| "sounds".into());
+    let r = kovaaks::import_sounds(&inst, &out, true, true);
+    let mut s = opts.s.clone();
+    if let Some(h) = &r.hit {
+        println!("KOVAAKS SOUND hit {h}");
+        s.audio.hit_sound = Some(h.clone());
+    }
+    if let Some(k) = &r.kill {
+        println!("KOVAAKS SOUND kill {k}");
+        s.audio.kill_sound_file = Some(k.clone());
+        s.audio.kill_sound = true;
+    }
+    for p in &r.problems {
+        eprintln!("KOVAAKS PROBLEM {p}");
+    }
+    if let Err(e) = settings::save(settings_path, &s) {
+        eprintln!("lgduel: could not write {}: {e}", settings_path.display());
+        return 1;
+    }
+    i32::from(r.hit.is_none() && r.kill.is_none())
 }
 
 /// `lgduel --import-kovaaks-theme <name|current|all>`: copy the theme(s) into the
@@ -359,6 +430,8 @@ struct Options {
     secs: f64,
     /// Print what was found of KovaaK's and exit.
     kovaaks_report: bool,
+    /// Copy KovaaK's hit and kill sound, save the settings and exit.
+    import_kovaaks_sounds: bool,
     /// Import KovaaK's theme(s) (a name, `current` or `all`), save the settings and exit.
     import_kovaaks_theme: Option<String>,
 }
@@ -408,6 +481,7 @@ impl Options {
             secs: 5.0,
             kovaaks_report: false,
             import_kovaaks_theme: None,
+            import_kovaaks_sounds: false,
         }
     }
 }
@@ -665,6 +739,7 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
             }
             "--kovaaks-dir" => o.s.kovaaks.path = val("--kovaaks-dir")?,
             "--kovaaks-report" => o.kovaaks_report = true,
+            "--import-kovaaks-sounds" => o.import_kovaaks_sounds = true,
             "--import-kovaaks-theme" => {
                 o.import_kovaaks_theme = Some(val("--import-kovaaks-theme")?)
             }
@@ -995,6 +1070,7 @@ fn run_headless(opts: &Options) -> Result<(), String> {
             let p = profile::decode(&menu.share.code).unwrap_or_default();
             let r = profile::evaluate(&p, &s, &[], false);
             menu.share.report = profile::describe(&r);
+            menu.share.kovaaks.scan = Some(kovaaks::scan(kovaaks_manual(&s)));
         }
         if opts.menu_console {
             menu.console.open = true;
@@ -1570,6 +1646,8 @@ struct App {
     grabbed: bool,
 
     audio: audio::Audio,
+    /// The `(hit_sound, kill_sound_file)` the open audio was built with.
+    sounds_applied: (Option<String>, Option<String>),
 
     numbers: DamageNumbers,
     fights: fight::FightTracker,
@@ -1635,6 +1713,62 @@ impl App {
         self.load_style();
     }
 
+    /// Run a KovaaK's command, show its lines (console and Share tab) and apply the result.
+    fn kovaaks_run(&mut self, cmd: kovaaks::Cmd) {
+        let dir = self
+            .opts
+            .settings_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_path_buf());
+        let before = self.opts.s.clone();
+        let lines = kovaaks::run(&mut self.opts.s, dir.as_deref(), cmd);
+        for l in &lines {
+            println!("KOVAAKS {l}");
+            self.menu.console.print(l);
+        }
+        self.menu.share.kovaaks.report = lines;
+        if self.opts.s != before {
+            self.menu.dirty = true;
+            self.apply_settings();
+            self.load_style();
+        }
+        self.menu.share.kovaaks.scan = None;
+    }
+
+    fn kovaaks_console(&mut self, rest: &str) {
+        use kovaaks::{Cmd, Which};
+        let (word, arg) = rest.split_once(' ').unwrap_or((rest, ""));
+        let cmd = match (word, arg.trim()) {
+            ("", _) => Cmd::Status,
+            ("themes", _) => Cmd::Themes,
+            ("sounds", _) => Cmd::Sounds {
+                hit: true,
+                kill: true,
+                volume: false,
+            },
+            ("import", "current") => Cmd::Import {
+                which: Which::Current,
+                enemy: true,
+            },
+            ("import", "all") => Cmd::Import {
+                which: Which::All,
+                enemy: false,
+            },
+            ("import", name) if !name.is_empty() => Cmd::Import {
+                which: Which::Named(name.into()),
+                enemy: true,
+            },
+            _ => {
+                self.menu.console.print(
+                    "usage: kovaaks | kovaaks themes | kovaaks import NAME|current|all | kovaaks sounds",
+                );
+                return;
+            }
+        };
+        self.kovaaks_run(cmd);
+    }
+
     fn share_preset(&mut self, name: &str) {
         let lines = apply_preset(&mut self.opts, name);
         for l in &lines {
@@ -1675,12 +1809,19 @@ impl App {
     fn apply_settings(&mut self) {
         let s = &self.opts.s;
         self.look.settings = s.mouse;
-        if (self.audio.volume > 0.0) != (s.audio.volume > 0.0)
+        let sounds = (s.audio.hit_sound.clone(), s.audio.kill_sound_file.clone());
+        let reopen = (self.audio.volume > 0.0) != (s.audio.volume > 0.0)
             && !self.audio.is_live()
-            && s.audio.volume > 0.0
-        {
-            self.audio = audio::Audio::open(s.audio.volume);
+            && s.audio.volume > 0.0;
+        if (reopen || sounds != self.sounds_applied) && s.audio.volume > 0.0 {
+            let (custom, problems) = custom_sounds(s, self.opts.settings_path.as_ref());
+            for p in &problems {
+                self.menu.console.print(p);
+            }
+            self.audio = audio::Audio::open(s.audio.volume, &custom);
+            self.sounds_applied = sounds;
         }
+        let s = &self.opts.s;
         self.audio.volume = s.audio.volume;
         if let Some(g) = &mut self.gfx {
             g.set_vsync(s.video.vsync);
@@ -1801,6 +1942,7 @@ impl App {
                 }
             }
             Some(console::ConsoleAction::ReloadTheme) => self.load_style(),
+            Some(console::ConsoleAction::Kovaaks(rest)) => self.kovaaks_console(&rest),
             Some(console::ConsoleAction::Preset(name)) => self.share_preset(&name),
             Some(console::ConsoleAction::ExportTheme(name)) => {
                 let msg = export_theme(&self.opts, &name);
@@ -2611,6 +2753,11 @@ impl ApplicationHandler for App {
                                 profile::export(&self.opts.s, &theme_dirs(&self.opts), controls);
                         }
                         Some(menu::Action::Preset(name)) => self.share_preset(&name),
+                        Some(menu::Action::KovaaksScan) => {
+                            self.menu.share.kovaaks.scan =
+                                Some(kovaaks::scan(kovaaks_manual(&self.opts.s)));
+                        }
+                        Some(menu::Action::Kovaaks(cmd)) => self.kovaaks_run(cmd),
                         Some(menu::Action::SharePreview { code, controls }) => {
                             self.share_import(&code, controls, false)
                         }
@@ -2723,6 +2870,9 @@ fn main() {
         println!("{}", kovaaks::report(kovaaks_manual(&opts.s)));
         return;
     }
+    if opts.import_kovaaks_sounds {
+        std::process::exit(import_kovaaks_sounds_cli(&opts));
+    }
     if let Some(which) = opts.import_kovaaks_theme.clone() {
         std::process::exit(import_kovaaks_theme_cli(&opts, &which));
     }
@@ -2756,8 +2906,12 @@ fn main() {
     }
     let event_loop = EventLoop::new().expect("event loop");
     event_loop.set_control_flow(ControlFlow::Poll);
+    let (custom, sound_problems) = custom_sounds(&opts.s, opts.settings_path.as_ref());
+    for p in &sound_problems {
+        eprintln!("lgduel: {p}");
+    }
     let audio = if opts.s.audio.volume > 0.0 {
-        audio::Audio::open(opts.s.audio.volume)
+        audio::Audio::open(opts.s.audio.volume, &custom)
     } else {
         audio::Audio::silent("muted")
     };
@@ -2827,6 +2981,10 @@ fn main() {
         grabbed: false,
 
         audio,
+        sounds_applied: (
+            opts.s.audio.hit_sound.clone(),
+            opts.s.audio.kill_sound_file.clone(),
+        ),
 
         numbers: DamageNumbers::default(),
         fights: fight::FightTracker::default(),

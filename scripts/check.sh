@@ -93,6 +93,8 @@ rm -rf artifacts/kv && mkdir -p artifacts/kv
 KV="--kovaaks-dir crates/client/testdata/kovaaks --settings artifacts/kv/settings.toml"
 "$T/$PROFILE/lgduel" $KV --kovaaks-report | grep -E "^KOVAAKS found .*themes 2 \(problems 1\)"
 "$T/$PROFILE/lgduel" $KV --import-kovaaks-theme current | grep -E "KOVAAKS THEME imported kovaaks-lgduel-test-full"
+"$T/$PROFILE/lgduel" $KV --import-kovaaks-sounds | grep -E "KOVAAKS SOUND hit lgduel_beep.ogg"
+grep -q 'hit_sound = "lgduel_beep.ogg"' artifacts/kv/settings.toml && cmp artifacts/kv/sounds/lgduel_beep.ogg crates/client/testdata/kovaaks/FPSAimTrainer/sounds/lgduel_beep.ogg
 "$T/$PROFILE/lgduel" --settings artifacts/kv/settings.toml --headless --frames 3 --size 1280x720 --screenshot artifacts/kovaaks_theme.png | grep -E "CHECK"
 # Every built-in map renders with the duel checks passing.
 for m in arena_pillars arena_tiers; do

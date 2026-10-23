@@ -2,6 +2,7 @@
 //! mixed on the audio thread. Missing audio hardware is not an error: the game
 //! runs silent.
 
+use crate::sound_file::{self, Pcm};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::mpsc::{Receiver, Sender, channel};
 
@@ -91,6 +92,45 @@ pub fn synth(sound: Sound, rate: u32) -> Vec<f32> {
     }
 }
 
+/// Player-chosen sounds (imported files) that replace the synthesised hit / kill sound.
+#[derive(Debug, Clone, Default)]
+pub struct CustomSounds {
+    pub hit: Option<Pcm>,
+    pub kill: Option<Pcm>,
+}
+
+impl CustomSounds {
+    /// The samples of `sound` at `rate`: the custom file if there is one, else the synth.
+    pub fn samples(&self, sound: Sound, rate: u32) -> Vec<f32> {
+        let custom = match sound {
+            Sound::Hit => self.hit.as_ref(),
+            Sound::Kill => self.kill.as_ref(),
+            _ => None,
+        };
+        match custom {
+            Some(p) => sound_file::resample(p, rate),
+            None => synth(sound, rate),
+        }
+    }
+}
+
+/// Most hit sounds playing at once; a long custom sound would otherwise pile up
+/// (the LG hits about 20 times a second).
+pub const MAX_HIT_VOICES: usize = 4;
+
+/// Start `v`; if it is a hit sound and `MAX_HIT_VOICES` are already playing, the oldest stops.
+pub fn add_voice(voices: &mut Vec<Voice>, v: Voice) {
+    if v.sound == Sound::Hit.index() {
+        let active = voices.iter().filter(|o| o.sound == v.sound).count();
+        if active >= MAX_HIT_VOICES
+            && let Some(oldest) = voices.iter().position(|o| o.sound == v.sound)
+        {
+            voices.remove(oldest);
+        }
+    }
+    voices.push(v);
+}
+
 /// A sound being played: which sample, read position (fractional: pitch), speed, gain.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Voice {
@@ -156,21 +196,24 @@ impl Audio {
         }
     }
 
-    pub fn open(volume: f32) -> Self {
-        match Self::try_open(volume) {
+    pub fn open(volume: f32, custom: &CustomSounds) -> Self {
+        match Self::try_open(volume, custom) {
             Ok(a) => a,
             Err(e) => Self::silent(&e),
         }
     }
 
-    fn try_open(volume: f32) -> Result<Self, String> {
+    fn try_open(volume: f32, custom: &CustomSounds) -> Result<Self, String> {
         let host = cpal::default_host();
         let device = host.default_output_device().ok_or("no output device")?;
         let supported = device.default_output_config().map_err(|e| e.to_string())?;
         let config = supported.config();
         let channels = config.channels as usize;
         let rate = config.sample_rate;
-        let samples: Vec<Vec<f32>> = Sound::ALL.iter().map(|s| synth(*s, rate)).collect();
+        let samples: Vec<Vec<f32>> = Sound::ALL
+            .iter()
+            .map(|s| custom.samples(*s, rate))
+            .collect();
         let (tx, rx) = channel::<Play>();
         let err = |e| eprintln!("audio stream error: {e}");
         let stream = match supported.sample_format() {
@@ -235,12 +278,15 @@ fn mixer<T: Copy + Default>(
     let mut buf: Vec<f32> = Vec::new();
     move |out: &mut [T], _| {
         while let Ok(p) = rx.try_recv() {
-            voices.push(Voice {
-                sound: p.sound.index(),
-                pos: 0.0,
-                step: p.pitch,
-                gain: p.gain,
-            });
+            add_voice(
+                &mut voices,
+                Voice {
+                    sound: p.sound.index(),
+                    pos: 0.0,
+                    step: p.pitch,
+                    gain: p.gain,
+                },
+            );
         }
         buf.resize(out.len(), 0.0);
         mix(&mut voices, &samples, &mut buf, channels);
@@ -335,6 +381,51 @@ mod tests {
         // Distinct sounds.
         assert_ne!(synth(Sound::Kill, 48_000), synth(Sound::Challenge, 48_000));
         assert!(synth(Sound::FightWon, 48_000).len() > synth(Sound::UiClick, 48_000).len() * 10);
+    }
+
+    #[test]
+    fn hit_voices_are_capped_oldest_first() {
+        let hit = Sound::Hit.index();
+        let mk = |pos: f32, sound: usize| Voice {
+            sound,
+            pos,
+            step: 1.0,
+            gain: 1.0,
+        };
+        let mut v = Vec::new();
+        add_voice(&mut v, mk(0.0, Sound::Kill.index()));
+        for i in 0..6 {
+            add_voice(&mut v, mk(i as f32, hit));
+        }
+        let hits: Vec<f32> = v.iter().filter(|x| x.sound == hit).map(|x| x.pos).collect();
+        assert_eq!(hits, vec![2.0, 3.0, 4.0, 5.0]);
+        assert!(
+            v.iter().any(|x| x.sound == Sound::Kill.index()),
+            "other sounds are not capped"
+        );
+    }
+
+    #[test]
+    fn custom_sounds_replace_only_hit_and_kill() {
+        let pcm = Pcm {
+            rate: 44_100,
+            samples: vec![0.5; 4410],
+        };
+        let c = CustomSounds {
+            hit: Some(pcm),
+            kill: None,
+        };
+        let hit = c.samples(Sound::Hit, 48_000);
+        assert!((hit.len() as i64 - 4800).abs() <= 2, "{}", hit.len());
+        assert_eq!(c.samples(Sound::Kill, 48_000), synth(Sound::Kill, 48_000));
+        assert_eq!(
+            c.samples(Sound::UiClick, 48_000),
+            synth(Sound::UiClick, 48_000)
+        );
+        assert_eq!(
+            CustomSounds::default().samples(Sound::Hit, 48_000),
+            synth(Sound::Hit, 48_000)
+        );
     }
 
     #[test]

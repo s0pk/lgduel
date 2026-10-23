@@ -19,6 +19,8 @@ const HELP: &str = "console commands:
   presets | preset NAME  built-in looks (classic, high-visibility, colour-blind-safe, minimal, showcase)
   exportprofile [controls]   print a share code for your look (controls = also mouse/FOV/volume)
   importprofile CODE    apply a share code (see what it changes first with Settings -> Share)
+  kovaaks | kovaaks themes | kovaaks import NAME|current|all | kovaaks sounds   use your KovaaK's themes and sounds
+  hitsound [FILE|default]   show / set the hit sound (a file in sounds/ next to the settings)
   record NAME | stoprecord | playdemo NAME   demos (practice: exact replay)
   connect ADDRESS | join CODE | practice | disconnect | quit
   clear | help";
@@ -27,11 +29,18 @@ const HELP: &str = "console commands:
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConsoleAction {
     ExportTheme(String),
-    ImportTheme { file: String, name: Option<String> },
+    ImportTheme {
+        file: String,
+        name: Option<String>,
+    },
     Preset(String),
-    ExportProfile { controls: bool },
+    ExportProfile {
+        controls: bool,
+    },
     ImportProfile(String),
     ReloadTheme,
+    /// `kovaaks …` with the rest of the line.
+    Kovaaks(String),
     Record(String),
     StopRecord,
     PlayDemo(String),
@@ -266,6 +275,8 @@ fn run_depth(
         "practice" => (vec![], Some(ConsoleAction::Practice), false),
         "record" if !rest.is_empty() => (vec![], Some(ConsoleAction::Record(rest.into())), false),
         "stoprecord" => (vec![], Some(ConsoleAction::StopRecord), false),
+        "kovaaks" => (vec![], Some(ConsoleAction::Kovaaks(rest.into())), false),
+        "hitsound" => hitsound(s, rest, dir),
         "reloadtheme" => (vec![], Some(ConsoleAction::ReloadTheme), false),
         "exporttheme" if !rest.is_empty() => {
             (vec![], Some(ConsoleAction::ExportTheme(rest.into())), false)
@@ -321,9 +332,75 @@ fn run_depth(
     }
 }
 
+/// `hitsound`, `hitsound default`, `hitsound FILE`.
+fn hitsound(
+    s: &mut Settings,
+    rest: &str,
+    dir: Option<&Path>,
+) -> (Vec<String>, Option<ConsoleAction>, bool) {
+    let say = |t: String, changed: bool| (vec![t], None, changed);
+    match rest {
+        "" => say(
+            match &s.audio.hit_sound {
+                Some(f) => format!("hit sound: {f}"),
+                None => "hit sound: default (synthesised)".into(),
+            },
+            false,
+        ),
+        "default" => {
+            s.audio.hit_sound = None;
+            say("hit sound: default".into(), true)
+        }
+        file if !crate::settings::is_plain_file_name(file) => {
+            say(format!("{file:?} is not a file name (no folders)"), false)
+        }
+        file => match dir.map(|d| d.join("sounds").join(file)) {
+            Some(p) if p.is_file() => {
+                s.audio.hit_sound = Some(file.to_string());
+                say(format!("hit sound: {file}"), true)
+            }
+            Some(p) => say(format!("no such file: {}", p.display()), false),
+            None => say(
+                "no settings folder (started with --no-settings)".into(),
+                false,
+            ),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hitsound_command() {
+        let dir = std::env::temp_dir().join(format!("lgduel-hitsound-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sounds")).unwrap();
+        std::fs::write(dir.join("sounds/ding.ogg"), b"x").unwrap();
+        let mut s = Settings::default();
+        let run = |s: &mut Settings, l: &str| {
+            let (out, action, changed) = run(s, l, Some(&dir));
+            assert!(action.is_none());
+            (out.join("\n"), changed)
+        };
+        assert_eq!(
+            run(&mut s, "hitsound").0,
+            "hit sound: default (synthesised)"
+        );
+        assert_eq!(
+            run(&mut s, "hitsound ding.ogg"),
+            ("hit sound: ding.ogg".into(), true)
+        );
+        assert_eq!(s.audio.hit_sound.as_deref(), Some("ding.ogg"));
+        assert_eq!(run(&mut s, "hitsound").0, "hit sound: ding.ogg");
+        assert!(!run(&mut s, "hitsound nope.ogg").1);
+        assert!(!run(&mut s, "hitsound ../ding.ogg").1);
+        assert!(!run(&mut s, "hitsound a/b").1);
+        assert_eq!(s.audio.hit_sound.as_deref(), Some("ding.ogg"));
+        assert!(run(&mut s, "hitsound default").1);
+        assert_eq!(s.audio.hit_sound, None);
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn set_get_aliases_and_validation() {

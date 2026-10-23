@@ -658,3 +658,8 @@ Measured (it. 34): prediction exact in 15/16 cells (0 ms + 5% loss: mean 0.0023u
 - `kovaaks.path` is a plain `String` (empty = automatic) so it works as a console variable.
 - Linux: Steam roots are `$XDG_DATA_HOME/Steam`, `~/.local/share/Steam`, `~/.steam/steam`, `~/.steam/root` and the Flatpak path, deduplicated by canonical path (`~/.steam/steam` is a symlink to the first). Verified against a real Proton install on CachyOS (113 themes, 441 sounds).
 - Headless runs now use `--settings FILE` when given (and `opts.s.enemy_colors` for the pixel checks); without it nothing changes, so every existing check stays identical.
+- K3/K4: `lewton` (pure-Rust Ogg Vorbis) built fine on the pinned toolchain, no `symphonia` needed. WAV is parsed by hand (tags 1, 3, 0xFFFE; ADPCM refused with a message). Only the first 2 s are kept (20 ms fade when cut); at most 4 hit voices play at once (oldest dropped).
+- Custom sounds live in `audio.hit_sound` / `audio.kill_sound_file` (file names in `<settings dir>/sounds/`, `Option`, so they are not console variables; the `hitsound` command sets the hit one). Both are excluded from share codes (`profile::is_look_key`) and sanitized to plain file names.
+- K5: one entry point, `kovaaks::run(settings, dir, Cmd)`, serves the console, the Share tab and tests; the CLI flags (`--import-kovaaks-*`) call the library directly so their output lines stay stable for `check.sh`. The Share tab scans the install once (when first shown / "Search again"), not per frame.
+- A headless run now loads an explicit `--settings FILE` (otherwise it still ignores settings), which is how `check.sh` renders the imported theme with its enemy colours.
+- K6 (crosshair image) was not done (optional).

@@ -158,8 +158,8 @@ Part C — look & feel:
 ## KovaaK's import (next; full instructions in HANDOFF.md Part 2)
 - [x] K1 Find the KovaaK's install (Steam libraryfolders.vdf, Linux/Flatpak roots, manual `kovaaks.path`)
 - [x] K2 Read KovaaK's theme JSON → LGDuel theme folders (+ enemy colour patch, contrast warnings)
-- [ ] K3 Decode hit sounds (hand-written WAV, lewton Ogg Vorbis, mono, ≤ 2 s, resample)
-- [ ] K4 Custom hit/kill sounds in the game (settings, CustomSounds in Audio::open, voice cap, import)
-- [ ] K5 Share tab "KovaaK's" section, console `kovaaks`, CLI `--kovaaks-report/--import-kovaaks-*`, check.sh stage
+- [x] K3 Decode hit sounds (hand-written WAV, lewton Ogg Vorbis, mono, ≤ 2 s, resample)
+- [x] K4 Custom hit/kill sounds in the game (settings, CustomSounds in Audio::open, voice cap, import)
+- [x] K5 Share tab "KovaaK's" section, console `kovaaks`, CLI `--kovaaks-report/--import-kovaaks-*`, check.sh stage
 - [ ] K6 (optional) KovaaK's crosshair image
-- [ ] K7 KOVAAKS.md, CONFIG.md, STATE
+- [x] K7 KOVAAKS.md, CONFIG.md, STATE

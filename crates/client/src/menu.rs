@@ -111,6 +111,10 @@ pub enum Action {
         code: String,
         controls: bool,
     },
+    /// Settings -> Share -> KovaaK's: look at the install again.
+    KovaaksScan,
+    /// Settings -> Share -> KovaaK's: import themes or sounds.
+    Kovaaks(crate::kovaaks::Cmd),
 }
 
 /// State of the Share tab.
@@ -124,6 +128,33 @@ pub struct ShareState {
     pub input: String,
     /// Preview / result lines.
     pub report: Vec<String>,
+    pub kovaaks: KovaaksState,
+}
+
+/// The KovaaK's section of the Share tab.
+#[derive(Debug, Clone)]
+pub struct KovaaksState {
+    /// What the last look at the install found (None = not looked yet).
+    pub scan: Option<crate::kovaaks::Scan>,
+    /// Theme picked in the combo (empty = KovaaK's current one).
+    pub selected: String,
+    /// Also take the theme's enemy colours.
+    pub enemy: bool,
+    /// Also copy KovaaK's hit volume.
+    pub volume: bool,
+    pub report: Vec<String>,
+}
+
+impl Default for KovaaksState {
+    fn default() -> Self {
+        Self {
+            scan: None,
+            selected: String::new(),
+            enemy: true,
+            volume: false,
+            report: Vec::new(),
+        }
+    }
 }
 
 /// One row of the in-game player list.
@@ -334,7 +365,7 @@ impl Menu {
                                 }
                                 Tab::Player => player_tab(ui, s),
                                 Tab::Share => {
-                                    action = share_tab(ui, &mut self.share).or(action.take())
+                                    action = share_tab(ui, &mut self.share, s).or(action.take())
                                 }
                             });
                         if *s != before {
@@ -1022,7 +1053,7 @@ fn audio_tab(ui: &mut egui::Ui, s: &mut Settings) -> bool {
     test
 }
 
-fn share_tab(ui: &mut egui::Ui, st: &mut ShareState) -> Option<Action> {
+fn share_tab(ui: &mut egui::Ui, st: &mut ShareState, s: &mut Settings) -> Option<Action> {
     let mut action = None;
     ui.heading("Share my look");
     ui.checkbox(&mut st.controls, "Include controls (mouse, FOV, volume)");
@@ -1084,6 +1115,118 @@ fn share_tab(ui: &mut egui::Ui, st: &mut ShareState) -> Option<Action> {
     });
     for line in &st.report {
         ui.label(line);
+    }
+    ui.separator();
+    action.or(kovaaks_section(ui, &mut st.kovaaks, s))
+}
+
+/// Import from a local KovaaK's install.
+fn kovaaks_section(ui: &mut egui::Ui, k: &mut KovaaksState, s: &mut Settings) -> Option<Action> {
+    use crate::kovaaks::{Cmd, Which};
+    let mut action = None;
+    ui.heading("KovaaK's");
+    let Some(scan) = &k.scan else {
+        // First time the tab is shown: look once (not every frame).
+        return Some(Action::KovaaksScan);
+    };
+    match &scan.root {
+        Some(root) => {
+            ui.add(
+                egui::Label::new(format!(
+                    "Found: {} ({} themes, {} sounds)",
+                    root.display(),
+                    scan.themes.len(),
+                    scan.sounds
+                ))
+                .wrap(),
+            );
+        }
+        None => {
+            ui.label("Not found. Type the folder KovaaK's is installed in (the one holding FPSAimTrainer.exe):");
+            ui.add(
+                egui::TextEdit::singleline(&mut s.kovaaks.path)
+                    .desired_width(480.0)
+                    .hint_text("…/steamapps/common/FPSAimTrainer"),
+            );
+        }
+    }
+    if ui.button("Search again").clicked() {
+        action = Some(Action::KovaaksScan);
+    }
+    if scan.root.is_none() {
+        return action;
+    }
+    let themes = scan.themes.clone();
+    let current = scan.current.clone();
+    ui.label("Theme");
+    ui.horizontal(|ui| {
+        let shown = if k.selected.is_empty() {
+            current.clone().unwrap_or_else(|| "(none selected)".into())
+        } else {
+            k.selected.clone()
+        };
+        egui::ComboBox::from_id_salt("kovaaks_theme")
+            .selected_text(shown)
+            .width(260.0)
+            .show_ui(ui, |ui| {
+                for t in &themes {
+                    ui.selectable_value(&mut k.selected, t.clone(), t);
+                }
+            });
+    });
+    ui.checkbox(&mut k.enemy, "Use my enemy colours");
+    ui.horizontal_wrapped(|ui| {
+        if ui.button("Import selected").clicked() {
+            let which = if k.selected.is_empty() {
+                Which::Current
+            } else {
+                Which::Named(k.selected.clone())
+            };
+            action = Some(Action::Kovaaks(Cmd::Import {
+                which,
+                enemy: k.enemy,
+            }));
+        }
+        if ui.button("Import current").clicked() {
+            action = Some(Action::Kovaaks(Cmd::Import {
+                which: Which::Current,
+                enemy: k.enemy,
+            }));
+        }
+        if ui.button("Import all").clicked() {
+            action = Some(Action::Kovaaks(Cmd::Import {
+                which: Which::All,
+                enemy: false,
+            }));
+        }
+    });
+    ui.label("Sounds");
+    ui.checkbox(&mut k.volume, "Also copy my KovaaK's hit volume");
+    ui.horizontal_wrapped(|ui| {
+        if ui.button("Use my KovaaK's hit sound").clicked() {
+            action = Some(Action::Kovaaks(Cmd::Sounds {
+                hit: true,
+                kill: false,
+                volume: k.volume,
+            }));
+        }
+        if ui.button("Use my kill sound").clicked() {
+            action = Some(Action::Kovaaks(Cmd::Sounds {
+                hit: false,
+                kill: true,
+                volume: false,
+            }));
+        }
+        if ui.button("Test").clicked() {
+            action = Some(Action::TestSound);
+        }
+        if ui.button("Back to default sound").clicked() {
+            s.audio.hit_sound = None;
+            s.audio.kill_sound_file = None;
+        }
+    });
+    for line in &k.report {
+        ui.add(egui::Label::new(line).wrap());
     }
     action
 }

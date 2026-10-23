@@ -17,7 +17,7 @@ bash -n "$f"
 # Files the package installs from the source tree must exist.
 for p in packaging/lgduel.desktop packaging/arch/lgduel-server.service packaging/arch/lgduel-relay.service \
          packaging/arch/lgduel.sysusers assets/icons/lgduel-48.png assets/icons/lgduel-128.png assets/icons/lgduel-256.png \
-         assets/themes/example/theme.toml config/server.example.toml LICENSE README.md PLAY.md THEMES.md MAPS.md CONFIG.md \
+         assets/themes/example/theme.toml config/server.example.toml LICENSE README.md PLAY.md THEMES.md MAPS.md CONFIG.md SHARING.md KOVAAKS.md \
          HOSTING.md INSTALL.md DEPLOY.md; do
   [ -e "$p" ] || { echo "missing $p"; exit 1; }
 done

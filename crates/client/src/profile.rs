@@ -36,7 +36,11 @@ pub fn is_look_key(key: &str) -> bool {
         || key.starts_with("models.")
         || key.starts_with("ui.")
         || (key.starts_with("hud.") && key != "hud.net_graph")
-        || (key.starts_with("audio.") && key != "audio.volume")
+        || (key.starts_with("audio.")
+            && key != "audio.volume"
+            // File names mean nothing on another PC.
+            && key != "audio.hit_sound"
+            && key != "audio.kill_sound_file")
 }
 
 /// Settings of the optional controls group.
@@ -437,6 +441,24 @@ mod tests {
         crc.update(&bytes);
         bytes.extend_from_slice(&crc.sum().to_be_bytes());
         format!("{PREFIX}{}", b64_encode(&bytes))
+    }
+
+    #[test]
+    fn sound_files_are_not_shared() {
+        let mut s = customised();
+        s.audio.hit_sound = Some("ding.ogg".into());
+        s.audio.kill_sound_file = Some("frag.wav".into());
+        s.audio.kill_sound = true;
+        assert!(!is_look_key("audio.hit_sound") && !is_look_key("audio.kill_sound_file"));
+        assert!(is_look_key("audio.kill_sound"));
+        let p = decode(&export(&s, &[], true)).unwrap();
+        assert!(
+            p.entries
+                .iter()
+                .all(|(k, _)| k != "audio.hit_sound" && k != "audio.kill_sound_file"),
+            "{:?}",
+            p.entries
+        );
     }
 
     #[test]

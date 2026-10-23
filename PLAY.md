@@ -75,7 +75,7 @@ Command-line options still work and override the file for that run, e.g.
 
 ## Sharing your look
 
-Settings → **Share** makes a one-line code for your look (crosshair, beam, enemy colours/model, theme) and applies codes from friends, plus built-in presets. Whole themes travel as `.lgtheme` files you can drag onto the window. See [SHARING.md](SHARING.md).
+Settings → **Share** makes a one-line code for your look (crosshair, beam, enemy colours/model, theme) and applies codes from friends, plus built-in presets. Whole themes travel as `.lgtheme` files you can drag onto the window. See [SHARING.md](SHARING.md). Have KovaaK's installed? The same tab imports your KovaaK's themes and hit sound: [KOVAAKS.md](KOVAAKS.md).
 
 ## Console and profiles
 

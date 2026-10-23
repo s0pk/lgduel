@@ -75,6 +75,10 @@ pub struct Audio {
     pub kill_sound: bool,
     /// Menu click and incoming-challenge sounds.
     pub ui_sounds: bool,
+    /// Hit sound: a file name in the `sounds/` folder next to the settings (none = synthesised).
+    pub hit_sound: Option<String>,
+    /// Frag sound: same, replaces the synthesised one.
+    pub kill_sound_file: Option<String>,
 }
 
 impl Default for Audio {
@@ -85,8 +89,19 @@ impl Default for Audio {
             hit_pitch_by_damage: false,
             kill_sound: false,
             ui_sounds: false,
+            hit_sound: None,
+            kill_sound_file: None,
         }
     }
+}
+
+/// A plain file name: no folders, no `..`, nothing that could leave `sounds/`.
+pub fn is_plain_file_name(n: &str) -> bool {
+    !n.is_empty()
+        && n.len() <= 120
+        && n != "."
+        && !n.contains("..")
+        && !n.contains(['/', '\\', ':', '\0'])
 }
 
 /// KovaaK's import.
@@ -296,6 +311,11 @@ impl Settings {
         } else {
             1.0
         };
+        for f in [&mut self.audio.hit_sound, &mut self.audio.kill_sound_file] {
+            if f.as_deref().is_some_and(|n| !is_plain_file_name(n)) {
+                *f = None;
+            }
+        }
         self.effects.spark_size = self.effects.spark_size.clamp(0.0, 32.0);
         self.name = self
             .name
@@ -480,5 +500,23 @@ mod tests {
         assert!(warn.is_some());
         let _ = std::fs::remove_dir_all(dir);
         assert_eq!(load(&path).1, None, "missing file is not an error");
+    }
+
+    #[test]
+    fn sound_file_names_are_sanitized() {
+        let mut s = Settings::from_toml(
+            "[audio]\nhit_sound = \"../../etc/passwd\"\nkill_sound_file = \"frag.wav\"\n",
+        )
+        .unwrap();
+        assert_eq!(s.audio.hit_sound, None);
+        assert_eq!(s.audio.kill_sound_file.as_deref(), Some("frag.wav"));
+        for bad in ["", "a/b", "a\\b", "..", "c:x", "x..y"] {
+            s.audio.hit_sound = Some(bad.into());
+            s.sanitize();
+            assert_eq!(s.audio.hit_sound, None, "{bad:?}");
+        }
+        let mut s = Settings::default();
+        s.audio.hit_sound = Some("ding.ogg".into());
+        assert_eq!(Settings::from_toml(&s.to_toml()).unwrap(), s);
     }
 }

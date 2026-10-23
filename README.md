@@ -31,7 +31,7 @@ Windows build provided; Linux/macOS: build from source.
 
 Full guide (online play, hosting, all settings, what to report): **[PLAY.md](PLAY.md)**.
 More: [HOSTING.md](HOSTING.md) (every way to host) · [DEPLOY.md](DEPLOY.md) (VPS server in one command) ·
-[CONFIG.md](CONFIG.md) (all settings) · [MAPS.md](MAPS.md) (map format) · [THEMES.md](THEMES.md) (textures and themes) · [SHARING.md](SHARING.md) (share codes, theme packs) · [INSTALL.md](INSTALL.md) (Arch/Linux) · [docs/PERF.md](docs/PERF.md).
+[CONFIG.md](CONFIG.md) (all settings) · [MAPS.md](MAPS.md) (map format) · [THEMES.md](THEMES.md) (textures and themes) · [SHARING.md](SHARING.md) (share codes, theme packs) · [KOVAAKS.md](KOVAAKS.md) (use your KovaaK's themes and hit sound) · [INSTALL.md](INSTALL.md) (Arch/Linux) · [docs/PERF.md](docs/PERF.md).
 
 ## Controls
 

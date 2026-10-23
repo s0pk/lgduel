@@ -33,6 +33,11 @@ If the code names a theme you don't have, it tells you and leaves your theme alo
 A pack is fully checked before anything is written: only `theme.toml` and `.png` files, sizes limited, every image must be a
 valid PNG, the theme must parse. A bad pack installs nothing. An existing theme is never overwritten (import under another name).
 
+## From KovaaK's
+
+Settings → Share → KovaaK's turns your own KovaaK's themes into LGDuel themes (they then travel in codes like any theme) and
+copies your hit sound. Sound files are *not* part of a code. See [KOVAAKS.md](KOVAAKS.md).
+
 ## Tips
 - Share the theme *name* in a code only for built-in themes (`classic`, `grid`); for your own, send the `.lgtheme` too.
 - Use `colour-blind-safe` as a starting point and tweak the enemy colours in Settings → Visuals.
