@@ -15,18 +15,28 @@ players' side. One small Linux VPS runs up to 8 separate duels at once (16 playe
 Most providers have a firewall / security group in their web panel. Allow **inbound UDP 27960**
 (the game) and **UDP 27950** (join codes, see below), from anywhere. TCP is not used.
 
-## 2. Install (one command)
+## 2. Install (clone + one command)
 
 SSH into the VPS and run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/s0pk/lgduel/main/deploy/install.sh | sudo bash
+git clone https://github.com/s0pk/lgduel.git && cd lgduel && sudo ./deploy/install.sh
 ```
 
-This downloads the latest release's `lgduel-server-linux-x64.tar.gz`, installs it to `/opt/lgduel`,
-creates a `lgduel` system user, writes `/etc/lgduel/server.toml` (only if it doesn't exist yet) and
-starts two systemd services: `lgduel-server` (the game) and `lgduel-relay` (join codes). Both restart
-on crashes and on reboot. If `ufw` is active, it also allows UDP 27960 and 27950 there.
+It installs a C compiler and Rust if they are missing, builds the server from source (about 2-5 minutes the
+first time; give the VPS 1 GB of RAM), installs it to `/opt/lgduel`, creates a `lgduel` system user, writes
+`/etc/lgduel/server.toml` (only if it doesn't exist yet) and starts two systemd services: `lgduel-server`
+(the game, UDP 27960) and `lgduel-relay` (join codes and the public server list, UDP 27950). Both restart on
+crashes and on reboot. On the first install the server is set to list itself publicly through that relay.
+If `ufw` is active, the script also allows both ports there; the provider's firewall (step 1) is separate.
+At the end it prints the address players use.
+
+Optional, first install only: `LGDUEL_REGION=OC LGDUEL_NAME="Sydney Duels" sudo -E ./deploy/install.sh`
+sets the region label and the name shown in the server browser (or edit `/etc/lgduel/server.toml` later).
+
+If a release carries `lgduel-server-linux-x64.tar.gz`, `curl -fsSL
+https://raw.githubusercontent.com/s0pk/lgduel/main/deploy/install.sh | sudo bash` installs that instead of
+building (without such a release it tells you to clone).
 
 ## 3. Check it works
 
@@ -115,7 +125,7 @@ an address that guesses wrong 5 times is ignored for a minute.
 
 ## Update
 
-Run the install command again: it replaces the binary, keeps your `server.toml` and restarts the service.
+`cd lgduel && git pull && sudo ./deploy/install.sh`: it rebuilds, replaces the binary, keeps your `server.toml` and restarts both services.
 
 ## Docker instead of systemd
 

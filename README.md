@@ -71,8 +71,8 @@ Always-on servers: [DEPLOY.md](DEPLOY.md). Other ways to host: [HOSTING.md](HOST
 
 ## Running a server
 
-- **On a VPS (recommended for playing over the internet):** see [DEPLOY.md](DEPLOY.md) — open UDP 27960,
-  run one install command, add the address in Play online.
+- **On a VPS (recommended for playing over the internet):** see [DEPLOY.md](DEPLOY.md) — open UDP 27960 and 27950, clone the repo,
+  run `sudo ./deploy/install.sh`, add the address in Play online.
 - **On your PC:** Host a game in the menu, or `lgduel.exe host [--config server.toml] [--map arena_tiers]`.
   `lgduel-server.exe` is the same server as a separate binary; `lgduel-bot.exe --server HOST:PORT` adds a bot.
 
