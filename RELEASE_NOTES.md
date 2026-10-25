@@ -1,3 +1,16 @@
+## LGDuel v0.2.1
+
+**Download `LGDuel-windows-x64.zip`, unzip, run `lgduel.exe`.** Guide in `PLAY.md`. Same network protocol as v0.2.0, so both versions can play each other.
+
+**New**
+- **Host without port forwarding.** *Host a game* now asks your router to open the port itself (UPnP / NAT-PMP) and shows a **direct code** like `LG-4F7K-Q29M-XTR` in the Esc menu. Friends paste it under *Play online → Join code*. No account, no extra service. It needs UPnP switched on in your router and a router with a public address; when it can't, the game says why and you can still forward the port by hand, use a VPN, or use a join code.
+- **One-command server:** `host.cmd` (Windows) / `host.sh` start a dedicated server, print the addresses to share and open the port the same way.
+- `lgduel-server --upnp`, `server.upnp = true`, `lgduel --join CODE` accepts direct codes.
+
+**Notes**
+- Built on Linux (cross-compiled), checked under Wine, not yet on a real Windows PC. The router port opening was tested against simulated routers only; please report what your router does.
+- Direct codes contain the host's public IP: share them with friends, not publicly.
+
 ## LGDuel v0.2.0
 
 **Downloads:** `LGDuel-windows-x64.zip` (the game, unzip and run `lgduel.exe`) ·
