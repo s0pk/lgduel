@@ -1,7 +1,7 @@
 # Maintainer: s0pk <133751159+s0pk@users.noreply.github.com>
 pkgbase=lgduel
 pkgname=(lgduel lgduel-server)
-pkgver=0.2.2
+pkgver=0.2.3
 pkgrel=1
 pkgdesc='Lightning Gun duel trainer: vamp mode, practice bots, online duels'
 arch=(x86_64)

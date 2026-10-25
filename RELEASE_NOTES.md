@@ -1,3 +1,17 @@
+## LGDuel v0.2.3
+
+**Download `LGDuel-windows-x64.zip`, unzip, run `lgduel.exe`.** Guide in `PLAY.md`. Same network protocol as v0.2.0-v0.2.2, so everyone can still play each other and the Sydney server.
+
+**New: the Quake look.** Settings -> Share -> Presets -> **quake** switches all of this on at once; each part also has its own setting.
+- **Quake theme.** Dark stone blocks, riveted steel floor plates, tread-plate ramps and ribbed ceilings, all drawn by the game itself (no assets from any game). Floors stay sharp at shallow angles. Enemies in their bright colours still stand out.
+- **Beam from the bottom middle.** Settings -> Visuals -> Beam -> *Starts at*: *Bottom middle* starts your own beam on the bottom edge of the screen, straight under the crosshair, at any window size or FOV.
+- **Fighter enemy model.** Boots, knees, shoulder pads, a visor and a Lightning Gun held in both hands. Settings -> Visuals -> Enemies -> Model.
+- **Legs that follow how the player really moves.** On the fighter the legs turn toward the direction of travel (strafing, diagonals), run backwards when backing up, stride in step with the distance covered, tuck in the air, and keep the lowest foot on the floor.
+
+**Notes**
+- Defaults are unchanged: the classic look and classic model stay unless you pick something else.
+- Built on Linux (cross-compiled), checked under Wine, not yet on a real Windows PC. The animation was verified from rendered frames and tests, not yet watched live with two players.
+
 ## LGDuel v0.2.2
 
 **Download `LGDuel-windows-x64.zip`, unzip, run `lgduel.exe`.** Guide in `PLAY.md`. Same network protocol as v0.2.0 and v0.2.1.
