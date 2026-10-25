@@ -4,7 +4,12 @@
 
 # Join-code rendezvous/relay service (lgduel-server relay, UDP 27950), e.g. "203.0.113.5".
 # Empty: players set one themselves (Play online -> Join code -> via).
-rendezvous = ""
+# Also the master list: public servers registered with it show up in everyone's browser.
+rendezvous = "139.99.219.136"
+
+[[server]]
+name = "Sydney Duels (OC)"
+address = "139.99.219.136:27960"
 
 [[server]]
 name = "This PC (lgduel host)"
