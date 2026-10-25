@@ -224,8 +224,32 @@ color = [0.22, 0.12, 0.10]
 scale = 256.0
 "#;
 
+/// Dark stone, riveted steel plates and tread plate: the "Quake look". The textures carry
+/// their own colour, so every material is tinted white.
+const QUAKE_TOML: &str = r#"
+name = "quake"
+sky = [0.16, 0.10, 0.06]
+sky_top = [0.012, 0.012, 0.025]
+[materials.floor]
+texture = "q_floor"
+color = [1.0, 1.0, 1.0]
+scale = 256.0
+[materials.ramp]
+texture = "q_plate"
+color = [1.0, 1.0, 1.0]
+scale = 128.0
+[materials.wall]
+texture = "q_wall"
+color = [1.0, 1.0, 1.0]
+scale = 192.0
+[materials.ceiling]
+texture = "q_ceiling"
+color = [1.0, 1.0, 1.0]
+scale = 256.0
+"#;
+
 /// Names of the themes built into the game.
-pub const BUILTIN: [&str; 5] = [CLASSIC, "grid", "midnight", "paper", "ember"];
+pub const BUILTIN: [&str; 6] = [CLASSIC, "grid", "midnight", "paper", "ember", "quake"];
 
 impl Theme {
     pub fn classic() -> Theme {
@@ -240,6 +264,7 @@ impl Theme {
             "midnight" => Some(toml::from_str(MIDNIGHT_TOML).expect("built-in theme parses")),
             "paper" => Some(toml::from_str(PAPER_TOML).expect("built-in theme parses")),
             "ember" => Some(toml::from_str(EMBER_TOML).expect("built-in theme parses")),
+            "quake" => Some(toml::from_str(QUAKE_TOML).expect("built-in theme parses")),
             _ => None,
         }
     }
@@ -518,6 +543,11 @@ pub fn procedural(name: &str) -> Option<Image> {
             let band = if (y / 32) % 2 == 0 { 215 } else { 195 };
             if seam { 135 } else { band }
         }),
+        // Dark, coloured, detailed (see `proc_tex`).
+        "q_wall" => crate::proc_tex::stone_wall(),
+        "q_floor" => crate::proc_tex::metal_floor(),
+        "q_plate" => crate::proc_tex::tread_plate(),
+        "q_ceiling" => crate::proc_tex::ribbed_ceiling(),
         _ => return None,
     })
 }

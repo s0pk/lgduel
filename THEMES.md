@@ -2,7 +2,7 @@
 
 A theme changes how the arena **looks** on your PC only: textures, colours and the sky. It never reaches the
 server, never affects collision or spawns, and doesn't change what other players see. The default theme,
-`classic`, is the original flat-shaded look; `grid`, `midnight` (dark blue, light outlines), `paper` (light grey, dark outlines) and `ember` (dark red, orange outlines) are built-in textured themes.
+`classic`, is the original flat-shaded look; `grid`, `midnight` (dark blue, light outlines), `paper` (light grey, dark outlines) `ember` (dark red, orange outlines) and `quake` (dark stone blocks, riveted steel floor plates, tread-plate ramps; no outlines) are built-in textured themes.
 
 Pick one in **Settings → Visuals → Map → Theme**, with `--theme NAME`, or in the console (`` ` ``):
 `video.theme grid`. The change applies immediately.
@@ -41,7 +41,7 @@ ceiling = "ceiling"               # faces pointing down
 ramp = "floor"                    # sloped faces of ramps
 
 [materials.floor]                 # a material: any name you like
-texture = "floor.png"             # a PNG in the theme folder, or a built-in name: tiles, concrete, panel
+texture = "floor.png"             # a PNG in the theme folder, or a built-in name: tiles, concrete, panel (light greys meant to be tinted), or the coloured q_wall, q_floor, q_plate, q_ceiling (use a white `color`)
 tint_map_color = true             # multiply by the map's own colour for this surface
 color = [1.0, 1.0, 1.0]           # surface colour; leave out to use the map's colour
 scale = 128.0                     # world units per texture repeat (a player is 56 tall)

@@ -414,3 +414,7 @@
 ## 2026-10-25 — Beam origin: bottom middle
 - `effects.beam_origin` (+ menu "Starts at", `--beam-origin`, console cvar), `EffectSettings::own_muzzle`, `offscreen::lowest_match`, check.sh bottom-origin render checks (1280x720 and 1920x1080 zigzag).
 - Verified: projection unit test, screenshots inspected (thick beam fans from the bottom centre to the crosshair), check.sh GREEN (137 s).
+
+## 2026-10-25 — "quake" theme + procedural textures
+- `proc_tex.rs` (4 textures), `theme.rs` (`quake` built-in, `procedural()` names), anisotropic sampler, check.sh renders `--theme quake` on all 3 maps, THEMES.md.
+- Verified: texture tests (deterministic, dark, low saturation, detailed, tileable), theme tests, screenshots inspected on arena_tiers / arena_pillars (bricks, plates, tread ramps; yellow/green/cyan enemy stays obvious), check.sh GREEN (123 s; first run caught clippy `approx_constant`, fixed).

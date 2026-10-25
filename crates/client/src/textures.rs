@@ -287,6 +287,8 @@ pub fn upload(set: &TextureSet, device: &wgpu::Device, queue: &wgpu::Queue) -> G
         mag_filter: wgpu::FilterMode::Linear,
         min_filter: wgpu::FilterMode::Linear,
         mipmap_filter: wgpu::MipmapFilterMode::Linear,
+        // Sharp floors at grazing angles (all three filters are linear, as this requires).
+        anisotropy_clamp: 8,
         ..Default::default()
     });
     GpuTextures { view, sampler }

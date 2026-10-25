@@ -29,6 +29,7 @@ mod models;
 mod net_session;
 mod offscreen;
 mod players;
+mod proc_tex;
 mod profile;
 mod render;
 mod scene;

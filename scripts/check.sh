@@ -65,6 +65,10 @@ stage "client offscreen render (1920x1080, screenshot + pixel checks)"
 "$T/$PROFILE/lgduel" --headless --no-settings --play-demo artifacts/practice.lgdemo --size 1280x720 --screenshot artifacts/demo_end.png | grep -E "DEMO (REPLAY|CHECK)"
 # Textured theme: renders with many colours and the usual enemy / HUD / beam checks.
 "$T/$PROFILE/lgduel" --headless --frames 3 --theme grid --map arena_tiers --size 1280x720 --screenshot artifacts/theme_grid.png | grep -E "CHECK"
+# Quake look (dark stone / steel textures): same checks on every map, enemies must stay clearly visible.
+for m in arena_flat arena_pillars arena_tiers; do
+    "$T/$PROFILE/lgduel" --headless --frames 3 --theme quake --map $m --size 1280x720 --screenshot artifacts/theme_quake_$m.png | grep -E "CHECK"
+done
 # MSAA 4x: edges get blended, so the picture has many more distinct colours than the aliased one (12), and the usual checks still pass.
 msaa_out=$("$T/$PROFILE/lgduel" --headless --no-settings --frames 3 --msaa 4 --size 1280x720 --screenshot artifacts/msaa4.png)
 echo "$msaa_out" | grep -E "RENDER CHECK"
