@@ -1,3 +1,16 @@
+## LGDuel v0.2.2
+
+**Download `LGDuel-windows-x64.zip`, unzip, run `lgduel.exe`.** Guide in `PLAY.md`. Same network protocol as v0.2.0 and v0.2.1.
+
+**New**
+- **An official Sydney server.** *Play online* now lists **Sydney Duels (OC)**: click Join, no setup, no port forwarding. Up to 8 duels at once with a queue; a lone player gets a practice bot until an opponent joins.
+- **Join codes work out of the box.** The game ships with the same Sydney machine as its join-code relay, so *Host a game* gives friends a code (`LG-7KQ2`) even when your router can't open ports. The game tries a direct connection first and only relays if it has to.
+- **Run your own server in one command** on a Linux VPS (Debian, Ubuntu, AlmaLinux): `git clone ... && cd lgduel && sudo ./deploy/install.sh` builds it, starts the game server and the relay, and prints the address (`DEPLOY.md`).
+
+**Notes**
+- Built on Linux (cross-compiled), checked under Wine, not yet on a real Windows PC.
+- The shipped server is a single machine in Sydney; players far away will see higher ping.
+
 ## LGDuel v0.2.1
 
 **Download `LGDuel-windows-x64.zip`, unzip, run `lgduel.exe`.** Guide in `PLAY.md`. Same network protocol as v0.2.0, so both versions can play each other.
