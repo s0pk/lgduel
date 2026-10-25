@@ -50,6 +50,9 @@ pub struct ServerSettings {
     pub public: bool,
     /// Shown in the browser and filterable, e.g. "EU", "NA-East" (≤ 12 chars).
     pub region: String,
+    /// Ask the router (UPnP / NAT-PMP) to forward this server's port, and
+    /// print a direct join code for the resulting public address.
+    pub upnp: bool,
 }
 
 impl Default for ServerSettings {
@@ -69,6 +72,7 @@ impl Default for ServerSettings {
             rendezvous: String::new(),
             public: false,
             region: String::new(),
+            upnp: false,
         }
     }
 }

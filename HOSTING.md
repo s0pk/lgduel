@@ -15,6 +15,19 @@ Main menu → **Host a game**: server name, map, port, mode (vamp / classic), li
 code. *Start hosting* runs the server inside the game and joins it. The Esc menu shows how others get in:
 your LAN address and, with a rendezvous service, a join code (`LG-7KQ2`). Leaving the game stops the server.
 
+## Direct codes (the game opens the port itself)
+
+With *Open port* ticked (default) on the Host screen, or `--upnp` / `upnp = true` for `lgduel-server`
+(`host.sh` / `host.cmd` pass it), the host asks the router to forward its UDP port: UPnP IGD first, then
+NAT-PMP. If the router agrees and its own address is public, the host prints `DIRECT CODE LG-4F7K-Q29M-XTR`
+and the Esc menu shows it. The code is the public address and port plus check bits, so friends join with
+**Play online → Join code** (or `lgduel --join CODE`) without any rendezvous service. The mapping is renewed
+every 30 minutes and removed when hosting stops.
+
+It fails, with the reason printed, when UPnP/NAT-PMP is off in the router, or when the router's own address is
+not public (carrier-grade NAT, double NAT): then use a join code below, a VPN, or forward the port by hand.
+The code contains the host's public IP: share it with the people you play with, not publicly.
+
 ## Join codes (no port forwarding)
 
 Join codes need a **rendezvous service** (`lgduel-server relay`, UDP 27950) that both players can reach. It
@@ -27,7 +40,7 @@ VPS with [DEPLOY.md](DEPLOY.md) (the installer sets it up next to the game serve
 
 ```
 lgduel-server [--config server.toml] [--port N] [--bind ADDR] [--map NAME|FILE]
-              [--rendezvous HOST[:PORT]] [--duration-secs N] [--stats-file out.toml]
+              [--rendezvous HOST[:PORT]] [--upnp] [--duration-secs N] [--stats-file out.toml]
 lgduel-server relay [--port 27950] [--bind ADDR]
 lgduel-server rcon [--password PW] ADDRESS COMMAND...
 ```

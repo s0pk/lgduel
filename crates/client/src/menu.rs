@@ -479,13 +479,15 @@ impl Menu {
                             self.add_address.clear();
                         }
                     });
-                    ui.label("Join code (a friend hosting with Host a game; no port forwarding)");
+                    ui.label(
+                        "Join code (from a friend hosting with Host a game; no port forwarding)",
+                    );
                     ui.horizontal(|ui| {
                         let edit = ui.add(
                             egui::TextEdit::singleline(&mut self.code_text)
-                                .hint_text("LG-7KQ2")
-                                .desired_width(140.0)
-                                .char_limit(8),
+                                .hint_text("LG-4F7K-Q29M-XTR")
+                                .desired_width(240.0)
+                                .char_limit(24),
                         );
                         let enter =
                             edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
@@ -558,6 +560,12 @@ impl Menu {
                     row(ui, "Anti-lag", |ui| {
                         ui.checkbox(&mut h.anti_lag, "");
                     });
+                    row(ui, "Open port", |ui| {
+                        ui.checkbox(
+                            &mut h.upnp,
+                            "ask my router (UPnP): friends get a direct code",
+                        );
+                    });
                     row(ui, "Join code", |ui| {
                         ui.add_enabled(
                             self.has_rendezvous,
@@ -570,6 +578,8 @@ impl Menu {
                     ui.label(
                         if h.join_code && self.has_rendezvous {
                             "Friends on your network see this game under Play online. Anyone else joins with the join code shown in your Esc menu once hosting: no port forwarding needed."
+                        } else if h.upnp {
+                            "Friends on your network see this game under Play online. Over the internet, your router is asked to open the port and your Esc menu then shows a direct code (it contains your public IP: share it with friends only). If the router refuses, forward the UDP port by hand or use a VPN like Tailscale."
                         } else {
                             "Friends on your network see this game under Play online. Over the internet they need your public IP with this UDP port forwarded, a VPN like Tailscale, or a join code (needs a rendezvous service: Play online -> Join code -> via)."
                         },

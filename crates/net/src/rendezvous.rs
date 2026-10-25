@@ -14,7 +14,7 @@ use crate::transport::Transport;
 use crate::wire::{Reader, Writer};
 use std::collections::VecDeque;
 use std::io;
-use std::net::{IpAddr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 pub const RDV_MAGIC: u8 = 0xFE;
 /// Default rendezvous / relay port.
@@ -53,6 +53,55 @@ pub fn parse_code(s: &str) -> Option<u32> {
         let d = ALPHABET.iter().position(|a| *a == b)? as u32;
         Some(acc * 31 + d)
     })
+}
+
+/// Digits in a direct code (31^11 > 2^54: 32-bit address, 16-bit port, 6-bit check).
+const DIRECT_DIGITS: usize = 11;
+
+fn direct_check(v: u64) -> u64 {
+    v.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 58
+}
+
+/// "LG-4F7K-Q29M-XTR": the host's public address and port in a code, for hosts
+/// that are reachable directly (router opened the port, public IP): no
+/// rendezvous service needed.
+pub fn format_direct(a: std::net::SocketAddrV4) -> String {
+    let v = (u64::from(u32::from(*a.ip())) << 16) | u64::from(a.port());
+    let mut c = (v << 6) | direct_check(v);
+    let mut s = [0u8; DIRECT_DIGITS];
+    for ch in s.iter_mut().rev() {
+        *ch = ALPHABET[(c % 31) as usize];
+        c /= 31;
+    }
+    let s = std::str::from_utf8(&s).unwrap();
+    format!("LG-{}-{}-{}", &s[..4], &s[4..8], &s[8..])
+}
+
+/// Accepts what `format_direct` makes, in any case and with any separators.
+/// Typos are caught by the check bits.
+pub fn parse_direct(s: &str) -> Option<std::net::SocketAddrV4> {
+    let s: String = s
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_ascii_uppercase();
+    let s = s
+        .strip_prefix("LG")
+        .filter(|r| r.len() == DIRECT_DIGITS)
+        .unwrap_or(&s);
+    if s.len() != DIRECT_DIGITS {
+        return None;
+    }
+    let c = s.bytes().try_fold(0u64, |acc, b| {
+        let d = ALPHABET.iter().position(|a| *a == b)? as u64;
+        Some(acc * 31 + d)
+    })?;
+    let (v, check) = (c >> 6, c & 63);
+    if v >> 48 != 0 || check != direct_check(v) {
+        return None;
+    }
+    let (ip, port) = (Ipv4Addr::from((v >> 16) as u32), v as u16);
+    (port != 0).then(|| std::net::SocketAddrV4::new(ip, port))
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -685,6 +734,54 @@ mod tests {
         assert_eq!(parse_code("LG-0000"), None, "0 is not in the alphabet");
         assert_eq!(parse_code("LG-ABC"), None);
         assert_eq!(parse_code(""), None);
+    }
+
+    #[test]
+    fn direct_codes_round_trip_and_catch_typos() {
+        use std::net::SocketAddrV4;
+        for a in [
+            "203.0.113.7:27960",
+            "255.255.255.255:65535",
+            "1.2.3.4:1",
+            "0.0.0.0:80",
+        ] {
+            let a: SocketAddrV4 = a.parse().unwrap();
+            let s = format_direct(a);
+            assert_eq!(s.len(), 3 + 11 + 2, "{s}");
+            assert_eq!(parse_direct(&s), Some(a), "{s}");
+            assert_eq!(parse_direct(&s[3..]), Some(a));
+            assert_eq!(parse_direct(&s.to_lowercase().replace('-', " ")), Some(a));
+            assert_eq!(
+                parse_code(&s),
+                None,
+                "a direct code is not a rendezvous code"
+            );
+        }
+        // Any single wrong character is caught (the check bits cover the address).
+        let good = format_direct("198.51.100.23:27960".parse().unwrap());
+        let mut undetected = 0;
+        for i in 3..good.len() {
+            if good.as_bytes()[i] == b'-' {
+                continue;
+            }
+            for d in ALPHABET {
+                let mut b = good.clone().into_bytes();
+                if b[i] == *d {
+                    continue;
+                }
+                b[i] = *d;
+                if parse_direct(std::str::from_utf8(&b).unwrap()).is_some() {
+                    undetected += 1;
+                }
+            }
+        }
+        assert!(
+            undetected <= 11 * 30 / 20,
+            "{undetected} of 330 typos slipped through"
+        );
+        assert_eq!(parse_direct("LG-7KQ2"), None);
+        assert_eq!(parse_direct(""), None);
+        assert_eq!(parse_direct("0000-0000-000"), None);
     }
 
     #[test]

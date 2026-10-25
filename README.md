@@ -61,8 +61,10 @@ It prints something like:
 ```
 
 Players: **Play online → Add a server**, paste the address, **Join** (or `lgduel --connect ADDRESS`).
-Same network works straight away. For internet players open **UDP 27960** (nothing uses TCP) in your
-firewall and forward it on your router; on a VPS also open it in the provider's panel. Options pass
+Same network works straight away. **Over the internet at home, nothing to set up if your router has UPnP on:**
+the server asks the router to open the port itself and prints a `DIRECT CODE LG-…`; friends paste it under
+**Play online → Join code**. If the router refuses (the reason is printed), forward **UDP 27960** there
+yourself (nothing uses TCP); on a VPS open it in the firewall and the provider's panel. Options pass
 through: `./host.sh --port 27961 --map arena_tiers --config server.toml`. Type `help` in the terminal for
 server commands. The public IP is looked up through `api.ipify.org`; nothing else is sent anywhere.
 Always-on servers: [DEPLOY.md](DEPLOY.md). Other ways to host: [HOSTING.md](HOSTING.md).

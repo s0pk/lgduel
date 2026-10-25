@@ -5,7 +5,7 @@
 Copy `server.example.toml` (it lists every key with its default and a comment) and pass it with
 `lgduel-server --config server.toml`. Every key is optional; unknown keys are an error (typos don't go
 unnoticed). While the server runs, `get` / `set section.key value` / `reload` in its console or over RCON
-change rules, LG and `[server]` settings live; physics, tick rate, map, bind/port, rendezvous, public and
+change rules, LG and `[server]` settings live; physics, tick rate, map, bind/port, rendezvous, public, upnp and
 `max_arenas` need a restart.
 
 ### `[server]`
@@ -22,6 +22,7 @@ change rules, LG and `[server]` settings live; physics, tick rate, map, bind/por
 | `practice_bot`, `practice_bot_after_ms` | true, 2000 | a lone player gets a bot after this long |
 | `rcon_password` | "" | remote console (off when empty) |
 | `rendezvous` | "" | join-code / public-list service, `host[:port]` |
+| `upnp` | false | ask the router (UPnP / NAT-PMP) to forward the port; prints a direct code (`--upnp`) |
 | `public`, `region` | false, "" | list publicly (needs `rendezvous`); region label |
 
 ### Gameplay
@@ -59,7 +60,7 @@ for one run.
 | `[audio]` | `volume` 0.7, `hit_volume` 1.0, `hit_pitch_by_damage` false, `kill_sound` false, `ui_sounds` false, `hit_sound` / `kill_sound_file` (unset = synthesised; a file name in `sounds/` next to the settings, see [KOVAAKS.md](KOVAAKS.md); console `hitsound`; never part of a share code) |
 | `[kovaaks]` | `path` "" (your KovaaK's folder; empty = find it through Steam, see [KOVAAKS.md](KOVAAKS.md)) |
 | `[practice]` | `bot` true, `pattern` "still"/"ad"/"mirror"/"anti"/"hsw"/"hswanti", `skill` "easy"/"medium"/"hard"/"aimbot", `map` |
-| `[host]` | Host-a-game screen: `name`, `port`, `classic`, `lifesteal_percent`, `anti_lag`, `map`, `join_code` |
+| `[host]` | Host-a-game screen: `name`, `port`, `classic`, `lifesteal_percent`, `anti_lag`, `map`, `join_code`, `upnp` |
 | `[filter]` | server browser: `mode`, `anti_lag`, `max_ping` (0 = any), `region`, `hide_empty`, `hide_full` |
 | `[[servers]]` | servers you added in the browser (`name`, `address`) |
 

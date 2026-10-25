@@ -402,7 +402,8 @@ pub fn run_client_smoke(bin_dir: &Path, out_dir: &Path, secs: f64, spectate: boo
 
 /// Join codes on real sockets: `lgduel-server relay` + a host registered with
 /// it + a bot joining by code (direct path) + the real client joining by code
-/// through the relay (`--force-relay`). Everything on 127.0.0.1, so no NAT:
+/// through the relay (`--force-relay`), then the client again by direct code
+/// (the host's address, no rendezvous). Everything on 127.0.0.1, so no NAT:
 /// the NAT behaviour itself is covered by server/tests/p2p.rs on MemNet.
 pub fn run_p2p_smoke(bin_dir: &Path, out_dir: &Path, secs: f64) -> MatchResult {
     use std::io::{BufRead, BufReader};
@@ -417,7 +418,7 @@ pub fn run_p2p_smoke(bin_dir: &Path, out_dir: &Path, secs: f64) -> MatchResult {
         return r;
     };
     let rdv = format!("127.0.0.1:{rport}");
-    let total = format!("{}", secs + 8.0);
+    let total = format!("{}", 2.0 * secs + 10.0);
     let relay = Command::new(exe(bin_dir, "lgduel-server"))
         .args(["relay", "--bind", "127.0.0.1", "--port", &rport.to_string()])
         .args(["--duration-secs", &total])
@@ -482,7 +483,7 @@ pub fn run_p2p_smoke(bin_dir: &Path, out_dir: &Path, secs: f64) -> MatchResult {
     let bot = Command::new(exe(bin_dir, "lgduel-bot"))
         .args(["--join", &code, "--rendezvous", &rdv, "--name", "codebot"])
         .args(["--pattern", "ad", "--skill", "medium"])
-        .args(["--duration-secs", &format!("{}", secs + 3.0)])
+        .args(["--duration-secs", &format!("{}", 2.0 * secs + 6.0)])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn();
@@ -524,6 +525,35 @@ pub fn run_p2p_smoke(bin_dir: &Path, out_dir: &Path, secs: f64) -> MatchResult {
         }
         Err(e) => r.failures.push(format!("run client: {e}")),
     }
+    // Same host, joined by the direct code a UPnP-mapped host would show.
+    let direct = lgduel_net::rendezvous::format_direct(std::net::SocketAddrV4::new(
+        std::net::Ipv4Addr::LOCALHOST,
+        hport,
+    ));
+    r.lines.push(format!("P2P direct code {direct}"));
+    let client = Command::new(exe(bin_dir, "lgduel"))
+        .args(["--headless", "--no-settings", "--join", &direct])
+        .args(["--name", "directclient", "--secs", &format!("{secs}")])
+        .args(["--size", "1280x720"])
+        .output();
+    match client {
+        Ok(o) => {
+            let s = String::from_utf8_lossy(&o.stdout);
+            r.lines.extend(
+                s.lines()
+                    .filter(|l| l.starts_with("ONLINE CHECK"))
+                    .map(|l| format!("P2P direct-code client {l}")),
+            );
+            if !o.status.success() || !s.contains("ONLINE CHECK OK") {
+                r.failures.push(format!(
+                    "client joining by direct code failed ({}): {}",
+                    o.status,
+                    String::from_utf8_lossy(&o.stderr).trim()
+                ));
+            }
+        }
+        Err(e) => r.failures.push(format!("run direct client: {e}")),
+    }
     match bot.and_then(|b| b.wait_with_output()) {
         Ok(b) if b.status.success() => {}
         Ok(b) => r.failures.push(format!(
@@ -558,6 +588,12 @@ pub fn run_p2p_smoke(bin_dir: &Path, out_dir: &Path, secs: f64) -> MatchResult {
         other => r
             .failures
             .push(format!("client did not join through the relay: {other:?}")),
+    }
+    match joined("directclient") {
+        Some(l) if l.contains("127.0.0.1") => r.lines.push(format!("P2P direct code: {l}")),
+        other => r
+            .failures
+            .push(format!("client did not join by direct code: {other:?}")),
     }
     if !relay_out.contains("relay 127.0.0.1") {
         r.failures

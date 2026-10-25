@@ -22,9 +22,11 @@ pub struct HostArgs {
     pub map: Option<String>,
     /// Rendezvous service for a join code (overrides the config file).
     pub rendezvous: Option<String>,
+    /// Ask the router to forward the port (`--upnp`).
+    pub upnp: bool,
 }
 
-pub const USAGE: &str = "[--config server.toml] [--port N] [--bind ADDR] [--map NAME|FILE] [--rendezvous HOST[:PORT]] [--duration-secs N] [--stats-file out.toml]";
+pub const USAGE: &str = "[--config server.toml] [--port N] [--bind ADDR] [--map NAME|FILE] [--rendezvous HOST[:PORT]] [--upnp] [--duration-secs N] [--stats-file out.toml]";
 
 pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<HostArgs, String> {
     let mut a = HostArgs::default();
@@ -37,6 +39,7 @@ pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<HostArgs, St
             "--bind" => a.bind = Some(val()?),
             "--map" => a.map = Some(val()?),
             "--rendezvous" => a.rendezvous = Some(val()?),
+            "--upnp" => a.upnp = true,
             "--stats-file" => a.stats_file = Some(val()?),
             "--duration-secs" => {
                 a.duration = Some(
@@ -83,7 +86,7 @@ pub fn run(args: &HostArgs) -> Result<(), String> {
     let admin = Admin {
         config_path: args.config.clone(),
         console: true,
-        join_code: None,
+        ..Default::default()
     };
     run_config(
         cfg,
@@ -104,6 +107,9 @@ pub struct Admin {
     pub console: bool,
     /// Where to put the join code ("LG-XXXX") once the rendezvous gives one.
     pub join_code: Option<Arc<Mutex<Option<String>>>>,
+    /// Where to put the direct code ("LG-XXXX-XXXX-XXX") once the router has
+    /// opened the port (`server.upnp`).
+    pub direct_code: Option<Arc<Mutex<Option<String>>>>,
 }
 
 /// `host[:port]` → address (default port: the rendezvous port).
@@ -157,7 +163,56 @@ pub fn config_from_args(args: &HostArgs) -> Result<ServerConfig, String> {
     if let Some(r) = &args.rendezvous {
         cfg.server.rendezvous = r.clone();
     }
+    if args.upnp {
+        cfg.server.upnp = true;
+    }
     Ok(cfg)
+}
+
+/// Hold a router port mapping for `port` open until `stop` is set, then remove
+/// it. Runs on its own thread: asking routers takes seconds.
+fn spawn_portmap(
+    port: u16,
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    out: Option<Arc<Mutex<Option<String>>>>,
+) -> Option<std::thread::JoinHandle<()>> {
+    use lgduel_net::portmap;
+    use lgduel_net::rendezvous::format_direct;
+    use std::sync::atomic::Ordering::Relaxed;
+    let Some(IpAddr::V4(lan)) = lan_ip() else {
+        println!("  can't open the port automatically: no IPv4 address on a local network found");
+        return None;
+    };
+    println!("  asking your router to open UDP port {port} (UPnP / NAT-PMP)...");
+    Some(std::thread::spawn(move || {
+        let probe = portmap::Probe::system(lan);
+        let mut mapping = match portmap::open(&probe, lan, port) {
+            Ok(m) => m,
+            Err(e) => {
+                println!("  couldn't open the port automatically: {e}");
+                return;
+            }
+        };
+        let code = format_direct(mapping.external);
+        println!(
+            "DIRECT CODE {code}  ({} opened UDP {} on your router; friends: Play online -> Join code)",
+            mapping.via, mapping.external
+        );
+        if let Some(out) = &out {
+            *out.lock().unwrap() = Some(code);
+        }
+        let mut next = Instant::now() + mapping.renew_after();
+        while !stop.load(Relaxed) {
+            std::thread::sleep(Duration::from_millis(200));
+            if Instant::now() >= next {
+                if let Err(e) = mapping.renew() {
+                    println!("  router port mapping not renewed: {e}");
+                }
+                next = Instant::now() + mapping.renew_after();
+            }
+        }
+        mapping.close();
+    }))
 }
 
 /// Run a server with `cfg` until `duration` elapses or `stop` is set.
@@ -218,12 +273,29 @@ pub fn run_config(
             println!("  players on your network: lgduel --connect {ip}:{port}");
         }
         println!(
-            "  over the internet: forward UDP port {port} on your router and share your public IP (see PLAY.md)"
+            "  over the internet: {} (see PLAY.md)",
+            if cfg.server.upnp {
+                format!("see the DIRECT CODE below, or forward UDP port {port} yourself")
+            } else {
+                format!(
+                    "forward UDP port {port} on your router and share your public IP, or run with --upnp"
+                )
+            }
         );
     }
     if !cfg.server.rcon_password.is_empty() {
         println!("  remote console on (rcon_password set): lgduel-server rcon ADDRESS COMMAND");
     }
+    let portmap_stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let portmap = (cfg.server.upnp && !local.ip().is_loopback())
+        .then(|| {
+            spawn_portmap(
+                local.port(),
+                portmap_stop.clone(),
+                admin.direct_code.clone(),
+            )
+        })
+        .flatten();
     let transport = match rendezvous {
         Some(r) => {
             println!("  join code: registering with {r}...");
@@ -284,6 +356,10 @@ pub fn run_config(
         logged = server.log.len();
         let stopping = stop.load(std::sync::atomic::Ordering::Relaxed);
         if stopping || duration.is_some_and(|d| (now - start).as_secs_f64() >= d) {
+            portmap_stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            if let Some(t) = portmap {
+                let _ = t.join();
+            }
             println!(
                 "shutting down after {:.1} s, {} ticks, {} clients",
                 (now - start).as_secs_f64(),
@@ -316,9 +392,11 @@ mod tests {
     fn parses_host_args() {
         assert_eq!(parse_args(args("")).unwrap(), HostArgs::default());
         let a = parse_args(args(
-            "--port 1234 --bind 127.0.0.1 --duration-secs 2.5 --config c.toml --stats-file s.toml --map arena_tiers",
+            "--port 1234 --bind 127.0.0.1 --duration-secs 2.5 --config c.toml --stats-file s.toml --map arena_tiers --upnp",
         ))
         .unwrap();
+        assert!(a.upnp);
+        assert!(!parse_args(args("--port 1")).unwrap().upnp);
         assert_eq!(a.map.as_deref(), Some("arena_tiers"));
         assert_eq!(a.port, Some(1234));
         assert_eq!(a.bind.as_deref(), Some("127.0.0.1"));

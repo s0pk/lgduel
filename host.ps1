@@ -44,10 +44,12 @@ Write-Host "   This PC:        127.0.0.1:$port"
 Write-Host "   Same network:   ${lan}:$port"
 Write-Host "   Internet:       ${pub}:$port"
 Write-Host ""
-Write-Host " For internet players: allow the Windows Firewall prompt (UDP) and forward UDP $port on your"
-Write-Host " router (nothing uses TCP). On a VPS also open it in the provider's firewall panel."
+Write-Host " Allow the Windows Firewall prompt (UDP). At home the server asks your router to open the"
+Write-Host " port by itself (UPnP / NAT-PMP); if that works it prints a DIRECT CODE below: friends paste"
+Write-Host " it under Play online -> Join code. If your router says no, forward UDP $port there yourself"
+Write-Host " (nothing uses TCP). On a VPS also open it in the provider's firewall panel."
 Write-Host " Type 'help' here for server commands (status, kick, say, set ...). Ctrl+C stops the server."
 Write-Host "======================================================="
 Write-Host ""
-& $exe @args
+& $exe --upnp @args
 exit $LASTEXITCODE

@@ -764,8 +764,13 @@ fn join_session(
     force_relay: bool,
     world: World,
 ) -> Result<NetSession, String> {
-    let c = lgduel_net::rendezvous::parse_code(code)
-        .ok_or(format!("{code:?} is not a join code (like LG-7KQ2)"))?;
+    // A direct code carries the host's address: no rendezvous service involved.
+    if let Some(addr) = lgduel_net::rendezvous::parse_direct(code) {
+        return NetSession::connect(addr.into(), &s.name, world).map_err(|e| e.to_string());
+    }
+    let c = lgduel_net::rendezvous::parse_code(code).ok_or(format!(
+        "{code:?} is not a join code (like LG-7KQ2 or LG-4F7K-Q29M-XTR)"
+    ))?;
     let rdv = rendezvous_of(s).ok_or("no rendezvous service set (Play online → \"via\")")?;
     let addr = lgduel_server::host::resolve_rendezvous(&rdv)?;
     NetSession::connect_code(addr, c, force_relay, &s.name, world).map_err(|e| e.to_string())
@@ -1297,6 +1302,8 @@ struct HostHandle {
     thread: Option<std::thread::JoinHandle<()>>,
     /// "LG-XXXX" once the rendezvous service has given one.
     join_code: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    /// "LG-XXXX-XXXX-XXX" once the router has opened the port.
+    direct_code: std::sync::Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl HostHandle {
@@ -1311,6 +1318,7 @@ impl HostHandle {
         {
             cfg.server.rendezvous = r;
         }
+        cfg.server.upnp = h.upnp;
         cfg.server.name = h.name.clone();
         cfg.server.port = h.port;
         cfg.server.map = h.map.clone();
@@ -1330,9 +1338,12 @@ impl HostHandle {
         let flag = stop.clone();
         let join_code = std::sync::Arc::new(std::sync::Mutex::new(None));
         let code_out = join_code.clone();
+        let direct_code = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let direct_out = direct_code.clone();
         let thread = std::thread::spawn(move || {
             let admin = lgduel_server::host::Admin {
                 join_code: Some(code_out),
+                direct_code: Some(direct_out),
                 ..Default::default()
             };
             let _ = lgduel_server::host::run_config(cfg, None, None, &flag, admin, |r| {
@@ -1345,6 +1356,7 @@ impl HostHandle {
                     stop,
                     thread: Some(thread),
                     join_code,
+                    direct_code,
                 },
                 addr,
             )),
@@ -2666,19 +2678,27 @@ impl ApplicationHandler for App {
                                 Some(Session::Net(n)) => n.join_progress(),
                                 _ => None,
                             };
-                            if let Some(h) = &self.host
-                                && let Some(code) = h.join_code.lock().unwrap().clone()
-                                && !self
-                                    .menu
-                                    .hosting_info
-                                    .as_ref()
-                                    .is_some_and(|i| i.contains(&code))
-                            {
-                                println!("HOST join code {code}");
-                                self.menu.hosting_info = Some(format!(
-                                    "{} | join code {code}",
-                                    self.menu.hosting_info.clone().unwrap_or_default()
-                                ));
+                            if let Some(h) = &self.host {
+                                for (label, slot) in
+                                    [("join code", &h.join_code), ("direct code", &h.direct_code)]
+                                {
+                                    let Some(code) = slot.lock().unwrap().clone() else {
+                                        continue;
+                                    };
+                                    if self
+                                        .menu
+                                        .hosting_info
+                                        .as_ref()
+                                        .is_some_and(|i| i.contains(&code))
+                                    {
+                                        continue;
+                                    }
+                                    println!("HOST {label} {code}");
+                                    self.menu.hosting_info = Some(format!(
+                                        "{} | {label} {code}",
+                                        self.menu.hosting_info.clone().unwrap_or_default()
+                                    ));
+                                }
                             }
                             self.menu.spectating = match &self.session {
                                 Some(Session::Net(n)) => Some(n.spectating()),

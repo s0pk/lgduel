@@ -49,11 +49,13 @@ cat <<INFO
    Same network:   ${LAN:-(not found)}:$PORT
    Internet:       ${PUB:-(not found, look up your public IP)}:$PORT
 
- For internet players: open UDP port $PORT (nothing uses TCP) in this machine's
- firewall (e.g. 'sudo ufw allow $PORT/udp') and, at home, forward UDP $PORT on your router.
- On a VPS also open it in the provider's firewall panel.
+ At home the server asks your router to open the port by itself (UPnP / NAT-PMP). If that
+ works it prints a "DIRECT CODE" below: friends paste it under Play online -> Join code, and
+ the address above isn't needed. If your router says no, forward UDP $PORT there yourself.
+ On a VPS: open UDP $PORT (nothing uses TCP) in the firewall (e.g. 'sudo ufw allow $PORT/udp')
+ and in the provider's panel.
  Type 'help' here for server commands (status, kick, say, set ...). Ctrl+C stops the server.
 =======================================================
 
 INFO
-exec "$EXE" "$@"
+exec "$EXE" --upnp "$@"

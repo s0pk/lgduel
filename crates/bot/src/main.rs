@@ -54,6 +54,10 @@ fn run() -> Result<(), String> {
     }
     let udp = UdpTransport::bind("0.0.0.0:0".parse().unwrap()).map_err(|e| e.to_string())?;
     let (addr, transport) = match (server, join) {
+        (_, Some(code)) if lgduel_net::rendezvous::parse_direct(&code).is_some() => {
+            let a = lgduel_net::rendezvous::parse_direct(&code).unwrap();
+            (a.into(), RelayTransport::plain(udp))
+        }
         (_, Some(code)) => {
             let c = parse_code(&code).ok_or(format!("{code:?} is not a join code"))?;
             let rdv = rendezvous.ok_or("--join needs --rendezvous HOST[:PORT]")?;

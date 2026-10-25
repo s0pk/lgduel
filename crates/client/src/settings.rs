@@ -150,6 +150,8 @@ pub struct HostSettings {
     pub map: String,
     /// Register with the rendezvous service for a join code.
     pub join_code: bool,
+    /// Ask the router to open the port (UPnP / NAT-PMP) and make a direct code.
+    pub upnp: bool,
 }
 
 impl Default for HostSettings {
@@ -162,6 +164,7 @@ impl Default for HostSettings {
             anti_lag: true,
             map: "arena_flat".into(),
             join_code: true,
+            upnp: true,
         }
     }
 }

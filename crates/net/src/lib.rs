@@ -7,6 +7,7 @@ pub mod conn;
 pub mod demo;
 pub mod hitreg;
 pub mod interp;
+pub mod portmap;
 pub mod predict;
 pub mod protocol;
 pub mod rendezvous;
