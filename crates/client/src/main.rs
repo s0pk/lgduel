@@ -16,8 +16,10 @@ mod console;
 mod demo_play;
 mod effects;
 mod fight;
+mod fighter;
 mod font;
 mod frame_stats;
+mod gait;
 mod gfx;
 mod hud;
 mod icon;
@@ -413,6 +415,8 @@ struct Options {
     record: Option<String>,
     /// Play this demo file.
     play_demo: Option<String>,
+    /// `--model-sheet`: render the enemy model in many poses (with --headless --screenshot).
+    model_sheet: bool,
     /// Skip the main menu and start a practice session.
     practice: bool,
     /// Skip the main menu: host a game with the saved host settings and join it.
@@ -474,6 +478,7 @@ impl Options {
             theme_dir: None,
             record: None,
             play_demo: None,
+            model_sheet: false,
             scoreboard_demo: false,
             menu_online: false,
             summary_demo: false,
@@ -508,8 +513,9 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
             "--theme" => o.s.video.theme = val("--theme")?,
             "--enemy-model" => {
                 let v = val("--enemy-model")?;
-                o.s.models.enemy = models::ModelKind::parse(&v)
-                    .ok_or(format!("--enemy-model must be classic|humanoid, got {v}"))?;
+                o.s.models.enemy = models::ModelKind::parse(&v).ok_or(format!(
+                    "--enemy-model must be classic|humanoid|fighter, got {v}"
+                ))?;
             }
             "--skins" => o.s.models.forced_colors = false,
             "--enemy-distance" => {
@@ -668,6 +674,7 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
             "--force-relay" => o.force_relay = true,
             "--record" => o.record = Some(val("--record")?),
             "--play-demo" => o.play_demo = Some(val("--play-demo")?),
+            "--model-sheet" => o.model_sheet = true,
             "--practice" => o.practice = true,
             "--map" => {
                 let m = val("--map")?;
@@ -838,6 +845,118 @@ fn run_headless_record(opts: &Options) -> Result<(), String> {
     Ok(())
 }
 
+/// Headless `--model-sheet`: the chosen enemy model in many poses, side on: running
+/// (8 stride phases), strafing right, backing up diagonally, then standing / aiming up
+/// and down / jumping / crouching. For judging the animation; also checks it was drawn.
+fn run_model_sheet(opts: &Options) -> Result<(), String> {
+    use gait::Gait;
+    use lgduel_sim::math::Angle;
+    let (w, h) = opts.s.video.size;
+    let off = offscreen::Offscreen::with_samples(w, h, opts.s.video.msaa)?;
+    let style = theme_style(opts);
+    let mut r = Renderer::with_samples(
+        &off.device,
+        offscreen::FORMAT,
+        render::sane_samples(opts.s.video.msaa),
+    );
+    let world = load_world("arena_flat");
+    r.set_world(&off.device, &off.queue, &world, &style);
+    let cfg = GameConfig::default();
+    let colors = opts.s.enemy_colors;
+    let run = |leg_deg: f32, dir: f32, col: usize| Gait {
+        leg_yaw: leg_deg.to_radians(),
+        phase: col as f32 / 8.0,
+        amp: 1.0,
+        dir,
+        ..Gait::default()
+    };
+    // (gait, pitch degrees, ducked) per cell, one row per scenario, near row first.
+    type Cell = (Gait, f64, bool);
+    let rows: Vec<Vec<Cell>> = vec![
+        (0..8).map(|c| (run(0.0, 1.0, c), 0.0, false)).collect(),
+        (0..8).map(|c| (run(-70.0, 1.0, c), 0.0, false)).collect(),
+        (0..8).map(|c| (run(45.0, -1.0, c), 0.0, false)).collect(),
+        {
+            let air = Gait {
+                air: 1.0,
+                amp: 0.6,
+                ..Gait::default()
+            };
+            vec![
+                (Gait::default(), 0.0, false),
+                (Gait::default(), 55.0, false),
+                (Gait::default(), -55.0, false),
+                (air, 0.0, false),
+                (air, -40.0, false),
+                (Gait::default(), 0.0, true),
+                (run(0.0, 1.0, 1), 0.0, true),
+                (run(0.0, 1.0, 5), 0.0, true),
+            ]
+        },
+    ];
+    // One render per row from exactly side on (camera at the models' mid height, far away with a
+    // narrow view = nearly orthographic); the middle band of each is stacked into one picture.
+    let band = (h as usize / rows.len()).max(1);
+    let row_bytes = w as usize * 4;
+    let mut px = vec![0u8; row_bytes * h as usize];
+    for (row, cells) in rows.iter().enumerate() {
+        let mut mesh = Vec::new();
+        for (col, (gait, pitch, ducked)) in cells.iter().enumerate() {
+            let pose = models::ModelPose {
+                origin: Vec3::new((col as f32 - 3.5) * 44.0, 0.0, 24.0),
+                yaw: Angle::ZERO,
+                pitch: Angle::from_degrees(*pitch),
+                ducked: *ducked,
+                gait: *gait,
+            };
+            models::push_model(
+                &mut mesh,
+                opts.s.models.enemy,
+                pose,
+                &cfg.physics,
+                &colors,
+                &opts.s.models,
+            );
+        }
+        let eye = Vec3::new(0.0, -950.0, 28.0);
+        let (pitch, yaw) = look_angles(Vec3::new(0.0, 0.0, 28.0) - eye);
+        let cam = Camera {
+            eye,
+            pitch,
+            yaw,
+            fov: 20.0,
+        };
+        off.render(&mut r, 1, |_| (cam, mesh.clone(), Vec::new()), style.sky());
+        let one = off.read_pixels();
+        let top = (h as usize / 2).saturating_sub(band / 2);
+        for y in 0..band {
+            let (src, dst) = ((top + y) * row_bytes, (row * band + y) * row_bytes);
+            px[dst..dst + row_bytes].copy_from_slice(&one[src..src + row_bytes]);
+        }
+    }
+    if let Some(path) = &opts.screenshot {
+        offscreen::save_png(std::path::Path::new(path), w, h, &px)?;
+        println!("SCREENSHOT {path}");
+    }
+    let total = (w * h) as f64;
+    for (name, c) in [
+        ("head", colors.head),
+        ("upper", colors.upper),
+        ("lower", colors.lower),
+    ] {
+        let srgb = offscreen::linear_to_srgb8(c);
+        let n = (offscreen::color_fraction(&px, srgb, 2) * total).round() as u64;
+        println!("IMAGE model sheet {name} {srgb:?}: {n} px");
+        if opts.s.models.forced_colors && n < 300 {
+            return Err(format!(
+                "model sheet: {name} colour barely visible ({n} px)"
+            ));
+        }
+    }
+    println!("MODEL SHEET OK");
+    Ok(())
+}
+
 /// Headless `--play-demo FILE`: play to the end (local demos are re-simulated
 /// and must reproduce the recorded state hash), then render the last frame.
 fn run_headless_demo(opts: &Options) -> Result<(), String> {
@@ -894,6 +1013,7 @@ fn run_headless_demo(opts: &Options) -> Result<(), String> {
                 firing,
                 &EnemyColors::default(),
                 &opts.s.models,
+                &gait::Animator::default(),
                 &opts.s.effects,
                 i,
             );
@@ -1014,6 +1134,7 @@ fn run_headless(opts: &Options) -> Result<(), String> {
                 true,
                 &colors,
                 &opts.s.models,
+                &gait::Animator::default(),
                 &opts.s.effects,
                 i,
             );
@@ -1573,6 +1694,7 @@ fn run_headless_online(opts: &Options) -> Result<(), String> {
                 fv.spectate.is_some_and(|s| s.firing),
                 &colors,
                 &opts.s.models,
+                &gait::Animator::default(),
                 &opts.s.effects,
                 seed,
             );
@@ -1684,6 +1806,8 @@ struct App {
     sounds_applied: (Option<String>, Option<String>),
 
     numbers: DamageNumbers,
+    /// Leg animation of the other players.
+    animator: gait::Animator,
     fights: fight::FightTracker,
     window: Option<Arc<Window>>,
     gfx: Option<Gfx>,
@@ -2553,13 +2677,19 @@ impl ApplicationHandler for App {
                     }
                 }
                 let now = Instant::now();
+                let mut frame_dt = 0.0;
                 if let Some(last) = self.last_frame {
                     self.stats.record(now - last);
                     self.simulate(now - last);
+                    frame_dt = (now - last).as_secs_f32();
                 }
                 self.last_frame = Some(now);
                 self.refresh_style();
                 let fv = self.session.as_ref().and_then(Session::frame_view);
+                match &fv {
+                    Some(f) => self.animator.update(&f.others, frame_dt),
+                    None => self.animator = gait::Animator::default(),
+                }
                 let (world, cfg) = match &self.session {
                     Some(s) => s.world_cfg(),
                     None => (&self.world, None),
@@ -2603,6 +2733,7 @@ impl ApplicationHandler for App {
                         fv.spectate.map_or(self.keys.fire, |s| s.firing),
                         &self.opts.s.enemy_colors,
                         &self.opts.s.models,
+                        &self.animator,
                         &self.opts.s.effects,
                         self.frames as u32,
                     ),
@@ -2918,6 +3049,13 @@ fn main() {
     if let Some(which) = opts.import_kovaaks_theme.clone() {
         std::process::exit(import_kovaaks_theme_cli(&opts, &which));
     }
+    if opts.headless && opts.model_sheet {
+        if let Err(e) = run_model_sheet(&opts) {
+            eprintln!("lgduel: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
     if opts.headless && opts.play_demo.is_some() {
         if let Err(e) = run_headless_demo(&opts) {
             eprintln!("lgduel: {e}");
@@ -3029,6 +3167,7 @@ fn main() {
         ),
 
         numbers: DamageNumbers::default(),
+        animator: gait::Animator::default(),
         fights: fight::FightTracker::default(),
         opts,
         window: None,

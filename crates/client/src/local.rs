@@ -170,6 +170,8 @@ impl LocalSession {
                     ducked: p.pm.ducked,
                     alive: p.alive,
                     buttons: p.buttons,
+                    velocity: p.pm.velocity,
+                    on_ground: p.pm.on_ground(),
                 })
                 .collect(),
             hud: crate::hud::HudInfo {

@@ -258,6 +258,8 @@ impl NetReplay {
                 ducked: p.pm.ducked,
                 alive: p.alive,
                 buttons: p.buttons,
+                velocity: p.pm.velocity,
+                on_ground: p.pm.on_ground(),
             })
             .collect();
         let rate = self.cfg.tick_rate_hz as f32;

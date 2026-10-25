@@ -14,7 +14,7 @@ Nothing is ever sent to the game server. Other players don't see your look onlin
 **Settings → Share**:
 - *Make code* shows your code; *Copy* puts it on the clipboard. Tick *Include controls* to add mouse sensitivity, FOV and volume.
 - Paste someone's code into the lower box, press *Preview* to see exactly what it would change, then *Apply*.
-- *Presets* applies a built-in look: `classic` (reset), `high-visibility`, `colour-blind-safe`, `minimal`, `showcase`.
+- *Presets* applies a built-in look: `classic` (reset), `high-visibility`, `colour-blind-safe`, `minimal`, `quake` (dark stone and steel, fighter enemies, zigzag beam from the bottom middle), `showcase`.
 
 Console (`` ` ``): `exportprofile [controls]`, `importprofile CODE`, `presets`, `preset NAME`. Command line: `lgduel --import-profile CODE`.
 

@@ -418,3 +418,7 @@
 ## 2026-10-25 — "quake" theme + procedural textures
 - `proc_tex.rs` (4 textures), `theme.rs` (`quake` built-in, `procedural()` names), anisotropic sampler, check.sh renders `--theme quake` on all 3 maps, THEMES.md.
 - Verified: texture tests (deterministic, dark, low saturation, detailed, tileable), theme tests, screenshots inspected on arena_tiers / arena_pillars (bricks, plates, tread ramps; yellow/green/cyan enemy stays obvious), check.sh GREEN (123 s; first run caught clippy `approx_constant`, fixed).
+
+## 2026-10-25 — Fighter model + direction-aware leg animation
+- `gait.rs`, `fighter.rs`, `OtherView.velocity/on_ground` (+ `RemoteView`), `ModelKind::Fighter`, `scene_mesh(.., &Animator, ..)`, App `animator`, `--model-sheet`, preset `quake`, menu entry, docs.
+- Verified: gait tests (stop straightens, legs turn 45/70°, back-run legs forward + reversed phase, stride per distance, jump tuck, animator tracks/forgets), fighter tests (100k+ vertices inside the hull, lowest foot on the floor in every ground pose, three forced bands, skins, IK reach/clamp, legs turn but head doesn't), model-sheet screenshots (forced + skins) and in-game fighter screenshots inspected.

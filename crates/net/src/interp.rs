@@ -47,6 +47,9 @@ pub struct RemoteView {
     pub ducked: bool,
     pub alive: bool,
     pub buttons: u8,
+    /// Velocity at this moment (for leg animation; never fed back into anything).
+    pub velocity: Vec3,
+    pub on_ground: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -83,6 +86,8 @@ fn view(p: &Player) -> RemoteView {
         ducked: p.pm.ducked,
         alive: p.alive,
         buttons: p.buttons,
+        velocity: p.pm.velocity,
+        on_ground: p.pm.on_ground(),
     }
 }
 
@@ -158,6 +163,12 @@ impl Interpolator {
                             ducked: if f < 0.5 { a.pm.ducked } else { b.pm.ducked },
                             alive: b.alive,
                             buttons: if f < 0.5 { a.buttons } else { b.buttons },
+                            velocity: a.pm.velocity + (b.pm.velocity - a.pm.velocity) * ff,
+                            on_ground: if f < 0.5 {
+                                a.pm.on_ground()
+                            } else {
+                                b.pm.on_ground()
+                            },
                         })
                     }
                     (_, Some(b)) => Some(view(&b)),

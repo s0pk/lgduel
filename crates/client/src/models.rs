@@ -18,6 +18,8 @@ use serde::{Deserialize, Serialize};
 pub enum ModelKind {
     Classic,
     Humanoid,
+    /// Detailed, with legs that follow the direction of travel (see `fighter`).
+    Fighter,
 }
 
 impl ModelKind {
@@ -25,6 +27,7 @@ impl ModelKind {
         match s {
             "classic" => Some(ModelKind::Classic),
             "humanoid" => Some(ModelKind::Humanoid),
+            "fighter" => Some(ModelKind::Fighter),
             _ => None,
         }
     }
@@ -79,6 +82,8 @@ pub struct ModelPose {
     pub yaw: Angle,
     pub pitch: Angle,
     pub ducked: bool,
+    /// How the legs move (only the fighter uses it).
+    pub gait: crate::gait::Gait,
 }
 
 /// Largest leg swing (radians): keeps the feet inside the hull's footprint.
@@ -109,11 +114,12 @@ pub fn push_model(
             players::push_player(out, pose.origin, pose.yaw, pose.ducked, phys, &colors);
         }
         ModelKind::Humanoid => push_humanoid(out, pose, phys, enemy, m),
+        ModelKind::Fighter => crate::fighter::push_fighter(out, pose, phys, enemy, m),
     }
 }
 
 /// Tilt `(f, u)` about the right axis by `a` (positive = top leans forward).
-fn tilt(f: Vec3, u: Vec3, a: f32) -> (Vec3, Vec3) {
+pub(crate) fn tilt(f: Vec3, u: Vec3, a: f32) -> (Vec3, Vec3) {
     let (s, c) = a.sin_cos();
     (f * c - u * s, u * c + f * s)
 }
@@ -216,6 +222,7 @@ mod tests {
             yaw: Angle::from_degrees(yaw),
             pitch: Angle::from_degrees(pitch),
             ducked,
+            gait: crate::gait::Gait::default(),
         }
     }
 

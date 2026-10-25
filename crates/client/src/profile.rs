@@ -366,6 +366,16 @@ pub fn presets() -> Vec<Preset> {
             entries: entries(&[("effects.sparks", "false"), ("hud.damage_numbers", "false")]),
         },
         Preset {
+            name: "quake",
+            description: "the Quake look: dark stone and steel textures, fighter enemies, zigzag beam from the bottom middle",
+            entries: entries(&[
+                ("video.theme", "\"quake\""),
+                ("models.enemy", "\"fighter\""),
+                ("effects.beam_origin", "\"bottom\""),
+                ("effects.beam_style", "\"zigzag\""),
+            ]),
+        },
+        Preset {
             name: "showcase",
             description: "textured grid theme, humanoid enemies in their own skins, gun model",
             entries: entries(&[
@@ -688,6 +698,20 @@ mod tests {
             .result
             .unwrap();
         assert_eq!(showcase.models.enemy, crate::models::ModelKind::Humanoid);
+        let quake = evaluate(&preset_profile("quake").unwrap(), &s, &[], false)
+            .result
+            .unwrap();
+        assert_eq!(quake.video.theme, "quake");
+        assert_eq!(quake.models.enemy, crate::models::ModelKind::Fighter);
+        assert_eq!(
+            quake.effects.beam_origin,
+            crate::effects::BeamOrigin::Bottom
+        );
+        assert!(
+            quake.models.forced_colors,
+            "the enemy colours stay forced (visibility)"
+        );
+        assert_eq!(quake.mouse.cm_per_360, 25.0, "controls untouched");
         let back = evaluate(&preset_profile("classic").unwrap(), &showcase, &[], false)
             .result
             .unwrap();

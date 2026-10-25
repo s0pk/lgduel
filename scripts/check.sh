@@ -81,6 +81,12 @@ msaa_colors=$(echo "$msaa_out" | sed -n 's/.*distinct colours \([0-9]*\),.*/\1/p
 # Humanoid enemy model (forced colours), and the same model in its own skin colours.
 "$T/$PROFILE/lgduel" --headless --frames 3 --enemy-model humanoid --size 1280x720 --screenshot artifacts/model_humanoid.png | grep -E "CHECK"
 "$T/$PROFILE/lgduel" --headless --frames 3 --enemy-model humanoid --skins --enemy-distance 110 --size 1280x720 --screenshot artifacts/model_skin.png | grep -E "CHECK"
+# Fighter model (articulated legs, torso twist, two-handed gun): in the game, in skins, and as an animation sheet
+# (running / strafing / backing up / jumping / crouching) whose three forced colours must all be drawn.
+"$T/$PROFILE/lgduel" --headless --frames 3 --enemy-model fighter --theme quake --map arena_pillars --enemy-distance 140 --size 1280x720 --screenshot artifacts/model_fighter.png | grep -E "CHECK"
+"$T/$PROFILE/lgduel" --headless --frames 3 --enemy-model fighter --skins --enemy-distance 110 --size 1280x720 --screenshot artifacts/model_fighter_skin.png | grep -E "CHECK"
+"$T/$PROFILE/lgduel" --headless --model-sheet --enemy-model fighter --size 1600x1200 --screenshot artifacts/model_sheet_fighter.png | grep -E "MODEL SHEET"
+"$T/$PROFILE/lgduel" --headless --model-sheet --enemy-model fighter --skins --size 1600x1200 --screenshot artifacts/model_sheet_fighter_skin.png | grep -E "MODEL SHEET"
 # Environment report (also what a bug report should include).
 "$T/$PROFILE/lgduel" --doctor | grep -E "^(adapter|audio|session):"
 # Scaling: menu at 1.5x, and HUD text scaled with a 1080p window.

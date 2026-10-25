@@ -247,6 +247,8 @@ impl NetSession {
                     ducked: v.ducked,
                     alive: v.alive,
                     buttons: v.buttons,
+                    velocity: v.velocity,
+                    on_ground: v.on_ground,
                 });
             }
         }

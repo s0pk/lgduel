@@ -2,6 +2,7 @@
 //! network): the local player's eye, remote players, HUD numbers and events.
 
 use crate::effects::{self, EffectSettings};
+use crate::gait::Animator;
 use crate::hud::{self, DamageNumbers, HudInfo, HudSettings};
 use crate::models::{self, ModelPose, ModelSettings};
 use crate::players::EnemyColors;
@@ -21,6 +22,9 @@ pub struct OtherView {
     pub ducked: bool,
     pub alive: bool,
     pub buttons: u8,
+    /// Movement, for the legs of the model (see `gait`).
+    pub velocity: Vec3,
+    pub on_ground: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -153,6 +157,8 @@ fn push_lg(
             ducked: false,
             alive: true,
             buttons: 0,
+            velocity: Vec3::ZERO,
+            on_ground: true,
         };
         targets.push((fv.me, FrameView::hitbox(&me, cfg)));
     }
@@ -176,6 +182,7 @@ pub fn scene_mesh(
     firing: bool,
     colors: &EnemyColors,
     models: &ModelSettings,
+    anim: &Animator,
     fx: &EffectSettings,
     seed: u32,
 ) -> Vec<Vertex> {
@@ -186,6 +193,7 @@ pub fn scene_mesh(
             yaw: o.yaw,
             pitch: o.pitch,
             ducked: o.ducked,
+            gait: anim.gait(o.id),
         };
         models::push_model(&mut v, models.enemy, pose, &cfg.physics, colors, models);
         if o.buttons & buttons::FIRE != 0 {
@@ -305,6 +313,8 @@ mod tests {
                 ducked: false,
                 alive: true,
                 buttons: buttons::FIRE,
+                velocity: Vec3::ZERO,
+                on_ground: true,
             }],
             hud: HudInfo::default(),
             events: vec![],
@@ -365,6 +375,7 @@ mod tests {
                 true,
                 &colors,
                 &ModelSettings::default(),
+                &Animator::default(),
                 &fx,
                 1,
             );
@@ -376,6 +387,7 @@ mod tests {
                 true,
                 &colors,
                 &ModelSettings::default(),
+                &Animator::default(),
                 &fx,
                 1,
             );
@@ -406,6 +418,7 @@ mod tests {
                 false,
                 &EnemyColors::default(),
                 &ModelSettings::default(),
+                &Animator::default(),
                 &fx,
                 1,
             )
@@ -427,6 +440,7 @@ mod tests {
             false,
             &EnemyColors::default(),
             &ModelSettings::default(),
+            &Animator::default(),
             &fx_none,
             1,
         )
@@ -443,6 +457,7 @@ mod tests {
             false,
             &EnemyColors::default(),
             &ModelSettings::default(),
+            &Animator::default(),
             &fx,
             1,
         );

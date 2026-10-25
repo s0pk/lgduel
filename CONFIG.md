@@ -56,7 +56,7 @@ for one run.
 | `[hud.crosshair]` | `shape` "cross" / "dot" / "circle" / "tshape", `size` 8, `gap` 4, `thickness` 2, `dot` true, `color`, `outline` false, `outline_color`, `hit_color` (shown for 0.15 s after your beam hits; same as `color` = no change) |
 | `[enemy_colors]` | `head` yellow, `upper` green, `lower` cyan (solid, unshaded; used while `models.forced_colors` is on) |
 | `[ui]` | `accent` colour of the menus (default blue) |
-| `[models]` | `enemy` "classic" / "humanoid", `forced_colors` true (off = show the skin), `skin` (`head`, `torso`, `arms`, `legs` colours) |
+| `[models]` | `enemy` "classic" / "humanoid" / "fighter", `forced_colors` true (off = show the skin), `skin` (`head`, `torso`, `arms`, `legs` colours) |
 | `[audio]` | `volume` 0.7, `hit_volume` 1.0, `hit_pitch_by_damage` false, `kill_sound` false, `ui_sounds` false, `hit_sound` / `kill_sound_file` (unset = synthesised; a file name in `sounds/` next to the settings, see [KOVAAKS.md](KOVAAKS.md); console `hitsound`; never part of a share code) |
 | `[kovaaks]` | `path` "" (your KovaaK's folder; empty = find it through Steam, see [KOVAAKS.md](KOVAAKS.md)) |
 | `[practice]` | `bot` true, `pattern` "still"/"ad"/"mirror"/"anti"/"hsw"/"hswanti", `skill` "easy"/"medium"/"hard"/"aimbot", `map` |

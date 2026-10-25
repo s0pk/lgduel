@@ -16,7 +16,7 @@ const HELP: &str = "console commands:
   reloadtheme           re-read the current theme folder (after editing it)
   exporttheme NAME      write the theme folder NAME as one .lgtheme file (themepacks/ next to settings)
   importtheme FILE [as NAME]   install a .lgtheme file (or drag it onto the window)
-  presets | preset NAME  built-in looks (classic, high-visibility, colour-blind-safe, minimal, showcase)
+  presets | preset NAME  built-in looks (classic, high-visibility, colour-blind-safe, minimal, quake, showcase)
   exportprofile [controls]   print a share code for your look (controls = also mouse/FOV/volume)
   importprofile CODE    apply a share code (see what it changes first with Settings -> Share)
   kovaaks | kovaaks themes | kovaaks import NAME|current|all | kovaaks sounds   use your KovaaK's themes and sounds

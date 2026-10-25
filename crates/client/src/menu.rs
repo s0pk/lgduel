@@ -946,6 +946,7 @@ fn visuals_tab(ui: &mut egui::Ui, s: &mut Settings, themes: &[String]) {
         for (k, name) in [
             (ModelKind::Classic, "Classic"),
             (ModelKind::Humanoid, "Humanoid"),
+            (ModelKind::Fighter, "Fighter"),
         ] {
             ui.selectable_value(&mut s.models.enemy, k, name);
         }
