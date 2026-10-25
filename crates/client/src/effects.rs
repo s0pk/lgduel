@@ -29,6 +29,26 @@ impl BeamStyle {
     }
 }
 
+/// Where your own beam starts on the screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BeamOrigin {
+    /// Lower right, where a held gun would be (the original look).
+    Right,
+    /// Middle of the bottom edge of the screen.
+    Bottom,
+}
+
+impl BeamOrigin {
+    pub fn parse(s: &str) -> Option<BeamOrigin> {
+        Some(match s {
+            "right" => BeamOrigin::Right,
+            "bottom" => BeamOrigin::Bottom,
+            _ => return None,
+        })
+    }
+}
+
 /// First-person gun model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -46,6 +66,8 @@ pub struct EffectSettings {
     pub gun: GunModel,
     pub beam_style: BeamStyle,
     pub beam_color: [f32; 3],
+    /// Where your own beam starts on the screen.
+    pub beam_origin: BeamOrigin,
     /// Impact sparks on/off.
     pub sparks: bool,
     /// Spark half-size in world units.
@@ -59,6 +81,7 @@ impl Default for EffectSettings {
             gun: GunModel::None,
             beam_style: BeamStyle::Thin,
             beam_color: [0.55, 0.8, 1.0],
+            beam_origin: BeamOrigin::Right,
             sparks: true,
             spark_size: 3.0,
             spark_color: [1.0, 1.0, 1.0],
@@ -68,6 +91,22 @@ impl Default for EffectSettings {
 
 /// Muzzle offset from the eye (forward, right, down) so your own beam is visible.
 pub const MUZZLE: (f32, f32, f32) = (14.0, 6.0, 8.0);
+
+/// Fraction of the way down to the bottom screen edge where the "bottom" beam starts
+/// (just inside, so the start of the beam is on screen).
+const BOTTOM_INSET: f32 = 0.97;
+
+impl EffectSettings {
+    /// Muzzle offset (forward, right, down) of your own beam and gun for this camera.
+    /// "bottom" puts it straight below the crosshair on the bottom edge of the view
+    /// (the vertical field of view doesn't depend on the window's shape).
+    pub fn own_muzzle(&self, fov_y: f32) -> (f32, f32, f32) {
+        match self.beam_origin {
+            BeamOrigin::Right => MUZZLE,
+            BeamOrigin::Bottom => (MUZZLE.0, 0.0, MUZZLE.0 * (fov_y * 0.5).tan() * BOTTOM_INSET),
+        }
+    }
+}
 
 /// Quad from `a` to `b` of `width`, turned to face `eye`.
 pub fn push_segment(
@@ -180,6 +219,48 @@ pub fn push_sparks(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bottom_origin_projects_to_the_bottom_middle_of_every_view() {
+        use crate::render::Camera;
+        use lgduel_sim::math::{Angle, angle_vectors};
+        let right = EffectSettings::default();
+        assert_eq!(
+            right.own_muzzle(1.0),
+            MUZZLE,
+            "the default is the original offset"
+        );
+        let bottom = EffectSettings {
+            beam_origin: BeamOrigin::Bottom,
+            ..right
+        };
+        for fov in [70.0f32, 90.0, 110.0, 130.0] {
+            for (pitch, yaw) in [(0.0, 0.0), (35.0, 120.0), (-60.0, 250.0)] {
+                for aspect in [4.0 / 3.0, 16.0 / 9.0, 21.0 / 9.0] {
+                    let cam = Camera {
+                        eye: Vec3::new(10.0, -20.0, 60.0),
+                        pitch: Angle::from_degrees(pitch),
+                        yaw: Angle::from_degrees(yaw),
+                        fov,
+                    };
+                    let (mf, mr, md) = bottom.own_muzzle(cam.fov_y());
+                    let (f, r, u) = angle_vectors(cam.pitch, cam.yaw);
+                    let p = cam.eye + f * mf + r * mr - u * md;
+                    let clip = cam.view_proj(aspect) * glam::Vec4::new(p.x, p.y, p.z, 1.0);
+                    let (x, y) = (clip.x / clip.w, clip.y / clip.w);
+                    assert!(x.abs() < 1e-3, "x {x} at fov {fov} aspect {aspect}");
+                    assert!(
+                        (y + 0.97).abs() < 1e-3,
+                        "y {y} at fov {fov} aspect {aspect}"
+                    );
+                    assert!(
+                        clip.w > 0.0 && clip.z / clip.w >= 0.0,
+                        "in front of the near plane"
+                    );
+                }
+            }
+        }
+    }
 
     const EYE: Vec3 = Vec3::new(0.0, -100.0, 0.0);
 

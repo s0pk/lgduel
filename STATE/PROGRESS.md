@@ -410,3 +410,7 @@
 ## 2026-10-25 — Direct codes + automatic router port mapping
 - net: `portmap.rs` (UPnP IGD + NAT-PMP, std only, `Probe`/`open`/`Mapping::{renew,close}`), `rendezvous::{format_direct, parse_direct}`. server: `server.upnp`, `--upnp`, `Admin.direct_code`, port-mapping thread in `run_config` ("DIRECT CODE ..." line). client: `host.upnp` + "Open port" row, Esc-menu direct code, Join code field accepts both code kinds (`join_session`). bot `--join` accepts direct codes. tools `p2p-smoke` joins the real client by direct code too. host.sh/host.ps1 pass `--upnp`. Docs: PLAY, HOSTING, CONFIG, README; D66.
 - Verified: unit tests with fake UPnP routers (plain + chunked replies, 725/718 quirks, CGNAT undone, hostile LOCATION ignored, oversized reply refused) and a fake NAT-PMP router; direct-code round trip + single-typo detection; `p2p-smoke` (direct bot, relayed client, direct-code client all OK); real run on this network: reports "UPnP is probably switched off in the router's settings; NAT-PMP: no answer" (accurate: the router ignores both). Not verified: a real router that accepts the mapping.
+
+## 2026-10-25 — Beam origin: bottom middle
+- `effects.beam_origin` (+ menu "Starts at", `--beam-origin`, console cvar), `EffectSettings::own_muzzle`, `offscreen::lowest_match`, check.sh bottom-origin render checks (1280x720 and 1920x1080 zigzag).
+- Verified: projection unit test, screenshots inspected (thick beam fans from the bottom centre to the crosshair), check.sh GREEN (137 s).

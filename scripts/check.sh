@@ -53,6 +53,9 @@ stage "client offscreen render (1920x1080, screenshot + pixel checks)"
 # Visibility toggles: no-beam and sparks-off must draw zero beam / spark pixels; zigzag style renders.
 "$T/$PROFILE/lgduel" --headless --frames 3 --beam none --no-sparks | grep -E "IMAGE (beam|sparks)|CHECK"
 "$T/$PROFILE/lgduel" --headless --frames 3 --beam zigzag --spark-size 6 | grep -E "IMAGE (beam|sparks)|CHECK"
+# Beam from the bottom middle of the screen: the beam must reach the bottom edge at the centre.
+"$T/$PROFILE/lgduel" --headless --frames 3 --beam-origin bottom --beam thick | grep -E "IMAGE beam|CHECK"
+"$T/$PROFILE/lgduel" --headless --frames 3 --beam-origin bottom --beam zigzag --size 1920x1080 | grep -E "IMAGE beam|CHECK"
 # End-of-fight summary panel (sample numbers) over the duel scene.
 "$T/$PROFILE/lgduel" --headless --frames 3 --summary-demo --size 1280x720 --screenshot artifacts/fight_summary.png | grep -E "CHECK"
 # Gun model + input display on (both optional; default off).

@@ -66,7 +66,7 @@ Changes apply immediately and are saved to `%APPDATA%\LGDuel\settings.toml`.
 
 - **Mouse:** sensitivity as cm per 360°, mouse DPI, invert Y.
 - **Video:** field of view, fullscreen, window size, vsync, FPS cap.
-- **Visuals:** beam style (none / thin / thick / zigzag), impact sparks and their size, enemy colours
+- **Visuals:** beam style (none / thin / thick / zigzag), where your beam starts (lower right or bottom middle), impact sparks and their size, enemy colours
   (head / body / legs; default yellow / green / cyan so they stand out), crosshair editor, net-graph,
   input display (W A S D / jump / crouch / fire on screen), gun model (none / small / normal).
   There is never screen shake, view kick or blood.

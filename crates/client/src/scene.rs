@@ -69,14 +69,14 @@ pub fn view_camera(
 }
 
 /// Simple LG model in the lower right of the view: barrel + body, flat shaded.
-fn push_gun(v: &mut Vec<Vertex>, cam: &Camera, gun: effects::GunModel) {
-    let scale = match gun {
+fn push_gun(v: &mut Vec<Vertex>, cam: &Camera, fx: &EffectSettings) {
+    let scale = match fx.gun {
         effects::GunModel::None => return,
         effects::GunModel::Small => 0.45,
         effects::GunModel::Normal => 0.7,
     };
     let (f, r, u) = angle_vectors(cam.pitch, cam.yaw);
-    let (mf, mr, md) = effects::MUZZLE;
+    let (mf, mr, md) = fx.own_muzzle(cam.fov_y());
     let at = |fwd: f32, right: f32, down: f32| cam.eye + f * fwd + r * right - u * down;
     // (centre forward, half length, half width, colour)
     let parts = [
@@ -132,6 +132,7 @@ fn push_lg(
     pitch: Angle,
     yaw: Angle,
     view_eye: Vec3,
+    muzzle_offset: (f32, f32, f32),
     fx: &EffectSettings,
     seed: u32,
 ) {
@@ -157,7 +158,7 @@ fn push_lg(
     }
     let (f, r, u) = angle_vectors(pitch, yaw);
     let hs = hitscan(world, eye, f, cfg.lg.range, &targets);
-    let (mf, mr, md) = effects::MUZZLE;
+    let (mf, mr, md) = muzzle_offset;
     let muzzle = eye + f * mf + r * mr - u * md;
     effects::push_beam(v, muzzle, hs.end, view_eye, fx, seed);
     if (hs.end - eye).length() < cfg.lg.range - 0.5 {
@@ -190,17 +191,39 @@ pub fn scene_mesh(
         if o.buttons & buttons::FIRE != 0 {
             let eye = FrameView::eye_of(o, cfg);
             push_lg(
-                &mut v, fv, world, cfg, o.id, eye, o.pitch, o.yaw, cam.eye, fx, seed,
+                &mut v,
+                fv,
+                world,
+                cfg,
+                o.id,
+                eye,
+                o.pitch,
+                o.yaw,
+                cam.eye,
+                effects::MUZZLE,
+                fx,
+                seed,
             );
         }
     }
     if firing && fv.me_alive {
         push_lg(
-            &mut v, fv, world, cfg, fv.me, cam.eye, cam.pitch, cam.yaw, cam.eye, fx, seed,
+            &mut v,
+            fv,
+            world,
+            cfg,
+            fv.me,
+            cam.eye,
+            cam.pitch,
+            cam.yaw,
+            cam.eye,
+            fx.own_muzzle(cam.fov_y()),
+            fx,
+            seed,
         );
     }
     if fv.me_alive {
-        push_gun(&mut v, cam, fx.gun);
+        push_gun(&mut v, cam, fx);
     }
     v
 }

@@ -924,6 +924,15 @@ fn visuals_tab(ui: &mut egui::Ui, s: &mut Settings, themes: &[String]) {
             });
     });
     color_row(ui, "Colour", &mut s.effects.beam_color);
+    row(ui, "Starts at", |ui| {
+        use crate::effects::BeamOrigin;
+        for (o, name) in [
+            (BeamOrigin::Right, "Lower right"),
+            (BeamOrigin::Bottom, "Bottom middle"),
+        ] {
+            ui.selectable_value(&mut s.effects.beam_origin, o, name);
+        }
+    });
     row(ui, "Impact sparks", |ui| {
         ui.checkbox(&mut s.effects.sparks, "");
         ui.add_enabled(

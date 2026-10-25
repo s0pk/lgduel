@@ -51,7 +51,7 @@ for one run.
 | top level | `name` "player", `rendezvous` "" (join-code service; empty = shipped one) |
 | `[mouse]` | `cm_per_360` 30, `dpi` 800, `invert_pitch` false |
 | `[video]` | `fov` 110 (10–130, 4:3 horizontal), `fullscreen` false, `size` [1280, 720], `vsync` false, `fps_cap` (unset = uncapped; e.g. `fps_cap = 240`), `ui_scale` 1.0 (menu size, 0.75–2.0), `msaa` 1 (anti-aliasing: 1 = off, 2 or 4; applied at start-up, `--msaa 4`), `theme` "classic" (or "grid", or a folder in `themes/`, see [THEMES.md](THEMES.md)) |
-| `[effects]` | `gun` "none" / "small" / "normal", `beam_style` "none" / "thin" / "thick" / "zigzag", `beam_color`, `sparks` true, `spark_size` 3, `spark_color` |
+| `[effects]` | `gun` "none" / "small" / "normal", `beam_style` "none" / "thin" / "thick" / "zigzag", `beam_color`, `beam_origin` "right" / "bottom" (where your own beam starts on screen: lower right, or the middle of the bottom edge), `sparks` true, `spark_size` 3, `spark_color` |
 | `[hud]` | `damage_numbers` true, `damage_color`, `text_color`, `text_scale` 3, `text_shadow` true, `net_graph` true (F3), `net_graph_color`, `input_display` false, `auto_scale` false (HUD text scales with window height) |
 | `[hud.crosshair]` | `shape` "cross" / "dot" / "circle" / "tshape", `size` 8, `gap` 4, `thickness` 2, `dot` true, `color`, `outline` false, `outline_color`, `hit_color` (shown for 0.15 s after your beam hits; same as `color` = no change) |
 | `[enemy_colors]` | `head` yellow, `upper` green, `lower` cyan (solid, unshaded; used while `models.forced_colors` is on) |

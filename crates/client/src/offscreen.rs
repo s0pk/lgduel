@@ -196,6 +196,27 @@ pub fn color_fraction(rgba: &[u8], rgb: [u8; 3], tol: u8) -> f64 {
     hits as f64 / n.max(1) as f64
 }
 
+/// The lowest image row that has a pixel within `tol` of `rgb`, and the mean x of
+/// the matching pixels in that row and the two above it. `None` when there are none.
+pub fn lowest_match(rgba: &[u8], width: usize, rgb: [u8; 3], tol: u8) -> Option<(usize, f64)> {
+    let pixels = rgba.as_chunks::<4>().0;
+    let hit = |p: &[u8; 4]| (0..3).all(|i| p[i].abs_diff(rgb[i]) <= tol);
+    let rows = pixels.len() / width.max(1);
+    let low = (0..rows)
+        .rev()
+        .find(|y| pixels[y * width..(y + 1) * width].iter().any(hit))?;
+    let (mut sum, mut n) = (0.0, 0u32);
+    for y in low.saturating_sub(2)..=low {
+        for (x, p) in pixels[y * width..(y + 1) * width].iter().enumerate() {
+            if hit(p) {
+                sum += x as f64;
+                n += 1;
+            }
+        }
+    }
+    Some((low, sum / n.max(1) as f64))
+}
+
 /// Number of distinct colours (cheap "is it blank?" check).
 pub fn distinct_colors(rgba: &[u8]) -> usize {
     let mut v: Vec<u32> = rgba

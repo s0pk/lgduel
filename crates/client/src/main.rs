@@ -603,6 +603,11 @@ fn parse_args(args: impl IntoIterator<Item = String>, base: Options) -> Result<O
                 o.s.effects.beam_style = BeamStyle::parse(&v)
                     .ok_or(format!("--beam must be none|thin|thick|zigzag, got {v}"))?
             }
+            "--beam-origin" => {
+                let v = val("--beam-origin")?;
+                o.s.effects.beam_origin = effects::BeamOrigin::parse(&v)
+                    .ok_or(format!("--beam-origin must be right|bottom, got {v}"))?
+            }
             "--gun" => {
                 o.s.effects.gun = match val("--gun")?.as_str() {
                     "none" => effects::GunModel::None,
@@ -1224,6 +1229,22 @@ fn run_headless(opts: &Options) -> Result<(), String> {
         println!("IMAGE sparks (off) {srgb:?}: {px_count} px");
         if px_count > 0 {
             return Err(format!("sparks off still drew {px_count} spark pixels"));
+        }
+    }
+    if fx.beam_origin == effects::BeamOrigin::Bottom && fx.beam_style != BeamStyle::None {
+        // The beam must leave the middle of the bottom edge of the screen.
+        let srgb = offscreen::linear_to_srgb8(fx.beam_color);
+        let Some((row, x)) = offscreen::lowest_match(&px, w as usize, srgb, 2) else {
+            return Err("bottom beam origin: no beam pixels".into());
+        };
+        println!(
+            "IMAGE beam foot: row {row} of {h}, x {x:.0} of {w} (centre {})",
+            w / 2
+        );
+        if (row as f64) < h as f64 * 0.93 || (x - w as f64 / 2.0).abs() > w as f64 * 0.04 {
+            return Err(format!(
+                "beam doesn't start at the bottom middle (row {row}/{h}, x {x:.0}/{w})"
+            ));
         }
     }
     for (name, c, min_px) in fx_checks {
