@@ -5,7 +5,7 @@ players' side. One small Linux VPS runs up to 8 separate duels at once (16 playe
 
 ## What you need
 
-- A Linux VPS with a public IPv4 address, x86-64, Debian 12 or Ubuntu 22.04/24.04.
+- A Linux VPS with a public IPv4 address, x86-64, Debian 12, Ubuntu 22.04/24.04 or AlmaLinux/Rocky 9.
   The smallest plan is plenty (1 vCPU, 512 MB–1 GB RAM). Pick a location close to your players:
   ping matters more than anything else in an LG duel.
 - Traffic: about 16 KB/s per connected player each way, so a full server is about 2 Mbit/s.
@@ -17,18 +17,18 @@ Most providers have a firewall / security group in their web panel. Allow **inbo
 
 ## 2. Install (clone + one command)
 
-SSH into the VPS and run:
+SSH into the VPS and run (on AlmaLinux/Rocky a minimal install has no git: `sudo dnf install -y git` first):
 
 ```bash
 git clone https://github.com/s0pk/lgduel.git && cd lgduel && sudo ./deploy/install.sh
 ```
 
-It installs a C compiler and Rust if they are missing, builds the server from source (about 2-5 minutes the
+It installs a C compiler (apt or dnf) and Rust if they are missing, builds the server from source (about 2-5 minutes the
 first time; give the VPS 1 GB of RAM), installs it to `/opt/lgduel`, creates a `lgduel` system user, writes
 `/etc/lgduel/server.toml` (only if it doesn't exist yet) and starts two systemd services: `lgduel-server`
 (the game, UDP 27960) and `lgduel-relay` (join codes and the public server list, UDP 27950). Both restart on
 crashes and on reboot. On the first install the server is set to list itself publicly through that relay.
-If `ufw` is active, the script also allows both ports there; the provider's firewall (step 1) is separate.
+If `ufw` or `firewalld` is active, the script also allows both ports there; the provider's firewall (step 1) is separate.
 At the end it prints the address players use.
 
 Optional, first install only: `LGDUEL_REGION=OC LGDUEL_NAME="Sydney Duels" sudo -E ./deploy/install.sh`

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install or update the LGDuel server on a Linux VPS (Debian/Ubuntu, x86-64) as systemd
+# Install or update the LGDuel server on a Linux VPS (Debian/Ubuntu/AlmaLinux/Rocky, x86-64) as systemd
 # services: the game (UDP 27960) and the join-code relay + public server list (UDP 27950).
 #
 # From a clone of the repository (builds the server from source, ~2-5 minutes the first time):
@@ -29,13 +29,20 @@ if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "$(dirname "${BASH_SOURCE[0]}")/../crate
 fi
 
 build_from_source() {
-    # A C linker and curl are needed; fetch them on Debian/Ubuntu if missing.
-    if { ! command -v cc >/dev/null || ! command -v curl >/dev/null; } && command -v apt-get >/dev/null; then
-        echo "installing build tools (apt)"
-        apt-get update -qq
-        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential curl ca-certificates git
+    # A C linker and curl are needed; fetch them if missing (Debian/Ubuntu: apt, AlmaLinux/Rocky/Fedora: dnf).
+    if ! command -v cc >/dev/null || ! command -v curl >/dev/null; then
+        if command -v apt-get >/dev/null; then
+            echo "installing build tools (apt)"
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential curl ca-certificates git
+        elif command -v dnf >/dev/null; then
+            echo "installing build tools (dnf)"
+            command -v cc >/dev/null || dnf install -y -q gcc
+            # --allowerasing: Alma/Rocky ship curl-minimal, which conflicts with the full curl package.
+            command -v curl >/dev/null || dnf install -y -q --allowerasing curl
+        fi
     fi
-    command -v cc >/dev/null || { echo "need a C compiler (e.g. apt install build-essential)"; exit 1; }
+    command -v cc >/dev/null || { echo "need a C compiler (apt install build-essential, or dnf install gcc)"; exit 1; }
     for d in "$HOME/.cargo/bin" "${SUDO_USER:+$(getent passwd "$SUDO_USER" | cut -d: -f6)/.cargo/bin}"; do
         [ -n "$d" ] && [ -x "$d/cargo" ] && PATH="$d:$PATH"
     done
@@ -95,10 +102,15 @@ systemctl daemon-reload
 systemctl enable --now lgduel-server lgduel-relay
 systemctl restart lgduel-server lgduel-relay
 
-# Open the game port if ufw is active (the provider's firewall is separate: see DEPLOY.md).
+# Open the ports in this machine's firewall: ufw (Debian/Ubuntu) or firewalld (AlmaLinux/Rocky/Fedora).
+# The provider's firewall panel is separate: see DEPLOY.md.
 if command -v ufw >/dev/null && ufw status | grep -q "Status: active"; then
     ufw allow 27960/udp
     ufw allow 27950/udp
+fi
+if command -v firewall-cmd >/dev/null && systemctl is-active --quiet firewalld; then
+    firewall-cmd --permanent --add-port=27960/udp --add-port=27950/udp
+    firewall-cmd --reload
 fi
 sleep 1
 systemctl --no-pager --lines=5 status lgduel-server lgduel-relay || true
